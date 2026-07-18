@@ -15,8 +15,8 @@ This repository contains all course materials for the **Advanced Topics in Compu
 - DL-09: Agentic AI III
 - DL-10: Multi-Agentic AI I
 - DL-11: Multi-Agentic AI II
-- DL-12: Agentic AI Project I
-- DL-13: Agentic AI Project II
+- DL-12: Agentic AI-Project I
+- DL-13: Agentic AI-Project II
 
 ## Repository Includes
 
