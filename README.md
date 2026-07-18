@@ -22,7 +22,6 @@ This repository contains all course materials for the **Advanced Topics in Compu
 
 - 💻 Laboratory Exercises
 - 🐍 Python Source Code
-- 📓 Jupyter Notebooks
 - 📝 Assignments
 - 🚀 Course Projects
 - 📚 Additional Learning Resources
