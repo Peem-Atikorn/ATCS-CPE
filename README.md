@@ -19,10 +19,6 @@ The course follows the official course description and extends it with modern AI
 - DL-07: Agentic AI I
 - DL-08: Agentic AI II
 - DL-09: Agentic AI III
-- DL-10: Multi-Agentic AI I
-- DL-11: Multi-Agentic AI II
-- DL-12: Agentic AI-Project I
-- DL-13: Agentic AI-Project II
 
 ## Repository Includes
 
