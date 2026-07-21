@@ -3,7 +3,7 @@
 Build a simple RAG retrieval pipeline from scratch using Python, including PDF loading, chunking, embeddings, a vector database, and semantic document search.
 
 ----
-## RAG Workflow
+# RAG Workflow
 
 ### Step 1 – Load PDF Documents
 - Load one or more PDF files.
