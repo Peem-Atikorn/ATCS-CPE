@@ -3,8 +3,6 @@
 
 
 """
-lab03_create_embeddings.py
-----------------------------
 Lab 3: Convert each chunk (outputs/chunks.json) into embeddings
 using the sentence-transformers model that supports Thai language
 Save the results to outputs/embeddings.npy
