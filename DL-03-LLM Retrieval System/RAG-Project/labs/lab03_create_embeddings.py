@@ -1,6 +1,6 @@
 
 
- 
+  
 
 """
 Lab 3: Convert each chunk (outputs/chunks.json) into embeddings
