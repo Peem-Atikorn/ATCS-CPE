@@ -1,5 +1,7 @@
 ## DL-03-LLM Retrieval System
 
+```text
+
 RAG-Project/
 │
 ├── data/                                   # เก็บเอกสารต้นฉบับ
@@ -38,3 +40,4 @@ RAG-Project/
 ├── requirements.txt                        # รายชื่อ Python Libraries ที่ต้องติดตั้ง
 └── main.py                                 # โปรแกรมหลักสำหรับถามและค้นหาเอกสาร
 
+```
