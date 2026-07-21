@@ -1,4 +1,4 @@
-## DL-03-LLM Retrieval System
+# DL-03-Retrieval-Augmented Generation (RAG) 
 
 Hands-on RAG project with PDF extraction, chunking, embeddings, FAISS vector database, and semantic search.
 
