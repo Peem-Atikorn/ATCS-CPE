@@ -1,6 +1,6 @@
 # DL-03-Retrieval-Augmented Generation (RAG) 
 
-Hands-on RAG project with PDF extraction, chunking, embeddings, FAISS vector database, and semantic search.
+Build a simple RAG retrieval pipeline from scratch using Python, including PDF loading, chunking, embeddings, a vector database, and semantic document search.
 
 ----
 ```text
