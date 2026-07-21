@@ -5,37 +5,9 @@ Build a simple RAG retrieval pipeline from scratch using Python, including PDF l
 ----
 # RAG Workflow
 
-### Step 1 – Load PDF Documents
-- Load one or more PDF files.
-- Read the text from each page.
-- Keep the document name and page number.
+```text
 
-### Step 2 – Split Text
-- Split the text into smaller parts (chunks).
-- Add overlap between chunks if needed.
-- Save information about each chunk.
-
-### Step 3 – Create Embeddings
-- Convert each text chunk into a vector.
-- Save the vectors for searching.
-
-### Step 4 – Build the Vector Database
-- Create a FAISS vector database.
-- Store vectors, text chunks, and document information.
-
-### Step 5 – Ask a Question
-- Enter a question.
-- Convert the question into a vector.
-
-### Step 6 – Search Documents
-- Compare the question vector with the document vectors.
-- Find the Top-k most relevant text chunks.
-
-### Step 7 – Show Results
-- Display the retrieved text chunks.
-- Show the similarity score.
-- Show the document name and page number.
-
+```
 
 # Structure
 
