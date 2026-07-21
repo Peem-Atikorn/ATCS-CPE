@@ -45,3 +45,7 @@ RAG-Project/
 └── main.py                                 # Run the retrieval system
 
 ```
+# Summary
+
+A simple RAG project for learning the basics. It includes step-by-step code for PDF loading, text chunking, embeddings, vector database creation, and document retrieval. This project focuses on understanding the RAG workflow and will continue to be improved with more features.
+
