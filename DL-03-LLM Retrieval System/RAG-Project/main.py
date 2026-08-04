@@ -37,8 +37,8 @@ def main():
       #  print("Please run lab01_extract_text.py -> lab04_create_vector_db.py first.")
         return
 
-    print("-RAG System for Sexual Health & Education QA ---")
-    print("-Enter ('exit', 'quit', or 'q' to quit)---\n")
+    print("--- RAG System for Solar Cell (โซล่าเซลล์) Knowledge Base ---")
+    print("--- Enter ('exit', 'quit', or 'q' to quit) ---\n")
 
 
     retriever = Retriever(
@@ -48,7 +48,7 @@ def main():
     )
 
     while True:
-        query = input("\nHi Bro! 😎\nAsk me anything: ").strip()
+        query = input("\nAsk me anything about Solar Cells (โซล่าเซลล์): ").strip()
 
         if query.lower() in ("exit", "quit", "q"):
             print("---- ขอบใจหลายๆ เด้อ !!! ------.")

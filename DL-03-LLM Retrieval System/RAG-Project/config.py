@@ -27,7 +27,7 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 VECTOR_DB_DIR = os.path.join(BASE_DIR, "vector_db")
 
 # Data file of the knowledge base
-SOURCE_FILE = os.path.join(DATA_DIR, "sex_q_a.txt")
+SOURCE_FILE = os.path.join(DATA_DIR, "solar_cell_q_a.txt")
 
 # results intermediate files (outputs/)
 EXTRACTED_TEXT_FILE = os.path.join(OUTPUT_DIR, "extracted_text.json")
