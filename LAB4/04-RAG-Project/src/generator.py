@@ -47,11 +47,11 @@ class NoLLM:
         user_message = messages[-1]["content"]
 
         # ดึงเนื้อหาบล็อก [1] ออกมาจาก prompt
-        parts = user_message.split("reference data :")
+        parts = user_message.split("ข้อมูลอ้างอิง:")
         if len(parts) < 2:
             return config.NO_CONTEXT_MESSAGE
 
-        context = parts[1].split("Q of user")[0].strip()
+        context = parts[1].split("คำถามของผู้ใช้:")[0].strip()
         first_block = context.split("\n\n")[0].replace("[1]", "").strip()
 
         return f"{first_block} [1]" if first_block else config.NO_CONTEXT_MESSAGE
