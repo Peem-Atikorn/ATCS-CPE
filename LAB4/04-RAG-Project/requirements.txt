@@ -1,0 +1,7 @@
+numpy
+sentence-transformers
+faiss-cpu
+rank_bm25
+pythainlp
+openai
+tqdm
