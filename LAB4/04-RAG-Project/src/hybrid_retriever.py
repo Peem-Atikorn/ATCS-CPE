@@ -165,7 +165,14 @@ class HybridRetriever:
                 ranked_lists.append([position for position, _ in bm25_hits])
                 bm25_scores.update(bm25_hits)
 
-        # รวมอันดับด้วย RRF 
+        # ถ้าไม่มี chunk ไหนใกล้เคียงคำถามจริง ๆ เลย (คำถามนอกโดเมน/ไม่เกี่ยวข้อง)
+        # ก็ไม่ต้องตอบมั่ว — คืน [] ให้ generator แสดงว่าไม่พบข้อมูล แทนที่จะยัดผลลัพธ์ที่ใกล้สุด
+        # ในบรรดาที่มี (ซึ่งอาจไม่เกี่ยวข้องเลย) ไปให้ LLM
+        best_dense_score = max(dense_scores.values(), default=0.0)
+        if best_dense_score < config.MIN_RELEVANCE_SCORE:
+            return []
+
+        # รวมอันดับด้วย RRF
         fused = reciprocal_rank_fusion(ranked_lists)
 
         # ถ้าจะ rerank ต่อ ต้องส่งผู้เข้ารอบให้มันมากกว่า top_k
