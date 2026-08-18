@@ -11,6 +11,7 @@
 import os
 import pickle
 import re
+from collections import Counter
 
 from rank_bm25 import BM25Okapi
 
@@ -26,6 +27,25 @@ from src.vector_store import VectorStore, load_chunk_store
 
 THAI_PATTERN = re.compile(r"[ก-๙]+")            # ตัวอักษรไทยติดกัน
 ENGLISH_PATTERN = re.compile(r"[A-Za-z0-9]+")   # คำอังกฤษหรือตัวเลข
+ALPHA_PATTERN = re.compile(r"[A-Za-z]+")        # เฉพาะตัวอักษรอังกฤษ (ไม่รวมตัวเลข) — ใช้เทียบตัวพิมพ์
+
+
+def build_canonical_casing(chunks):
+    """
+    สร้างตารางเทียบตัวพิมพ์ของคำอังกฤษ จากคำที่ปรากฏจริงในฐานข้อมูล
+
+    เช่นถ้าฐานข้อมูลเขียน "kWh" (ตัวพิมพ์ผสม) บ่อยกว่า "KWH"/"kwh" จะได้ {"kwh": "kWh"}
+    ใช้แทนคำในคำถามผู้ใช้ให้ตรงกับตัวสะกดจริงก่อนค้นด้วย embedding เพราะโมเดลรับรู้
+    ตัวพิมพ์เล็ก/ใหญ่ต่างกัน (ต่างจาก BM25 ที่ไม่สนอยู่แล้ว) — ไม่ต้องผูกคำเฉพาะไว้ในโค้ด
+    เพิ่มคำใหม่ในฐานข้อมูลก็ได้ตัวเทียบอัตโนมัติ
+    """
+    counts = {}
+    for chunk in chunks:
+        text = f"{chunk['question']} {chunk['answer']}"
+        for token in ALPHA_PATTERN.findall(text):
+            counts.setdefault(token.lower(), Counter())[token] += 1
+
+    return {key: variants.most_common(1)[0][0] for key, variants in counts.items()}
 
 
 def tokenize(text):
@@ -120,6 +140,16 @@ class HybridRetriever:
         # โหลด BM25 เฉพาะเมื่อเปิดใช้
         self.bm25 = load_bm25(self.chunks) if config.USE_HYBRID else None
 
+        self.canonical_casing = build_canonical_casing(self.chunks)
+
+    def apply_canonical_casing(self, query):
+        """แทนคำอังกฤษในคำถามด้วยตัวสะกด/ตัวพิมพ์ที่ฐานข้อมูลใช้จริง (ถ้าเจอคำนั้น)"""
+        def replace(match):
+            token = match.group()
+            return self.canonical_casing.get(token.lower(), token)
+
+        return ALPHA_PATTERN.sub(replace, query)
+
     def dense_search(self, query, top_k):  # ค้นด้วยความหมาย — คืน
         
         query_vector = self.model.encode_query(query)
@@ -156,10 +186,11 @@ class HybridRetriever:
         bm25_scores = {}
 
         for one_query in queries:
-            # โมเดล embedding แยกแยะตัวพิมพ์เล็ก/ใหญ่ของคำย่อภาษาอังกฤษ (เช่น MPPT, PWM)
-            # ค้นทั้งตามที่พิมพ์มาและแบบตัวพิมพ์ใหญ่ล้วน แล้วเก็บคะแนนที่ดีที่สุดของแต่ละ chunk ไว้
-            # (set กันซ้ำ ถ้าคำถามเป็นตัวพิมพ์ใหญ่อยู่แล้วหรือไม่มีตัวอักษรอังกฤษเลยก็จะค้นแค่ครั้งเดียว)
-            for variant in {one_query, one_query.upper()}:
+            # โมเดล embedding แยกแยะตัวพิมพ์เล็ก/ใหญ่ของคำย่อภาษาอังกฤษ (เช่น MPPT, PWM, kWh)
+            # ค้นหลายแบบ: ตามที่พิมพ์มา / ตัวพิมพ์ใหญ่ล้วน / ตัวสะกดจริงที่ฐานข้อมูลใช้ (เช่น "kwh" → "kWh")
+            # แล้วเก็บคะแนนที่ดีที่สุดของแต่ละ chunk ไว้ (set กันซ้ำ ถ้าไม่มีตัวอักษรอังกฤษก็ค้นแค่ครั้งเดียว)
+            variants = {one_query, one_query.upper(), self.apply_canonical_casing(one_query)}
+            for variant in variants:
                 dense_hits = self.dense_search(variant, config.CANDIDATE_K)
                 ranked_lists.append([position for position, _ in dense_hits])
                 for position, score in dense_hits:
