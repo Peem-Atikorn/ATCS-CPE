@@ -3,15 +3,16 @@
 #
 # Problem
 # Retrieval quality depends on the user's query. Real users often write
-# short or ambiguous questions, or use slang.
+# short or ambiguous questions, or use casual/alternate spellings.
 #
-#     "I have a sore on my private part"   ← slang
-#     Knowledge base: "penis"
+#     "แผงโซลาร์เซลล์ทนแดดได้กี่ปี"   ← alternate spelling
+#     Knowledge base spells it "โซล่าเซลล์" everywhere
 #
 #     "So what's the difference?"          ← unclear without context
 #
-# Since the knowledge base uses medical terms, query transformation helps
-# bridge the gap between user language and stored documents.
+# Since the knowledge base uses specific technical terms and spellings,
+# query transformation helps bridge the gap between user language and
+# stored documents.
 #
 # Two levels are available:
 #
@@ -38,17 +39,19 @@ import re
 import config
 from src.prompt_templates import HYDE_PROMPT, MULTI_QUERY_PROMPT, REWRITE_PROMPT
 
-# ตารางแทนคำแสลง — เพิ่มคำได้ตามต้องการ ไม่ต้องแก้โค้ดส่วนอื่น
+# ตารางแทนคำแสลง/คำสะกดทั่วไป — เพิ่มคำได้ตามต้องการ ไม่ต้องแก้โค้ดส่วนอื่น
+# ฐานข้อมูล (data/solar_cell_q_a.txt) สะกดว่า "โซล่าเซลล์" เสมอ (ไม่มี "โซลาร์เซลล์" เลยแม้แต่ครั้งเดียว)
+# ผู้ใช้ทั่วไปมักพิมพ์ตามคำที่คุ้นปาก จึงต้องแปลงให้ตรงกับศัพท์ในเอกสารก่อนค้น
 SLANG_MAP = {
-    "น้องชาย": "อวัยวะเพศชาย",
-    "น้องสาว": "อวัยวะเพศหญิง",
-    "จู๋": "อวัยวะเพศชาย",
-    "จิ๋ม": "อวัยวะเพศหญิง",
-    "ถุงยาง": "ถุงยางอนามัย",
-    "เอดส์": "เอชไอวี",
-    "มีอะไรกัน": "มีเพศสัมพันธ์",
-    "โรคจากเซ็กส์": "โรคติดต่อทางเพศสัมพันธ์",
-    "เมนส์": "ประจำเดือน",
+    "โซลาร์เซลล์": "โซล่าเซลล์",
+    "โซล่าร์เซลล์": "โซล่าเซลล์",
+    "แผงโซลาร์": "แผงโซล่าเซลล์",
+    "แผงแดด": "แผงโซล่าเซลล์",
+    "แผงรับแดด": "แผงโซล่าเซลล์",
+    "ไฟบ้าน": "ไฟฟ้าในระบบ",
+    "แบตสำรองไฟ": "แบตเตอรี่สำรองไฟฟ้า",
+    "หมดประกัน": "หมดการรับประกัน",
+    "ขอไฟฟ้า": "ขออนุญาตเชื่อมต่อระบบไฟฟ้า",
 }
 
 # คำลงท้ายที่ไม่ช่วยในการค้นหา
@@ -59,7 +62,7 @@ def normalize_query(query):
     """
     ปรับคำถามแบบไม่ใช้ AI — เร็วและฟรี
 
-        "เป็นแผลที่น้องชายครับ"  →  "เป็นแผลที่อวัยวะเพศชาย"
+        "แผงโซลาร์เซลล์ทนแดดได้กี่ปีครับ"  →  "แผงโซล่าเซลล์ทนแดดได้กี่ปี"
     """
     text = re.sub(r"\s+", " ", query).strip()       # ตัดช่องว่างซ้ำซ้อน
 
