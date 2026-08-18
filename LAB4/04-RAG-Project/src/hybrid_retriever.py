@@ -156,11 +156,19 @@ class HybridRetriever:
         bm25_scores = {}
 
         for one_query in queries:
-            dense_hits = self.dense_search(one_query, config.CANDIDATE_K)
-            ranked_lists.append([position for position, _ in dense_hits])
-            dense_scores.update(dense_hits)
+            # โมเดล embedding แยกแยะตัวพิมพ์เล็ก/ใหญ่ของคำย่อภาษาอังกฤษ (เช่น MPPT, PWM)
+            # ค้นทั้งตามที่พิมพ์มาและแบบตัวพิมพ์ใหญ่ล้วน แล้วเก็บคะแนนที่ดีที่สุดของแต่ละ chunk ไว้
+            # (set กันซ้ำ ถ้าคำถามเป็นตัวพิมพ์ใหญ่อยู่แล้วหรือไม่มีตัวอักษรอังกฤษเลยก็จะค้นแค่ครั้งเดียว)
+            for variant in {one_query, one_query.upper()}:
+                dense_hits = self.dense_search(variant, config.CANDIDATE_K)
+                ranked_lists.append([position for position, _ in dense_hits])
+                for position, score in dense_hits:
+                    if score > dense_scores.get(position, float("-inf")):
+                        dense_scores[position] = score
 
             if config.USE_HYBRID:
+                # tokenize() แปลงคำอังกฤษเป็นตัวพิมพ์เล็กอยู่แล้ว (บรรทัด ~46) BM25 จึงไม่สนตัวพิมพ์
+                # เล็ก/ใหญ่ตั้งแต่แรก ไม่ต้องค้นซ้ำสองแบบเหมือน dense
                 bm25_hits = self.bm25_search(one_query, config.CANDIDATE_K)
                 ranked_lists.append([position for position, _ in bm25_hits])
                 bm25_scores.update(bm25_hits)
