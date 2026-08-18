@@ -46,7 +46,7 @@ def main():
     rag = RAGPipeline()
     #rag.show_settings()
 
-    print("\nHi Bro! 😎\nAsk me anything")
+    print("\nHi\nAsk me anything")
 
     while True:
         question = input("\nQ: ").strip()
