@@ -2,7 +2,6 @@
 
 โปรเจกต์กลุ่มวิชา Advanced Topics in Computer Software (04622404)
 พัฒนาตามแผนของอาจารย์ใน [`DL-07-Agentic-AI-System-II/`](DL-07-Agentic-AI-System-II/)
-55555588888
 
 ---
 
