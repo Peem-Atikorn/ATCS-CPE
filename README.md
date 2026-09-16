@@ -181,59 +181,9 @@ git push
           |                          |<---- PR + merge ---------|
           |                          |                          |
           |<--- git merge develop ---|                          |
-          |     (ได้งานเพื่อนมา)      |---- git merge develop -->|
+          |     (ได้งานเพื่อนมา)        |---- git merge develop -->|
           |                          |                          |
 ```
-
----
-
-## ❓ ทำไมห้ามใช้ Squash merge
-
-เพราะ branch ของเราอยู่ยาวและ merge กลับไปกลับมา:
-
-- **Squash** จะยุบ commit ทั้งหมดเป็นก้อนใหม่ที่ `develop` มองว่า "ไม่เคยเห็น" → รอบหน้าที่คุณ `git merge develop` กลับเข้า branch ตัวเอง git จะเจอการเปลี่ยนแปลงเดิมซ้ำสองรอบ → **conflict แปลก ๆ ที่หาสาเหตุยากมาก**
-- **Merge commit** เก็บสายสัมพันธ์ไว้ครบ git รู้ว่าอะไร merge ไปแล้ว → merge กี่รอบก็ไม่ชน และ commit ทุกอันของคุณยังคงชื่อคุณครบ
-
----
-
-## 🏆 เครดิตรายบุคคล — อาจารย์ตรวจว่าใครทำส่วนไหน
-
-### กฎเหล็ก 3 ข้อ
-
-1. **ตั้ง `git config` ให้ถูกก่อนเขียนโค้ดบรรทัดแรก** (ดูหัวข้อวันแรก ข้อ 1)
-2. **push จากเครื่องตัวเอง ด้วยบัญชีตัวเอง เปิด PR ด้วยตัวเอง**
-   - ❌ ห้าม "ส่งไฟล์ให้เพื่อน push ให้" → **คุณจะได้เครดิต 0**
-   - ❌ ห้ามยืมเครื่องเพื่อน commit → เครดิตไปเพื่อนทั้งก้อน
-3. **ถ้าช่วยกันเขียนจริง** ใส่ trailer ท้าย commit message ให้ GitHub นับเครดิตทั้งคู่:
-
-   ```
-   feat(03): เพิ่ม intent router
-
-   Co-authored-by: Somchai <somchai@example.com>
-   ```
-
-### เช็คเครดิตตัวเองทุกสัปดาห์
-
-```bash
-git shortlog -sne --all
-```
-
-```bash
-git log --pretty=%an -- "DL-07-Agentic-AI-System-II/03_travel_ai_agent/" | sort | uniq -c | sort -rn
-```
-
-*(เปลี่ยน path เป็นโมดูลของตัวเอง)* ถ้าชื่อคุณไม่ขึ้น หรือขึ้นเป็นคนอื่น → **แก้ทันที อย่ารอถึงวันส่ง**
-
-### ที่อาจารย์เปิดดูได้
-
-| หน้า | บอกอะไร |
-|---|---|
-| Insights › Contributors | กราฟจำนวน commit / บรรทัด แยกตามคน |
-| Pull requests › Closed | ใครเปิด PR อะไร เมื่อไหร่ กี่อัน |
-| ปุ่ม Blame ในไฟล์ | ใครเขียนบรรทัดไหน |
-| `CODEOWNERS` | ใครรับผิดชอบโฟลเดอร์ไหน |
-
----
 
 ## 💬 commit message
 
@@ -269,60 +219,12 @@ git log --pretty=%an -- "DL-07-Agentic-AI-System-II/03_travel_ai_agent/" | sort 
 
 ---
 
-## 📅 ลำดับการทำงาน
-
-8 โมดูลเริ่มพร้อมกันได้ **แต่ต้องตกลงสัญญาข้อมูลก่อน** ไม่งั้นจะเจอ "ผมเขียนเสร็จแล้ว แต่ข้อมูลที่ได้มาหน้าตาไม่ตรงที่คิด"
-
-```
-เฟส 0   ทุกคนนั่งตกลงร่วมกัน  ← สำคัญที่สุด ห้ามข้าม
-        canonical schema + API contract ของแต่ละโมดูล
-        เขียนลง PR เดียวเข้า develop ให้ทุกคนอ้างอิง
-
-เฟส 1   04 external data ──▶ 05 integration ──▶ 06 risk/RAG
-        02 api gateway     (ทำขนานได้)
-        01 web app         (ทำขนานได้ ใช้ mock data ไปก่อน)
-
-เฟส 2   03 agent + 07 decision   (ต้องรอ 04-06 มีของจริงให้เรียก)
-
-เฟส 3   08 recommendation + เชื่อมทุกอย่างด้วย docker compose
-```
-
-**ระหว่างรอคนอื่น ไม่ต้องนั่งเฉย** — เขียนโครงโมดูลตัวเอง เขียนเทส เขียนเอกสาร ทำ mock ไปก่อนได้เลย
-พอเพื่อนส่งของจริงขึ้น `develop` ค่อย `git merge develop` แล้วสลับจาก mock เป็นของจริง
-
----
-
-## ⚙️ ตั้งค่า GitHub (เจ้าของ repo ทำครั้งเดียว)
-
-### Settings › General › Pull Requests
-
-| ตั้งค่า | ค่า |
-|---|---|
-| Allow merge commits | ✅ **เปิด** |
-| Allow squash merging | ❌ **ปิด** (ชนกับ long-lived branch) |
-| Allow rebase merging | ❌ ปิด |
-| Automatically delete head branches | ❌ **ปิด** (branch เราอยู่ยาว ห้ามให้ลบ) |
-
-### Settings › General › Default branch
-
-ตั้งเป็น **`develop`**
-
-> เพราะ GitHub จะตั้ง base ของ PR เป็น default branch ให้อัตโนมัติ
-> ถ้าปล่อยเป็น `main` ทุกคนจะเผลอเปิด PR เข้า `main` แทน `develop` ซึ่งผิด
-> อาจารย์ยังเปิดดู repo ได้ปกติ เพราะ README เหมือนกันทั้งสอง branch
-
 ### Settings › Rules › Rulesets — สร้าง 2 อัน
 
 | ruleset | target | กฎ |
 |---|---|---|
 | protect-main | `main` | Require a pull request · Required approvals **2** |
 | protect-develop | `develop` | Require a pull request · Required approvals **1** |
-
-### Settings › Collaborators
-
-เชิญเพื่อนทั้ง 7 คน role **Write**
-
-> ⚠️ เชิญเพื่อนให้เสร็จ **ก่อน** เปิด ruleset ไม่งั้นจะติดกฎตัวเองตอนทำงานคนเดียว
 
 ---
 
