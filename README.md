@@ -3,20 +3,22 @@
 โปรเจกต์กลุ่มวิชา Advanced Topics in Computer Software (04622404)
 พัฒนาตามแผนของอาจารย์ใน [`DL-07-Agentic-AI-System-II/`](DL-07-Agentic-AI-System-II/)
 
+---
+
 ## 👥 ตารางแบ่งงาน — 1 คน 1 โมดูล
 
 7 คน 8 โมดูล → มี 1 คนรับ 2 โมดูล (ตกลงกันในทีม)
 
-| # | โมดูล | งานหลัก | ผู้รับผิดชอบ | GitHub | branch |
-|---|---|---|---|---|---|
-| 01 | `01_web_app` | Next.js, TypeScript, แผนที่, live alert | _TBD_ | `@_TBD_` | `ชื่อ-01-web-app` |
-| 02 | `02_api_backend` | FastAPI gateway, auth, CORS | _TBD_ | `@_TBD_` | `ชื่อ-02-api-backend` |
-| 03 | `03_travel_ai_agent` | LLM planner, tool routing | _TBD_ | `@_TBD_` | `ชื่อ-03-travel-ai-agent` |
-| 04 | `04_external_data_services` | adapter weather / transport / disaster | _TBD_ | `@_TBD_` | `ชื่อ-04-external-data` |
-| 05 | `05_data_integration` | normalize → canonical schema | _TBD_ | `@_TBD_` | `ชื่อ-05-data-integration` |
-| 06 | `06_risk_knowledge_services` | risk model + RAG knowledge base | _TBD_ | `@_TBD_` | `ชื่อ-06-risk-knowledge` |
-| 07 | `07_decision_llm_engine` | ตัดสินใจ + อธิบายผล | _TBD_ | `@_TBD_` | `ชื่อ-07-decision-llm` |
-| 08 | `08_recommendation_feedback` | ข้อเสนอแนะ + feedback loop | _TBD_ | `@_TBD_` | `ชื่อ-08-recommendation` |
+| #   | โมดูล                        | งานหลัก                                 | ผู้รับผิดชอบ | GitHub   | branch                     |
+| --- | ---------------------------- | --------------------------------------- | ------------ | -------- | -------------------------- |
+| 01  | `01_web_app`                 | Next.js, TypeScript, แผนที่, live alert | _TBD_        | `@_TBD_` | `ชื่อ-01-web-app`          |
+| 02  | `02_api_backend`             | FastAPI gateway, auth, CORS             | _TBD_        | `@_TBD_` | `ชื่อ-02-api-backend`      |
+| 03  | `03_travel_ai_agent`         | LLM planner, tool routing               | _TBD_        | `@_TBD_` | `ชื่อ-03-travel-ai-agent`  |
+| 04  | `04_external_data_services`  | adapter weather / transport / disaster  | _TBD_        | `@_TBD_` | `ชื่อ-04-external-data`    |
+| 05  | `05_data_integration`        | normalize → canonical schema            | _TBD_        | `@_TBD_` | `ชื่อ-05-data-integration` |
+| 06  | `06_risk_knowledge_services` | risk model + RAG knowledge base         | _TBD_        | `@_TBD_` | `ชื่อ-06-risk-knowledge`   |
+| 07  | `07_decision_llm_engine`     | ตัดสินใจ + อธิบายผล                     | _TBD_        | `@_TBD_` | `ชื่อ-07-decision-llm`     |
+| 08  | `08_recommendation_feedback` | ข้อเสนอแนะ + feedback loop              | _TBD_        | `@_TBD_` | `ชื่อ-08-recommendation`   |
 
 แต่ละโมดูลมี `01_env.txt` (สภาพแวดล้อม) · `02_step.txt` (ขั้นตอน) · `03_process.txt` (เทคนิค)
 
@@ -41,25 +43,25 @@ main                    ← เวอร์ชันส่งอาจารย�
 <ชื่อตัวเอง>-<เลขโมดูล>-<ชื่อโมดูลย่อ>
 ```
 
-| ตัวอย่าง | ถูก/ผิด |
-|---|---|
-| `sakda-03-travel-ai-agent` | ✅ |
-| `somchai-04-external-data` | ✅ |
-| `nattapong-07-decision-llm` | ✅ |
-| `sakda` | ❌ ไม่รู้ว่าทำโมดูลไหน |
-| `feature-3` | ❌ ไม่รู้ว่าใครทำ |
-| `Sakda_03_Travel_AI_Agent` | ❌ ใช้ตัวพิมพ์เล็กและขีดกลางเท่านั้น |
+| ตัวอย่าง                    | ถูก/ผิด                              |
+| --------------------------- | ------------------------------------ |
+| `sakda-03-travel-ai-agent`  | ✅                                   |
+| `somchai-04-external-data`  | ✅                                   |
+| `nattapong-07-decision-llm` | ✅                                   |
+| `sakda`                     | ❌ ไม่รู้ว่าทำโมดูลไหน               |
+| `feature-3`                 | ❌ ไม่รู้ว่าใครทำ                    |
+| `Sakda_03_Travel_AI_Agent`  | ❌ ใช้ตัวพิมพ์เล็กและขีดกลางเท่านั้น |
 
 **คนที่รับ 2 โมดูล** ให้สร้าง 2 branch แยกกัน เช่น `somchai-07-decision-llm` และ `somchai-08-recommendation`
 เพื่อให้ PR แยกกันชัดเจน อาจารย์ตรวจง่าย
 
 ### หน้าที่ของแต่ละ branch
 
-| branch | ใครแก้ได้ | push ตรงได้ไหม |
-|---|---|---|
-| `main` | ไม่มีใคร | ❌ เข้าผ่าน PR จาก `develop` เท่านั้น |
-| `develop` | ไม่มีใคร | ❌ เข้าผ่าน PR จาก branch ส่วนตัวเท่านั้น |
-| `ชื่อ-NN-โมดูล` | เจ้าของ branch คนเดียว | ✅ push ได้ตามใจ วันละกี่ครั้งก็ได้ |
+| branch          | ใครแก้ได้              | push ตรงได้ไหม                            |
+| --------------- | ---------------------- | ----------------------------------------- |
+| `main`          | ไม่มีใคร               | ❌ เข้าผ่าน PR จาก `develop` เท่านั้น     |
+| `develop`       | ไม่มีใคร               | ❌ เข้าผ่าน PR จาก branch ส่วนตัวเท่านั้น |
+| `ชื่อ-NN-โมดูล` | เจ้าของ branch คนเดียว | ✅ push ได้ตามใจ วันละกี่ครั้งก็ได้       |
 
 ---
 
@@ -109,7 +111,7 @@ git switch develop
 git switch -c sakda-03-travel-ai-agent
 ```
 
-*(เปลี่ยนเป็นชื่อและโมดูลของตัวเอง — ดูตารางแบ่งงานข้างบน)*
+_(เปลี่ยนเป็นชื่อและโมดูลของตัวเอง — ดูตารางแบ่งงานข้างบน)_
 
 ```bash
 git push -u origin sakda-03-travel-ai-agent
@@ -141,7 +143,7 @@ git push
 1. push งานล่าสุดขึ้น branch ตัวเองให้ครบ
 2. เปิด PR บนเว็บ: `ชื่อ-03-travel-ai-agent` → **`develop`**
 3. ขอเพื่อน 1 คน approve
-4. กด **Create a merge commit** *(ห้ามใช้ Squash — ดูเหตุผลข้างล่าง)*
+4. กด **Create a merge commit** _(ห้ามใช้ Squash — ดูเหตุผลข้างล่าง)_
 5. **ไม่ต้องลบ branch** — ใช้ต่อได้เลย
 
 ### C. ดึงงานเพื่อนมาใช้ — ทำทุกเช้า
@@ -181,7 +183,7 @@ git push
           |                          |<---- PR + merge ---------|
           |                          |                          |
           |<--- git merge develop ---|                          |
-          |     (ได้งานเพื่อนมา)        |---- git merge develop -->|
+          |       (ได้งานเพื่อนมา)      |---- git merge develop -->|
           |                          |                          |
 ```
 
@@ -191,14 +193,14 @@ git push
 <type>(<เลขโมดูล>): <ทำอะไร>
 ```
 
-| type | ใช้เมื่อ | ตัวอย่าง |
-|---|---|---|
-| `feat` | เพิ่มของใหม่ | `feat(04): เพิ่ม weather adapter` |
-| `fix` | แก้บั๊ก | `fix(02): แก้ CORS header ผิด` |
-| `docs` | เอกสาร | `docs(06): อธิบาย risk threshold` |
+| type       | ใช้เมื่อ                      | ตัวอย่าง                             |
+| ---------- | ----------------------------- | ------------------------------------ |
+| `feat`     | เพิ่มของใหม่                  | `feat(04): เพิ่ม weather adapter`    |
+| `fix`      | แก้บั๊ก                       | `fix(02): แก้ CORS header ผิด`       |
+| `docs`     | เอกสาร                        | `docs(06): อธิบาย risk threshold`    |
 | `refactor` | รื้อโค้ดโดยไม่เปลี่ยนพฤติกรรม | `refactor(05): แยก schema validator` |
-| `test` | เทส | `test(03): เพิ่มเทส intent router` |
-| `chore` | งานบ้าน config | `chore: อัปเดต .env.example` |
+| `test`     | เทส                           | `test(03): เพิ่มเทส intent router`   |
+| `chore`    | งานบ้าน config                | `chore: อัปเดต .env.example`         |
 
 เขียนภาษาไทยได้ ขอแค่บอกให้ชัดว่าทำอะไร
 
@@ -208,23 +210,14 @@ git push
 
 เพราะ 8 โมดูลอยู่คนละโฟลเดอร์ ปกติจะไม่ชนกันเลย ยกเว้นไฟล์กลางเหล่านี้:
 
-| ไฟล์ | เพราะ |
-|---|---|
-| `.env.example` | ทุกคนอยากเพิ่มตัวแปรของตัวเอง |
-| `docker-compose.yml` | ทุกคนอยากเพิ่ม service ของตัวเอง |
-| `README.md` | ตารางแบ่งงานอยู่ในนี้ |
-| `.gitignore` · `.gitattributes` | มีคนเพิ่ม pattern |
+| ไฟล์                            | เพราะ                            |
+| ------------------------------- | -------------------------------- |
+| `.env.example`                  | ทุกคนอยากเพิ่มตัวแปรของตัวเอง    |
+| `docker-compose.yml`            | ทุกคนอยากเพิ่ม service ของตัวเอง |
+| `README.md`                     | ตารางแบ่งงานอยู่ในนี้            |
+| `.gitignore` · `.gitattributes` | มีคนเพิ่ม pattern                |
 
 **กฎ:** แก้ไฟล์กลาง = แยกเป็น PR เล็กของมันเอง merge ให้ไวที่สุด อย่าปนกับ PR ฟีเจอร์
-
----
-
-### Settings › Rules › Rulesets — สร้าง 2 อัน
-
-| ruleset | target | กฎ |
-|---|---|---|
-| protect-main | `main` | Require a pull request · Required approvals **2** |
-| protect-develop | `develop` | Require a pull request · Required approvals **1** |
 
 ---
 
@@ -233,17 +226,17 @@ git push
 - **Frontend** Node.js 20 LTS · Next.js · TypeScript · Tailwind · MapLibre GL JS
 - **Backend** Python 3.12 · FastAPI · Pydantic · httpx · Tenacity
 - **Data** PostgreSQL · Redis · Vector DB
-- **Orchestration** Docker Compose *(ยังไม่ได้เขียน อยู่ในเฟส implement)*
+- **Orchestration** Docker Compose _(ยังไม่ได้เขียน อยู่ในเฟส implement)_
 - **Monitoring** Prometheus · Grafana · OpenTelemetry
 
 ---
 
 ## 🆘 ติดปัญหาบ่อย
 
-| อาการ | แก้ |
-|---|---|
-| `git switch develop` ขึ้น `pathspec did not match` | ยังไม่มี local develop → `git switch -c develop origin/develop` |
-| merge แล้วขึ้น CONFLICT | เปิดไฟล์ หา `<<<<<<<` เลือกเก็บส่วนที่ถูก ลบเครื่องหมายออก แล้ว `git add` + `git commit` |
-| push แล้วขึ้น `rejected` | มีคน push ทับ → `git pull` ก่อน แล้ว push อีกครั้ง |
-| เผลอ commit `.env` | บอกในกลุ่ม**ทันที** และ **revoke API key ทุกตัว** — ลบ commit ทีหลังไม่พอ |
-| ทำงานผิด branch | `git stash` → `git switch <branch-ถูก>` → `git stash pop` |
+| อาการ                                              | แก้                                                                                      |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `git switch develop` ขึ้น `pathspec did not match` | ยังไม่มี local develop → `git switch -c develop origin/develop`                          |
+| merge แล้วขึ้น CONFLICT                            | เปิดไฟล์ หา `<<<<<<<` เลือกเก็บส่วนที่ถูก ลบเครื่องหมายออก แล้ว `git add` + `git commit` |
+| push แล้วขึ้น `rejected`                           | มีคน push ทับ → `git pull` ก่อน แล้ว push อีกครั้ง                                       |
+| เผลอ commit `.env`                                 | บอกในกลุ่ม**ทันที** และ **revoke API key ทุกตัว** — ลบ commit ทีหลังไม่พอ                |
+| ทำงานผิด branch                                    | `git stash` → `git switch <branch-ถูก>` → `git stash pop`                                |
