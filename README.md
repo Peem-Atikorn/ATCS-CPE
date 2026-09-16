@@ -310,6 +310,14 @@ git log --pretty=%an -- "DL-07-Agentic-AI-System-II/03_travel_ai_agent/" | sort 
 | Allow rebase merging | ❌ ปิด |
 | Automatically delete head branches | ❌ **ปิด** (branch เราอยู่ยาว ห้ามให้ลบ) |
 
+### Settings › General › Default branch
+
+ตั้งเป็น **`develop`**
+
+> เพราะ GitHub จะตั้ง base ของ PR เป็น default branch ให้อัตโนมัติ
+> ถ้าปล่อยเป็น `main` ทุกคนจะเผลอเปิด PR เข้า `main` แทน `develop` ซึ่งผิด
+> อาจารย์ยังเปิดดู repo ได้ปกติ เพราะ README เหมือนกันทั้งสอง branch
+
 ### Settings › Rules › Rulesets — สร้าง 2 อัน
 
 | ruleset | target | กฎ |
