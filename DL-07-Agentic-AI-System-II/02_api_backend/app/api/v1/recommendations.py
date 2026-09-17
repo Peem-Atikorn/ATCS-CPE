@@ -6,14 +6,22 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import JSONResponse
+from pydantic import AwareDatetime
 
 from app.api.auth import recommend_rate_limit, require_scopes
 from app.api.deps import get_current_user, get_recommendation_service
 from app.api.idempotency import IdempotentRoute
+from app.api.v1.responses import accepted_response, json_response
 from app.core.ids import current_correlation_id, current_request_id, new_id
 from app.core.security import Scope
-from app.domain.enums import RequestMode
-from app.schemas.v1.travel import JobAccepted, RecommendationResponse, TravelRequest
+from app.domain.enums import RequestMode, RiskLevel
+from app.schemas.v1.travel import (
+    JobAccepted,
+    RecommendationPage,
+    RecommendationResponse,
+    RecommendationSummary,
+    TravelRequest,
+)
 from app.services.ports import UserRef
 from app.services.recommendation_service import (
     Accepted,
@@ -24,17 +32,6 @@ from app.services.recommendation_service import (
 router = APIRouter(
     prefix="/travel/recommendations", tags=["recommendations"], route_class=IdempotentRoute
 )
-
-
-def _json(
-    model: RecommendationResponse | JobAccepted, status: int, response: Response
-) -> JSONResponse:
-    result = JSONResponse(model.model_dump(mode="json", by_alias=True), status_code=status)
-    # Headers set by dependencies (rate limit) are not merged into a returned response.
-    for name, value in response.headers.items():
-        if name.lower().startswith("ratelimit-"):
-            result.headers[name] = value
-    return result
 
 
 @router.post(
@@ -63,13 +60,37 @@ async def create_recommendation(
     )
     outcome = await service.create(user, command)
     if isinstance(outcome, Accepted):
-        accepted = JobAccepted.build(
-            outcome.job_id, outcome.recommendation_id, outcome.conversation_id
-        )
-        result = _json(accepted, 202, response)
-        result.headers["Location"] = accepted.status_url
-        return result
-    return _json(RecommendationResponse.from_record(outcome.record), 200, response)
+        return accepted_response(outcome, response)
+    return json_response(RecommendationResponse.from_record(outcome.record), 200, response)
+
+
+@router.get(
+    "",
+    summary="Recommendation history, newest first",
+    response_model=RecommendationPage,
+    dependencies=[Depends(require_scopes(Scope.TRAVEL_READ))],
+)
+async def list_recommendations(
+    limit: int | None = Query(default=None),
+    cursor: str | None = Query(default=None, max_length=200),
+    created_from: AwareDatetime | None = Query(default=None, alias="from"),
+    created_to: AwareDatetime | None = Query(default=None, alias="to"),
+    risk_level: RiskLevel | None = Query(default=None),
+    user: UserRef = Depends(get_current_user),
+    service: RecommendationService = Depends(get_recommendation_service),
+) -> RecommendationPage:
+    page = await service.list(
+        user,
+        limit=limit,
+        cursor=cursor,
+        created_from=created_from,
+        created_to=created_to,
+        risk_level=risk_level,
+    )
+    return RecommendationPage(
+        items=[RecommendationSummary.from_record(item) for item in page.items],
+        next_cursor=page.next_cursor,
+    )
 
 
 @router.get(

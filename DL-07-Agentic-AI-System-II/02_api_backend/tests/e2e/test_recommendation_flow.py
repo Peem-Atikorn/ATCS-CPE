@@ -184,3 +184,42 @@ def test_identical_request_without_question_uses_the_cache(
     assert second.status_code == 200
     assert runs() == before
     assert second.json()["recommendation_id"] != first.json()["recommendation_id"]
+
+
+def test_conversation_with_follow_up(api: httpx.Client, scenario: Any) -> None:
+    scenario("low_risk")
+    jwt = token()
+    auth = {"Authorization": f"Bearer {jwt}"}
+
+    def write() -> dict[str, str]:
+        return {**auth, "Idempotency-Key": str(uuid4())}
+
+    created = api.post("/v1/conversations", json={"language": "th"}, headers=write())
+    assert created.status_code == 201, created.text
+    url = created.headers["Location"]
+    trip = body()
+    first = api.post(
+        f"{url}/messages",
+        json={
+            "content": "ปลอดภัยไหม",
+            "overrides": {
+                k: trip[k] for k in ("origin", "destination", "departure_time", "timezone")
+            },
+        },
+        headers=write(),
+    )
+    later = (datetime.now(UTC) + timedelta(days=2, hours=3)).isoformat()
+    follow_up = api.post(
+        f"{url}/messages",
+        json={"content": "ถ้าออกช้ากว่าเดิม 3 ชั่วโมงล่ะ", "overrides": {"departure_time": later}},
+        headers=write(),
+    )
+
+    assert first.status_code == 200, first.text
+    assert follow_up.status_code == 200, follow_up.text
+    messages = api.get(f"{url}/messages", headers=auth).json()["items"]
+    assert [m["role"] for m in messages] == ["assistant", "user", "assistant", "user"]
+    history = api.get(URL, headers=auth).json()["items"]
+    assert history[0]["recommendation_id"] == follow_up.json()["recommendation_id"]
+    assert api.delete(url, headers=auth).status_code == 204
+    assert api.get(url, headers=auth).status_code == 404

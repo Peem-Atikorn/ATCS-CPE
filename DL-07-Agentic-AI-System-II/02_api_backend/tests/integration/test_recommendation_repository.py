@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -35,6 +36,7 @@ from app.infrastructure.db.models import (
     UserModel,
 )
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
+from app.services.pagination import Cursor
 from app.services.ports import (
     AgentRunRecord,
     JobOutcome,
@@ -448,3 +450,63 @@ async def test_finish_job_failure(
             .where(MessageModel.conversation_id == created.conversation_id)
         )
     assert count == 0
+
+
+# ------------------------------------------------------------------ history
+
+
+async def test_history_is_newest_first_and_paged(repo: SqlRecommendationRepository) -> None:
+    user, other = await make_user(repo), await make_user(repo)
+    made = []
+    for minutes in range(3):
+        when = NOW + timedelta(minutes=minutes)
+        made.append(await repo.create_pending(new(user, now=when)))
+    await repo.create_pending(new(other))
+
+    first = await repo.list_recommendations(
+        user.id, limit=2, cursor=None, created_from=None, created_to=None, risk_level=None
+    )
+    last = first[1]
+    rest = await repo.list_recommendations(
+        user.id,
+        limit=2,
+        cursor=Cursor(last.created_at, last.id),
+        created_from=None,
+        created_to=None,
+        risk_level=None,
+    )
+
+    assert [s.id for s in first] == [m.recommendation_id for m in reversed(made)]
+    assert [s.id for s in rest] == [made[0].recommendation_id]
+    summary = first[0]
+    assert summary.status is RecommendationStatus.PROCESSING
+    assert (summary.origin_name, summary.destination_name) == ("Bangkok", "Chiang Mai")
+    assert summary.departure_time == NOW + timedelta(days=2)
+    assert summary.risk_level is None
+
+
+async def test_history_filters(repo: SqlRecommendationRepository) -> None:
+    user = await make_user(repo)
+    early = await repo.create_pending(new(user, now=NOW - timedelta(days=2)))
+    medium = await repo.create_completed(new(user), result())
+    high = await repo.create_completed(
+        new(user, now=NOW + timedelta(minutes=1)),
+        result(risk_level=RiskLevel.HIGH, recommendation_type=RecommendationType.AVOID_TRAVEL),
+    )
+
+    async def ids(**filters: Any) -> list[UUID]:
+        values: dict[str, Any] = {"created_from": None, "created_to": None, "risk_level": None}
+        values.update(filters)
+        rows = await repo.list_recommendations(user.id, limit=10, cursor=None, **values)
+        return [row.id for row in rows]
+
+    assert await ids(risk_level=RiskLevel.HIGH) == [high.recommendation_id]
+    assert await ids(created_from=NOW - timedelta(hours=1)) == [
+        high.recommendation_id,
+        medium.recommendation_id,
+    ]
+    assert await ids(created_to=NOW - timedelta(days=1)) == [early.recommendation_id]
+    summaries = await repo.list_recommendations(
+        user.id, limit=1, cursor=None, created_from=None, created_to=None, risk_level=None
+    )
+    assert summaries[0].recommendation_type is RecommendationType.AVOID_TRAVEL

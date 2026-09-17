@@ -19,7 +19,8 @@ Design documents:
 | 5.4 | Mock Agent (7 scenarios) and AgentClient: deadline, retry, circuit breaker, cancel, NDJSON | done |
 | 5.5 | Domain: normalization, freshness (R-07), Safety Gate (R-01..R-05), sanitizer (R-06) | done |
 | 5.6 | Recommendation flow: `POST/GET /v1/travel/recommendations`, Celery worker, job state and SSE in Redis, stream tickets, cache | done |
-| 5.7–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
+| 5.7 | Conversations and follow-up questions (`/v1/conversations`), recommendation history with cursor pagination | done |
+| 5.8–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
 
 ## Requirements
 
@@ -90,6 +91,34 @@ curl -s -X POST "http://localhost:8000/v1/travel/recommendations?mode=async" \
        "departure_time":"2026-09-20T01:00:00Z","timezone":"Asia/Bangkok"}'
 curl -N -H "Authorization: Bearer $TOKEN" http://localhost:8000/v1/jobs/<job_id>/events
 ```
+
+## Conversations
+
+A conversation keeps the context for follow-up questions. The first message carries the
+trip in `overrides`; later messages only send what changes, and the backend re-assesses
+the last trip with those changes:
+
+```bash
+CONV=$(curl -s -X POST http://localhost:8000/v1/conversations \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: conv-$(date +%s)" \
+  -H "content-type: application/json" -d '{"language":"th"}' \
+  | python -c "import sys, json; print(json.load(sys.stdin)['conversation_id'])")
+# First message: the whole trip
+curl -s -X POST http://localhost:8000/v1/conversations/$CONV/messages \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: msg1-$(date +%s)" \
+  -H "content-type: application/json" \
+  -d '{"content":"ปลอดภัยไหม","overrides":{"origin":{"lat":13.7563,"lon":100.5018},
+       "destination":{"lat":18.7883,"lon":98.9853},
+       "departure_time":"2026-09-20T01:00:00Z","timezone":"Asia/Bangkok"}}'
+# Follow-up: only what changes
+curl -s -X POST http://localhost:8000/v1/conversations/$CONV/messages \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: msg2-$(date +%s)" \
+  -H "content-type: application/json" \
+  -d '{"content":"ถ้าออกช้ากว่าเดิม 3 ชั่วโมงล่ะ","overrides":{"departure_time":"2026-09-20T04:00:00Z"}}'
+```
+
+`GET /v1/conversations/{id}/messages` and `GET /v1/travel/recommendations` return pages
+(`items`, `next_cursor`); pass `?cursor=` to get the next page.
 
 ## Mock Travel AI Agent
 

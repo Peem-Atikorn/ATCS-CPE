@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -14,11 +15,12 @@ from app.api.resources import AppResources
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode, FieldError
 from app.core.ids import new_id
-from app.domain.enums import RecommendationStatus, RequestMode, TravelMode
+from app.domain.enums import RecommendationStatus, RequestMode, RiskLevel, TravelMode
 from app.domain.errors import FieldIssue, InvalidInput
 from app.main import create_app
+from app.services.pagination import Page
 from app.services.recommendation_service import Accepted, Finished
-from tests.api.fakes import USER, FakeRecommendations, record
+from tests.api.fakes import USER, FakeRecommendations, record, summary
 from tests.support.auth import TokenFactory
 
 URL = "/v1/travel/recommendations"
@@ -248,3 +250,50 @@ async def test_get_of_unknown_or_foreign_recommendation(
     assert (await client.get(f"{URL}/{foreign.id}", headers=headers)).status_code == 404
     assert (await client.get(f"{URL}/{new_id()}", headers=headers)).status_code == 404
     assert (await client.get(f"{URL}/not-a-uuid", headers=headers)).status_code == 422
+
+
+async def test_history_list(
+    client: httpx.AsyncClient, make_token: TokenFactory, fake: FakeRecommendations
+) -> None:
+    item = summary()
+    fake.page = Page([item], "more")
+
+    response = await client.get(
+        f"{URL}?limit=5&cursor=c1&from=2026-09-01T00:00:00Z&to=2026-09-18T00:00:00%2B07:00"
+        "&risk_level=LOW",
+        headers={"Authorization": f"Bearer {make_token()}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [
+            {
+                "recommendation_id": str(item.id),
+                "created_at": "2026-09-17T08:00:00Z",
+                "status": "completed",
+                "risk_level": "LOW",
+                "recommendation_type": "TRAVEL_NORMALLY",
+                "origin_name": "Bangkok",
+                "destination_name": "Chiang Mai",
+                "departure_time": "2026-09-17T08:00:00Z",
+            }
+        ],
+        "next_cursor": "more",
+    }
+    call = fake.list_calls[0]
+    assert call["limit"] == 5
+    assert call["cursor"] == "c1"
+    assert call["created_from"] == datetime(2026, 9, 1, tzinfo=UTC)
+    assert call["created_to"] == datetime(2026, 9, 17, 17, 0, tzinfo=UTC)
+    assert call["risk_level"] is RiskLevel.LOW
+
+
+@pytest.mark.parametrize("query", ["from=2026-09-01T00:00:00", "risk_level=EXTREME", "limit=x"])
+async def test_history_rejects_bad_filters(
+    client: httpx.AsyncClient, make_token: TokenFactory, query: str
+) -> None:
+    response = await client.get(
+        f"{URL}?{query}", headers={"Authorization": f"Bearer {make_token()}"}
+    )
+
+    assert response.status_code == 422

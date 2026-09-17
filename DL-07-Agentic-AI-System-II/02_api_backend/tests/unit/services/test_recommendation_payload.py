@@ -9,7 +9,8 @@ import pytest
 from app.domain.enums import RecommendationStatus, RecommendationType, RiskLevel
 from app.domain.freshness import StalenessPolicy
 from app.domain.safety_gate import SafetyGateRejection
-from app.infrastructure.agent.contracts import AgentRunResponse
+from app.infrastructure.agent.contracts import AgentRunResponse, AgentVersions
+from app.services.ports import StoredResult
 from app.services.recommendation_payload import Assessment, assess, refresh_freshness
 from mock_agent.main import SCENARIOS, build_result
 
@@ -206,3 +207,24 @@ def test_refresh_freshness_rejects_data_that_became_stale() -> None:
     payload = run(agent_body("low_risk")).payload
 
     assert refresh_freshness(payload, now=NOW + timedelta(seconds=600), policy=POLICY) is None
+
+
+@pytest.mark.parametrize(("language", "start"), [("en", "We could not"), ("th", "ยังให้คำแนะนำ")])
+def test_stored_result_always_has_a_reply(language: str, start: str) -> None:
+    body = agent_body("partial_disaster_down")
+    body["recommendation"] = None
+
+    assessment = run(body, language=language)
+    stored = StoredResult.from_assessment(assessment, versions=AgentVersions(), api_version="1.0.0")
+
+    assert assessment.summary is None
+    assert stored.message is not None
+    assert stored.message.startswith(start)
+
+
+def test_stored_result_uses_the_clarifying_question() -> None:
+    assessment = run(agent_body("needs_clarification"))
+
+    stored = StoredResult.from_assessment(assessment, versions=AgentVersions(), api_version="1.0.0")
+
+    assert stored.message == "Which day do you plan to travel?"

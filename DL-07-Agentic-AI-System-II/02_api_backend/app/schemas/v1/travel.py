@@ -19,8 +19,9 @@ from app.domain.enums import (
     ServiceState,
     TravelMode,
 )
+from app.domain.follow_up import PreferenceOverrides, RequestOverrides
 from app.domain.normalization import GeoPoint, TravelPreferences, TravelRequestInput
-from app.services.ports import RecommendationRecord
+from app.services.ports import RecommendationRecord, RecommendationSummaryRecord
 
 
 class _Strict(BaseModel):
@@ -280,3 +281,84 @@ class JobAccepted(_Strict):
             events_url=f"/v1/jobs/{job_id}/events",
             status_url=f"/v1/jobs/{job_id}",
         )
+
+
+# ------------------------------------------------------------------ follow-up overrides
+
+
+class PreferenceChanges(_Strict):
+    travel_modes: list[TravelMode] | None = Field(default=None, max_length=len(TravelMode))
+    avoid: list[AvoidOption] | None = Field(default=None, max_length=len(AvoidOption))
+    max_travel_hours: int | None = None
+    mobility_needs: list[MobilityNeed] | None = Field(default=None, max_length=len(MobilityNeed))
+    traveler_count: int | None = None
+
+    def to_domain(self) -> PreferenceOverrides:
+        return PreferenceOverrides(
+            travel_modes=_tuple(self.travel_modes),
+            avoid=_tuple(self.avoid),
+            max_travel_hours=self.max_travel_hours,
+            mobility_needs=_tuple(self.mobility_needs),
+            traveler_count=self.traveler_count,
+        )
+
+
+class TravelOverrides(_Strict):
+    """Partial TravelRequest for follow-ups; omitted or null fields keep the earlier value."""
+
+    origin: Location | None = None
+    destination: Location | None = None
+    waypoints: list[Location] | None = Field(default=None, max_length=50)
+    departure_time: datetime | None = None
+    timezone: str | None = Field(default=None, max_length=64)
+    language: str | None = Field(default=None, max_length=35)
+    preferences: PreferenceChanges | None = None
+
+    def to_domain(self) -> RequestOverrides:
+        return RequestOverrides(
+            origin=self.origin.to_domain() if self.origin else None,
+            destination=self.destination.to_domain() if self.destination else None,
+            waypoints=(
+                tuple(p.to_domain() for p in self.waypoints) if self.waypoints is not None else None
+            ),
+            departure_time=self.departure_time,
+            timezone=self.timezone,
+            language=self.language,
+            preferences=self.preferences.to_domain() if self.preferences else None,
+        )
+
+
+def _tuple[T](values: list[T] | None) -> tuple[T, ...] | None:
+    return tuple(values) if values is not None else None
+
+
+# ------------------------------------------------------------------ history
+
+
+class RecommendationSummary(_Strict):
+    recommendation_id: UUID
+    created_at: datetime
+    status: RecommendationStatus
+    risk_level: RiskLevel | None
+    recommendation_type: RecommendationType | None
+    origin_name: str | None
+    destination_name: str | None
+    departure_time: datetime
+
+    @classmethod
+    def from_record(cls, record: RecommendationSummaryRecord) -> RecommendationSummary:
+        return cls(
+            recommendation_id=record.id,
+            created_at=record.created_at,
+            status=record.status,
+            risk_level=record.risk_level,
+            recommendation_type=record.recommendation_type,
+            origin_name=record.origin_name,
+            destination_name=record.destination_name,
+            departure_time=record.departure_time,
+        )
+
+
+class RecommendationPage(_Strict):
+    items: list[RecommendationSummary]
+    next_cursor: str | None

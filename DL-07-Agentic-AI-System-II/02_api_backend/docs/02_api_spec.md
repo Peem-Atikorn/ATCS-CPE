@@ -413,6 +413,7 @@
 
 - `GET /v1/travel/recommendations?limit=&cursor=&from=&to=&risk_level=` → `{ items: RecommendationSummary[], next_cursor }`
   - `RecommendationSummary`: `recommendation_id`, `created_at`, `status`, `risk_level`, `recommendation_type`, `origin_name`, `destination_name`, `departure_time`
+- รายละเอียด (Step 5.7): เรียงตาม `created_at` ใหม่สุดก่อน; `from` (รวม) / `to` (ไม่รวม) ต้องมี timezone; `risk_level` ผิด / `limit` นอก 1–P-40 / `cursor` ผิดรูป → `422` พร้อมชื่อ field (D-56)
 - `GET /v1/travel/recommendations/{id}` → `RecommendationResponse` (ถ้ายัง `processing` คืน `status=processing` + `job_id`; ถ้า `failed` คืน `error: { code, message }`)
 
 ---
@@ -508,6 +509,18 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 - `Message`: `message_id`, `role` (`user` \| `assistant`), `content`, `recommendation_id?`, `created_at`
 - `GET .../messages?limit=&cursor=` → เรียงใหม่สุดก่อน
 - `DELETE /v1/conversations/{id}` → `204` (ลบ messages + unlink recommendations)
+
+**รายละเอียดที่ตัดสินใจตอน implement (Step 5.7):**
+
+- `POST /v1/conversations` และ `POST .../messages` ใช้ rate limit P-32 และต้องมี `Idempotency-Key`; ตอบ `201` + `Location` / `200` / `202`
+- `title` ตัด control chars และตัดเหลือ 200 ตัวอักษร; ว่าง → `null`; `language` เลือกจาก body → `Accept-Language` → `th`
+- follow-up = คำขอคำแนะนำใหม่ (`travel_requests.source = MESSAGE`, `jobs.type = MESSAGE`) จาก request ล่าสุดของ conversation + `overrides`; ไม่ใช้ cache และส่ง 10 ข้อความล่าสุด (P-45) เป็น context — *D-53*
+- `overrides`: field ที่ไม่ส่งหรือเป็น `null` = ใช้ค่าเดิม; `preferences` รวมทีละ key; `waypoints: []` = ล้าง waypoint; conversation ที่ยังไม่มี request ต้องส่ง `origin`, `destination`, `departure_time`, `timezone` ไม่งั้น `422` (`overrides`, `travel_context_required`) — *D-54*
+- error ของ field ใน follow-up ใช้ชื่อ `content` (ข้อความ) และ `overrides.<field>` (เช่นเวลาเดิมผ่านไปแล้ว → `overrides.departure_time`)
+- `stream=true` → ตอบ `202` เสมอ; `stream=false` → เหมือน `mode=auto` (`200 Message` ของ assistant หรือ `202`) — *D-52*
+- job ที่จบแล้วบันทึกข้อความ assistant เสมอ (summary, คำถามกลับ หรือข้อความ "ข้อมูลไม่พอ") — *D-55*
+- ลบ conversation ระหว่างที่ follow-up แบบ sync ยังทำงาน → `404`
+- list conversations เรียงตาม `updated_at` ใหม่สุดก่อน (D-57); messages เรียงตาม `created_at` ใหม่สุดก่อน
 
 ### 7.2 Trips (E-14 .. E-18)
 
@@ -840,6 +853,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.8 | 2026-09-17 | Step 5.7: รายละเอียด §5.5 (history) และ §7.1 (conversations, follow-up, overrides) |
 | 0.7 | 2026-09-17 | Step 5.6: P-53, P-54, รายละเอียด §5.2 และ §6.3; `RecommendationResponse` มี `job_id` (ระหว่าง processing) และ `error` (เมื่อ failed) |
 | 0.6 | 2026-09-17 | Step 5.5: P-51, P-52 และรายละเอียด Safety Gate / sanitizer / freshness (§5.4) |
 | 0.5 | 2026-09-17 | Step 5.4: รายละเอียด NDJSON error line, retry, circuit breaker, cancel, และ error mapping เพิ่มเติม (§9) |

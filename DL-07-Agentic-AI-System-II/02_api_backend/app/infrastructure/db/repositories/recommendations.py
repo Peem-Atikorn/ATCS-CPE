@@ -12,23 +12,23 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from geoalchemy2 import Geography, Geometry, WKTElement
-from sqlalchemy import cast, func, or_, select
+from geoalchemy2 import Geography
+from sqlalchemy import cast, func, or_, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.ids import new_id
 from app.domain.enums import (
-    AvoidOption,
     JobStage,
     JobStatus,
     JobType,
     MessageRole,
-    MobilityNeed,
     RecommendationStatus,
-    TravelMode,
+    RecommendationType,
+    RiskLevel,
+    job_type_for,
 )
-from app.domain.normalization import GeoPoint, NormalizedTravelRequest, TravelPreferences
+from app.domain.normalization import NormalizedTravelRequest
 from app.domain.retention import expires_at
 from app.domain.sanitizer import truncate
 from app.infrastructure.db.models import (
@@ -43,12 +43,20 @@ from app.infrastructure.db.models import (
     TripModel,
     UserModel,
 )
+from app.infrastructure.db.repositories.requests import (
+    load_request,
+    point_json,
+    point_value,
+    preferences_json,
+)
+from app.services.pagination import Cursor
 from app.services.ports import (
     CreatedRecommendation,
     JobOutcome,
     JobRecord,
     NewRecommendation,
     RecommendationRecord,
+    RecommendationSummaryRecord,
     StoredResult,
     UserRef,
     WorkItem,
@@ -57,34 +65,6 @@ from app.services.ports import (
 MESSAGE_MAX_CHARS = 4000
 TITLE_MAX_CHARS = 200
 _ACTIVE = (JobStatus.QUEUED.value, JobStatus.RUNNING.value)
-
-
-def _point(point: GeoPoint) -> WKTElement:
-    return WKTElement(f"POINT({point.lon!r} {point.lat!r})", srid=4326)
-
-
-def _geo_json(point: GeoPoint) -> dict[str, Any]:
-    return {"lat": point.lat, "lon": point.lon, "name": point.name, "place_id": point.place_id}
-
-
-def _preferences_json(prefs: TravelPreferences) -> dict[str, Any]:
-    return {
-        "travel_modes": list(prefs.travel_modes),
-        "avoid": list(prefs.avoid),
-        "max_travel_hours": prefs.max_travel_hours,
-        "mobility_needs": list(prefs.mobility_needs),
-        "traveler_count": prefs.traveler_count,
-    }
-
-
-def _preferences(data: dict[str, Any]) -> TravelPreferences:
-    return TravelPreferences(
-        travel_modes=tuple(TravelMode(v) for v in data.get("travel_modes", [])),
-        avoid=tuple(AvoidOption(v) for v in data.get("avoid", [])),
-        max_travel_hours=data.get("max_travel_hours"),
-        mobility_needs=tuple(MobilityNeed(v) for v in data.get("mobility_needs", [])),
-        traveler_count=data.get("traveler_count", 1),
-    )
 
 
 def _title(request: NormalizedTravelRequest) -> str | None:
@@ -124,6 +104,10 @@ def _job_record(row: JobModel) -> JobRecord:
 class SqlRecommendationRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
+
+    @property
+    def sessions(self) -> async_sessionmaker[AsyncSession]:
+        return self._sessions
 
     # ------------------------------------------------------------------ users and lookups
 
@@ -224,15 +208,15 @@ class SqlRecommendationRepository:
             conversation_id=conversation.id,
             trip_id=new.trip_id,
             source=new.source.value,
-            origin=_point(request.origin),
+            origin=point_value(request.origin),
             origin_name=request.origin.name,
-            destination=_point(request.destination),
+            destination=point_value(request.destination),
             destination_name=request.destination.name,
-            waypoints=[_geo_json(p) for p in request.waypoints],
+            waypoints=[point_json(p) for p in request.waypoints],
             departure_time=request.departure_time,
             timezone=request.timezone,
             language=request.language,
-            preferences=_preferences_json(request.preferences),
+            preferences=preferences_json(request.preferences),
             has_question=request.question is not None,
             mode=new.mode.value,
             cache_key=new.cache_key,
@@ -280,7 +264,7 @@ class SqlRecommendationRepository:
             job = JobModel(
                 id=new.job_id or new_id(),
                 user_id=new.user_id,
-                type=JobType.RECOMMENDATION.value,
+                type=job_type_for(new.source).value,
                 recommendation_id=recommendation.id,
                 status=JobStatus.QUEUED.value,
                 stage=JobStage.QUEUED.value,
@@ -360,6 +344,45 @@ class SqlRecommendationRepository:
             )
             return _job_record(row) if row is not None else None
 
+    async def list_recommendations(
+        self,
+        user_id: UUID,
+        *,
+        limit: int,
+        cursor: Cursor | None,
+        created_from: datetime | None,
+        created_to: datetime | None,
+        risk_level: RiskLevel | None,
+    ) -> list[RecommendationSummaryRecord]:
+        model = RecommendationModel
+        query = select(model).where(model.user_id == user_id)
+        if cursor is not None:
+            query = query.where(tuple_(model.created_at, model.id) < (cursor.at, cursor.id))
+        if created_from is not None:
+            query = query.where(model.created_at >= created_from)
+        if created_to is not None:
+            query = query.where(model.created_at < created_to)
+        if risk_level is not None:
+            query = query.where(model.risk_level == risk_level.value)
+        query = query.order_by(model.created_at.desc(), model.id.desc()).limit(limit + 1)
+        async with self._sessions() as session:
+            rows = (await session.scalars(query)).all()
+        return [
+            RecommendationSummaryRecord(
+                id=row.id,
+                created_at=row.created_at,
+                status=RecommendationStatus(row.status),
+                risk_level=RiskLevel(row.risk_level) if row.risk_level else None,
+                recommendation_type=(
+                    RecommendationType(row.recommendation_type) if row.recommendation_type else None
+                ),
+                origin_name=row.origin_name,
+                destination_name=row.destination_name,
+                departure_time=row.departure_time,
+            )
+            for row in rows
+        ]
+
     # ------------------------------------------------------------------ worker
 
     async def start_job(
@@ -377,15 +400,15 @@ class SqlRecommendationRepository:
             user = await session.get(UserModel, job.user_id)
             assert recommendation is not None
             assert user is not None
-            request = await self._load_request(session, recommendation.request_id)
             question = await session.scalar(
                 select(MessageModel.content).where(
                     MessageModel.recommendation_id == recommendation.id,
                     MessageModel.role == MessageRole.USER.value,
                 )
             )
-            travel = await session.get(TravelRequestModel, recommendation.request_id)
-            assert travel is not None
+            request, travel = await load_request(
+                session, recommendation.request_id, question=question
+            )
             context: tuple[tuple[str, str], ...] = ()
             previous: UUID | None = None
             if recommendation.conversation_id is not None:
@@ -406,47 +429,10 @@ class SqlRecommendationRepository:
                 request_id=recommendation.request_id,
                 conversation_id=recommendation.conversation_id,
                 previous_recommendation_id=previous,
-                request=NormalizedTravelRequest(
-                    origin=request[0],
-                    destination=request[1],
-                    waypoints=request[2],
-                    departure_time=travel.departure_time,
-                    timezone=travel.timezone,
-                    language=travel.language,
-                    preferences=_preferences(travel.preferences),
-                    question=question,
-                ),
+                request=request,
                 context=context,
                 cache_key=travel.cache_key,
             )
-
-    async def _load_request(
-        self, session: AsyncSession, request_id: UUID
-    ) -> tuple[GeoPoint, GeoPoint, tuple[GeoPoint, ...]]:
-        origin = cast(TravelRequestModel.origin, Geometry)
-        destination = cast(TravelRequestModel.destination, Geometry)
-        row = (
-            await session.execute(
-                select(
-                    func.ST_Y(origin),
-                    func.ST_X(origin),
-                    TravelRequestModel.origin_name,
-                    func.ST_Y(destination),
-                    func.ST_X(destination),
-                    TravelRequestModel.destination_name,
-                    TravelRequestModel.waypoints,
-                ).where(TravelRequestModel.id == request_id)
-            )
-        ).one()
-        waypoints = tuple(
-            GeoPoint(p["lat"], p["lon"], name=p.get("name"), place_id=p.get("place_id"))
-            for p in row[6]
-        )
-        return (
-            GeoPoint(row[0], row[1], name=row[2]),
-            GeoPoint(row[3], row[4], name=row[5]),
-            waypoints,
-        )
 
     async def _context(
         self, session: AsyncSession, conversation_id: UUID, current: UUID, limit: int

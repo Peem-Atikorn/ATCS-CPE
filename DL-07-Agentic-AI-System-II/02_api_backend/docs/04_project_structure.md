@@ -81,7 +81,8 @@
 │   ├── services/               # ── Application layer (use cases)
 │   │   ├── recommendation_service.py  # create (sync/async decision), get, list
 │   │   ├── job_service.py             # status, cancel, events, tickets
-│   │   ├── conversation_service.py    # follow-up + overrides merge
+│   │   ├── conversation_service.py    # conversations, messages, follow-up (Step 5.7)
+│   │   ├── pagination.py              # cursor + Page (keyset)
 │   │   ├── trip_service.py
 │   │   ├── feedback_service.py        # + safety review routing
 │   │   ├── user_service.py            # JIT provisioning, consent, delete, export
@@ -96,6 +97,7 @@
 │   │   ├── errors.py           # DomainError, FieldIssue, InvalidInput
 │   │   ├── normalization.py    # timezone, language, coordinates, preferences
 │   │   ├── safety_gate.py      # R-01..R-07
+│   │   ├── follow_up.py        # รวม overrides เข้ากับ request เดิม (Step 5.7)
 │   │   ├── freshness.py        # is_stale / valid_until (P-28)
 │   │   ├── sanitizer.py        # ตัด field ภายใน, ตรวจ URL, control chars
 │   │   ├── cache_policy.py     # cache key + เงื่อนไขห้าม cache
@@ -111,7 +113,7 @@
 │   │   │   │                   #      mlops.py (prediction_records, feedback), audit.py, reference.py
 │   │   │   ├── migration_filters.py  # autogenerate filter (ใช้ร่วมกับ drift test)
 │   │   │   ├── reference_data.py     # seed coverage_areas / emergency_defaults
-│   │   │   └── repositories/   # recommendations.py (Step 5.6); ทุก read รับ user_id (กัน IDOR)
+│   │   │   └── repositories/   # recommendations.py, conversations.py, requests.py; ทุก read รับ user_id (กัน IDOR)
 │   │   ├── redis/
 │   │   │   ├── clients.py      # core / cache connections
 │   │   │   ├── keys.py         # key builders (ที่เดียวของ key format — data design §5)
@@ -202,6 +204,7 @@ flowchart LR
 | `workers` | `services`, `core` | `api` |
 
 - ตรวจอัตโนมัติด้วย **import-linter** ใน CI — *D-18*
+- ข้อยกเว้น: `infrastructure` import `app.services.ports` และ `app.services.pagination` ได้ (record และ Protocol ที่ infrastructure implement) — *D-58*
 - `services` พึ่ง **Protocol** (เช่น `RecommendationRepository`, `AgentPort`) → unit test ใส่ fake ได้โดยไม่ต้องมี DB
 - การแปลง `schemas` ↔ `domain` ทำที่ `api` layer (mapper function ในไฟล์ router หรือ `schemas/v1/*`)
 
@@ -450,6 +453,13 @@ flowchart LR
 | D-49 | ข้อความ progress สร้างโดย backend ตามภาษา; ไม่แสดงข้อความจาก Agent | ส่งต่อข้อความ Agent | Accepted (Step 5.6) |
 | D-50 | Celery task ใช้ `asyncio.Runner` หนึ่งตัวต่อ process และส่ง `contextvars.copy_context()` ทุกครั้ง (ขยาย D-20) | `asyncio.run()` ต่อ task | Accepted (Step 5.6) |
 | D-51 | ใช้ `redis` 6.4 ตามที่ `kombu[redis]` รองรับ (`<6.5`) | redis 8 + celery ไม่มี extra | Accepted (Step 5.6) |
+| D-52 | `POST .../messages` ที่ `stream=true` ตอบ `202` เสมอ; `false` = `mode=auto` | ให้ client เลือก mode เอง | Accepted (Step 5.7) |
+| D-53 | follow-up เป็น job ชนิด `MESSAGE` (`source = MESSAGE`) ผ่าน worker เดิม | worker แยก | Accepted (Step 5.7) |
+| D-54 | `overrides` แทนทั้ง field ยกเว้น `preferences` (รวมทีละ key); conversation ว่างต้องส่ง trip ครบ | JSON Merge Patch เต็มรูปแบบ | Accepted (Step 5.7) |
+| D-55 | `200` ของ follow-up คือ `Message` ของ assistant; job ที่จบบันทึกข้อความเสมอ (มีข้อความสำรองเมื่อไม่มีคำแนะนำ) | ตอบ `RecommendationResponse` | Accepted (Step 5.7) |
+| D-56 | cursor / `limit` ผิด → `422 VALIDATION_ERROR` พร้อมชื่อ field | `400 INVALID_REQUEST` | Accepted (Step 5.7) |
+| D-57 | list conversations เรียงตาม `updated_at` (index เดิม); รายการที่เปลี่ยนระหว่างเปิดหน้าอาจย้ายที่ | เรียงตาม `created_at` | Accepted (Step 5.7) |
+| D-58 | `infrastructure` import `services.ports` / `services.pagination` ได้ (Protocol + record ของ port) | ย้าย port ไป `domain` | Accepted (Step 5.7) |
 | D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
 | D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
 | D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
@@ -471,7 +481,7 @@ flowchart LR
 | 5.4 | Mock Agent + AgentClient (timeout, retry, circuit breaker) | respx tests ทุก error mapping |
 | 5.5 | Domain: normalization, freshness, safety gate, sanitizer | unit tests R-01..R-07 |
 | 5.6 | Recommendation flow: service + Celery task + job state + SSE (+ stream ticket, cache, JIT user แบบย่อ) | E2E: 200 / 202 + events — **done** |
-| 5.7 | Conversations + follow-up, `GET /v1/travel/recommendations` (E-02, cursor) | |
+| 5.7 | Conversations + follow-up, `GET /v1/travel/recommendations` (E-02, cursor) | ครบ E-02, E-08..E-13 — **done** |
 | 5.8 | Trips + alerts, feedback + review queue | |
 | 5.9 | Me: delete / export / consent, purge + reaper jobs, `DELETE /v1/jobs/{id}` (E-05), `prediction_records`, beat container | |
 | 5.10 | Observability (OTel, metrics), `/ready`, service-status | |
@@ -484,6 +494,7 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.8 | 2026-09-17 | Step 5.7: D-52..D-58, ไฟล์ `follow_up.py`, `pagination.py`, `conversation_service.py`, repositories ใหม่ |
 | 0.7 | 2026-09-17 | Step 5.6: D-37..D-51 (D-23 แทนด้วย D-37), ไฟล์ใหม่ใน tree, งานที่เลื่อนไป 5.7 / 5.9 |
 | 0.6 | 2026-09-17 | Step 5.5: D-34..D-36, `tests/unit/domain/test_layering.py` ตรวจ layer rule ของ domain (แทน import-linter ชั่วคราว) |
 | 0.5 | 2026-09-17 | Step 5.4: เพิ่ม D-31..D-33, D-24 Accepted, mock agent ไม่มี Dockerfile แยก |

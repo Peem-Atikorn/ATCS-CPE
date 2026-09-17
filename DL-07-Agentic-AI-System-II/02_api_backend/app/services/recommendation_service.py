@@ -22,12 +22,12 @@ from app.domain.cache_policy import cache_key, request_is_cacheable
 from app.domain.enums import (
     JobStage,
     JobStatus,
-    JobType,
     RecommendationStatus,
     RecommendationType,
     RequestMode,
     RequestSource,
     RiskLevel,
+    job_type_for,
 )
 from app.domain.normalization import (
     NormalizationLimits,
@@ -39,6 +39,7 @@ from app.infrastructure.redis.job_state import JobSnapshot
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import SlotLimiter
 from app.services.agent_run_service import staleness_policy
+from app.services.pagination import Cursor, Page, build_page, decode_cursor, page_limit
 from app.services.ports import (
     CachePort,
     JobQueue,
@@ -46,6 +47,7 @@ from app.services.ports import (
     NewRecommendation,
     RecommendationRecord,
     RecommendationRepository,
+    RecommendationSummaryRecord,
     StoredResult,
     UserRef,
 )
@@ -66,6 +68,7 @@ class CreateRecommendation:
     conversation_id: UUID | None
     trip_id: UUID | None
     correlation_id: str
+    source: RequestSource = RequestSource.RECOMMENDATION
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +149,27 @@ class RecommendationService:
             raise AppError(ErrorCode.NOT_FOUND)
         return record
 
+    async def list(
+        self,
+        user: UserRef,
+        *,
+        limit: int | None,
+        cursor: str | None,
+        created_from: datetime | None,
+        created_to: datetime | None,
+        risk_level: RiskLevel | None,
+    ) -> Page[RecommendationSummaryRecord]:
+        size = page_limit(limit, maximum=self._settings.limits.max_page_size)
+        rows = await self._repo.list_recommendations(
+            user.id,
+            limit=size,
+            cursor=decode_cursor(cursor),
+            created_from=created_from,
+            created_to=created_to,
+            risk_level=risk_level,
+        )
+        return build_page(rows, size, key=lambda row: Cursor(row.created_at, row.id))
+
     # ------------------------------------------------------------------ create
 
     async def create(self, user: UserRef, command: CreateRecommendation) -> CreateOutcome:
@@ -161,7 +185,7 @@ class RecommendationService:
             user_id=user.id,
             request=request,
             mode=command.mode,
-            source=RequestSource.RECOMMENDATION,
+            source=command.source,
             conversation_id=command.conversation_id,
             trip_id=command.trip_id,
             cache_key=key,
@@ -280,7 +304,7 @@ class RecommendationService:
                 JobSnapshot(
                     job_id=job_id,
                     user_id=user.id,
-                    type=JobType.RECOMMENDATION,
+                    type=job_type_for(new.source),
                     status=JobStatus.QUEUED,
                     stage=JobStage.QUEUED,
                     progress=0,

@@ -10,7 +10,9 @@ from app.core.clock import SystemClock
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
 from app.core.security import Principal
+from app.infrastructure.db.repositories.conversations import SqlConversationRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
+from app.services.conversation_service import ConversationService
 from app.services.job_service import JobService
 from app.services.ports import UserRef
 from app.services.recommendation_service import RecommendationService
@@ -72,6 +74,16 @@ def get_job_service(request: Request) -> JobService:
         slots=_require(resources.slots, "slots"),
         tickets=_require(resources.tickets, "tickets"),
         keys=resources.keys,
+        settings=resources.settings,
+        clock=_CLOCK,
+    )
+
+
+def get_conversation_service(request: Request) -> ConversationService:
+    resources = get_resources(request)
+    return ConversationService(
+        conversations=SqlConversationRepository(_require(resources.sessions, "sessions")),
+        recommendations=get_recommendation_service(request),
         settings=resources.settings,
         clock=_CLOCK,
     )

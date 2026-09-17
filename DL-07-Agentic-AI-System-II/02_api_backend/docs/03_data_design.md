@@ -619,5 +619,6 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
+| 0.4 | 2026-09-17 | Step 5.7: ไม่เปลี่ยน schema; follow-up ใช้ `travel_requests.source = MESSAGE` และ `jobs.type = MESSAGE` |
 | 0.3 | 2026-09-17 | Step 5.6: ตัด `job:{id}:done` (D-38), `jobs:active` เป็น ZSET (D-39), ชื่อ key ของ ticket เป็น hash (D-40) |
 | 0.2 | 2026-09-17 | Step 5.2: เพิ่ม DP-09, `coverage_areas.source`, `data_exports.expires_at` nullable, audit_logs มี default partition, roles ย้ายไปทำตอน deploy (D-27) |

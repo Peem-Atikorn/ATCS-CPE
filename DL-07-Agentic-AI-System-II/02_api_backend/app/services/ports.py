@@ -17,6 +17,7 @@ from app.domain.enums import (
     JobStage,
     JobStatus,
     JobType,
+    MessageRole,
     RecommendationStatus,
     RecommendationType,
     RequestMode,
@@ -27,7 +28,8 @@ from app.domain.normalization import NormalizedTravelRequest
 from app.infrastructure.agent.client import AgentCallResult
 from app.infrastructure.agent.contracts import AgentRunRequest, AgentVersions, ProgressLine
 from app.infrastructure.redis.job_state import JobEvent, JobSnapshot
-from app.services.recommendation_payload import Assessment
+from app.services.pagination import Cursor
+from app.services.recommendation_payload import Assessment, fallback_reply
 
 # ------------------------------------------------------------------ records
 
@@ -105,7 +107,11 @@ class StoredResult:
             agent_version=versions.agent,
             risk_model_version=versions.risk_model,
             prompt_version=versions.prompt,
-            message=assessment.summary or clarification.get("question"),
+            message=(
+                assessment.summary
+                or clarification.get("question")
+                or fallback_reply(str(assessment.payload.get("language", "")))
+            ),
         )
 
 
@@ -149,6 +155,40 @@ class JobRecord:
             created_at=snapshot.created_at,
             updated_at=snapshot.updated_at,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class RecommendationSummaryRecord:
+    id: UUID
+    created_at: datetime
+    status: RecommendationStatus
+    risk_level: RiskLevel | None
+    recommendation_type: RecommendationType | None
+    origin_name: str | None
+    destination_name: str | None
+    departure_time: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationRecord:
+    id: UUID
+    user_id: UUID
+    title: str | None
+    language: str
+    created_at: datetime
+    updated_at: datetime
+    last_recommendation_id: UUID | None
+    message_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class MessageRecord:
+    id: UUID
+    conversation_id: UUID
+    role: MessageRole
+    content: str
+    recommendation_id: UUID | None
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +260,17 @@ class RecommendationRepository(Protocol):
 
     async def get_job(self, user_id: UUID, job_id: UUID) -> JobRecord | None: ...
 
+    async def list_recommendations(
+        self,
+        user_id: UUID,
+        *,
+        limit: int,
+        cursor: Cursor | None,
+        created_from: datetime | None,
+        created_to: datetime | None,
+        risk_level: RiskLevel | None,
+    ) -> list[RecommendationSummaryRecord]: ...
+
     async def start_job(
         self, job_id: UUID, now: datetime, *, context_messages: int
     ) -> WorkItem | None: ...
@@ -227,6 +278,38 @@ class RecommendationRepository(Protocol):
     async def emergency_default(self, region_code: str, language: str) -> dict[str, Any] | None: ...
 
     async def finish_job(self, job_id: UUID, outcome: JobOutcome) -> None: ...
+
+
+class ConversationRepository(Protocol):
+    """List methods return up to `limit + 1` rows (see pagination.build_page)."""
+
+    async def create(
+        self,
+        user_id: UUID,
+        *,
+        title: str | None,
+        language: str,
+        now: datetime,
+        retention_days: int,
+    ) -> ConversationRecord: ...
+
+    async def get(self, user_id: UUID, conversation_id: UUID) -> ConversationRecord | None: ...
+
+    async def list_conversations(
+        self, user_id: UUID, *, limit: int, cursor: Cursor | None
+    ) -> list[ConversationRecord]: ...
+
+    async def delete(self, user_id: UUID, conversation_id: UUID) -> bool: ...
+
+    async def messages(
+        self, user_id: UUID, conversation_id: UUID, *, limit: int, cursor: Cursor | None
+    ) -> list[MessageRecord] | None: ...
+
+    async def last_request(
+        self, user_id: UUID, conversation_id: UUID
+    ) -> NormalizedTravelRequest | None: ...
+
+    async def reply_for(self, user_id: UUID, recommendation_id: UUID) -> MessageRecord | None: ...
 
 
 ProgressCallback = Callable[[ProgressLine], Awaitable[None]]

@@ -175,3 +175,8 @@ class MobilityNeed(StrEnum):
     ELDERLY = "ELDERLY"
     CHILDREN = "CHILDREN"
     PETS = "PETS"
+
+
+def job_type_for(source: RequestSource) -> JobType:
+    """Follow-up messages run as MESSAGE jobs; the processing is the same (D-53)."""
+    return JobType.MESSAGE if source is RequestSource.MESSAGE else JobType.RECOMMENDATION

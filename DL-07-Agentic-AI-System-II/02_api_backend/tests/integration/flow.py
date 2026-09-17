@@ -20,6 +20,7 @@ from app.domain.normalization import GeoPoint, TravelPreferences, TravelRequestI
 from app.infrastructure.agent.auth import NoAuth
 from app.infrastructure.agent.circuit_breaker import RedisCircuitBreaker
 from app.infrastructure.agent.client import AgentClient
+from app.infrastructure.db.repositories.conversations import SqlConversationRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
 from app.infrastructure.redis.cache import RedisRecommendationCache
 from app.infrastructure.redis.job_state import JobSnapshot, RedisJobStateStore
@@ -27,6 +28,7 @@ from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import RedisSlotLimiter
 from app.infrastructure.redis.tickets import RedisTicketStore
 from app.services.agent_run_service import AgentRunService
+from app.services.conversation_service import ConversationService
 from app.services.ports import NewRecommendation, UserRef
 from app.services.recommendation_service import RecommendationService
 from mock_agent.main import MockState, create_app
@@ -115,6 +117,15 @@ class Flow:
             cache=self.cache,
             queue=self.queue,
             keys=self.keys,
+            settings=chosen,
+            clock=SystemClock(),
+        )
+
+    def conversations(self, settings: Settings | None = None) -> ConversationService:
+        chosen = settings or self.settings
+        return ConversationService(
+            conversations=SqlConversationRepository(self.repo.sessions),
+            recommendations=self.recommendations(chosen),
             settings=chosen,
             clock=SystemClock(),
         )

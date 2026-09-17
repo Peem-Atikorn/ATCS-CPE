@@ -45,6 +45,20 @@ DISCLAIMERS = {
 }
 
 
+FALLBACK_REPLIES = {
+    "th": "ยังให้คำแนะนำไม่ได้ในตอนนี้ เพราะข้อมูลไม่ครบ โปรดตรวจสอบประกาศจากหน่วยงานทางการ",
+    "en": (
+        "We could not give a recommendation because some data is missing. "
+        "Check official announcements before you travel."
+    ),
+}
+
+
+def fallback_reply(language: str) -> str:
+    """Assistant text when the Agent gave neither advice nor a question (D-55)."""
+    return FALLBACK_REPLIES["th" if language == "th" else "en"]
+
+
 @dataclass(frozen=True, slots=True)
 class Assessment:
     status: RecommendationStatus
