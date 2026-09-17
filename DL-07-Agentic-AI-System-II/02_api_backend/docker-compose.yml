@@ -1,0 +1,101 @@
+# Backend development stack (docs/04_project_structure.md section 5.2).
+# Services added in later steps: migrate (5.2), mock-agent (5.4), worker/beat (5.6).
+name: tsa-backend
+
+x-api-env: &api-env
+  APP_ENV: ${APP_ENV:-dev}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_JSON: ${LOG_JSON:-true}
+  DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-tsa}:${POSTGRES_PASSWORD:-tsa}@postgres:5432/${POSTGRES_DB:-tsa}
+  REDIS_URL: redis://redis-core:6379/0
+  REDIS_CACHE_URL: redis://redis-cache:6379/0
+  CELERY_BROKER_URL: redis://redis-core:6379/2
+  JWT_ISSUER: ${JWT_ISSUER:-http://localhost:8000/dev-issuer}
+  JWT_AUDIENCE: ${JWT_AUDIENCE:-travel-safety-api}
+  AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://mock-agent:8010}
+  CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+
+services:
+  api:
+    build:
+      context: .
+      target: dev
+    image: tsa-backend:dev
+    environment:
+      <<: *api-env
+      WATCHFILES_FORCE_POLLING: "true"  # file events do not cross Windows bind mounts
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    volumes:
+      - ./app:/app/app:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-core:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys, urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    networks: [backend]
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tsa}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tsa}
+      POSTGRES_DB: ${POSTGRES_DB:-tsa}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  redis-core:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec",
+              "--maxmemory-policy", "noeviction"]
+    ports:
+      - "${REDIS_CORE_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis-core-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+  redis-cache:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no",
+              "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "${REDIS_CACHE_HOST_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
+volumes:
+  pgdata:
+  redis-core-data:
+
+networks:
+  backend:

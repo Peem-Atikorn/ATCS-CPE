@@ -1,0 +1,451 @@
+# 04 — Project Structure: API & Backend
+
+> สถานะ: **Draft v0.1** — เอกสารออกแบบเท่านั้น ยังไม่สร้างไฟล์โค้ดจริง (สร้างใน Phase 5)
+> อ้างอิง: [02_api_spec.md](02_api_spec.md) · [03_data_design.md](03_data_design.md)
+> การตัดสินใจของ Phase นี้อยู่ที่ [§12 Decision Log](#12-decision-log) (ต่อจาก D-17)
+
+---
+
+## 1. Directory Tree
+
+```text
+02_api_backend/
+├── 01_env.txt / 02_step.txt / 03_process.txt   # แผนจากอาจารย์ (ไม่แก้)
+├── docs/                                       # เอกสาร Phase 1–4
+│
+├── pyproject.toml              # dependencies + ruff/mypy/pytest config
+├── uv.lock
+├── Dockerfile                  # multi-stage: api / worker / beat ใช้ image เดียว
+├── docker-compose.yml          # stack สำหรับ dev ของ backend เอง
+├── .env.example                # ตัวแปรเฉพาะ backend (ค่าตัวอย่างเท่านั้น)
+├── .dockerignore
+├── Makefile                    # คำสั่งลัด (ดู §9)
+├── alembic.ini
+├── README.md
+│
+├── app/
+│   ├── main.py                 # create_app(): FastAPI + middleware + routers + lifespan
+│   ├── serve.py                # entrypoint: ตรวจ config แล้วเรียก uvicorn (D-25)
+│   │
+│   ├── core/                   # ── cross-cutting (ไม่มี business rule)
+│   │   ├── config.py           # Settings (pydantic-settings) — P-xx ทั้งหมด
+│   │   ├── logging.py          # structlog + PII redaction processor
+│   │   ├── telemetry.py        # OpenTelemetry setup (FastAPI, httpx, SQLAlchemy, Celery, Redis)
+│   │   ├── metrics.py          # Prometheus metric objects
+│   │   ├── security.py         # JWT verify, JWKS cache, scopes
+│   │   ├── errors.py           # AppError hierarchy + error codes
+│   │   ├── ids.py              # UUIDv7, request/correlation id
+│   │   ├── crypto.py           # HMAC pseudonym/ip hash, column encryption
+│   │   ├── geo.py              # geohash, coordinate rounding
+│   │   └── clock.py            # Clock abstraction (ทดสอบเวลาได้)
+│   │
+│   ├── api/                    # ── Presentation layer (HTTP / SSE / WS)
+│   │   ├── deps.py             # Depends: current_user, db session, services, pagination
+│   │   ├── middleware/
+│   │   │   ├── request_context.py   # request_id, correlation_id, contextvars
+│   │   │   ├── body_limit.py        # P-44
+│   │   │   ├── rate_limit.py        # P-30..P-32
+│   │   │   ├── idempotency.py       # spec §11.1
+│   │   │   ├── access_log.py
+│   │   │   └── security_headers.py
+│   │   ├── error_handlers.py   # AppError / ValidationError → Problem Details
+│   │   ├── ops.py              # /health /ready /metrics
+│   │   └── v1/
+│   │       ├── router.py       # รวม router ทั้งหมดภายใต้ /v1
+│   │       ├── recommendations.py
+│   │       ├── jobs.py         # + SSE events + stream ticket
+│   │       ├── ws.py
+│   │       ├── conversations.py
+│   │       ├── trips.py
+│   │       ├── feedback.py
+│   │       ├── me.py
+│   │       ├── service_status.py
+│   │       └── admin/
+│   │           ├── jobs.py
+│   │           ├── reviews.py
+│   │           └── audit.py
+│   │
+│   ├── schemas/                # ── API contract (Pydantic v2) — versioned
+│   │   └── v1/
+│   │       ├── common.py       # Location, Page, Problem, enums
+│   │       ├── travel.py       # TravelRequest, RecommendationResponse, RouteOption, Hazard, ...
+│   │       ├── jobs.py
+│   │       ├── conversations.py
+│   │       ├── trips.py
+│   │       ├── feedback.py
+│   │       ├── me.py
+│   │       └── status.py
+│   │
+│   ├── services/               # ── Application layer (use cases)
+│   │   ├── recommendation_service.py  # create (sync/async decision), get, list
+│   │   ├── job_service.py             # status, cancel, events, tickets
+│   │   ├── conversation_service.py    # follow-up + overrides merge
+│   │   ├── trip_service.py
+│   │   ├── feedback_service.py        # + safety review routing
+│   │   ├── user_service.py            # JIT provisioning, consent, delete, export
+│   │   ├── status_service.py
+│   │   └── agent_run_service.py       # ใช้ใน worker: call agent → safety gate → persist
+│   │
+│   ├── domain/                 # ── Domain layer (pure Python, ไม่ import FastAPI/SQLAlchemy)
+│   │   ├── enums.py            # RiskLevel, RecommendationType, Status, Stage, ...
+│   │   ├── models.py           # dataclasses: NormalizedRequest, Recommendation, Freshness, ...
+│   │   ├── normalization.py    # timezone, language, coordinates, preferences
+│   │   ├── safety_gate.py      # R-01..R-07
+│   │   ├── freshness.py        # is_stale / valid_until (P-28)
+│   │   ├── sanitizer.py        # ตัด field ภายใน, ตรวจ URL, control chars
+│   │   ├── cache_policy.py     # cache key + เงื่อนไขห้าม cache
+│   │   ├── retention.py        # คำนวณ expires_at
+│   │   └── errors.py           # DomainError (แปลงเป็น HTTP ที่ api layer)
+│   │
+│   ├── infrastructure/         # ── Repository & Client layer
+│   │   ├── db/
+│   │   │   ├── base.py         # DeclarativeBase + naming convention
+│   │   │   ├── session.py      # async engine, session factory
+│   │   │   ├── types.py        # Geography helpers, EncryptedText
+│   │   │   ├── models/         # ORM: user.py, conversation.py, trip.py, request.py,
+│   │   │   │                   #      recommendation.py, job.py, agent_run.py,
+│   │   │   │                   #      prediction.py, feedback.py, export.py, audit.py, reference.py
+│   │   │   └── repositories/   # หนึ่งไฟล์ต่อ aggregate; ทุก method รับ user_id (กัน IDOR)
+│   │   ├── redis/
+│   │   │   ├── clients.py      # core / cache connections
+│   │   │   ├── keys.py         # key builders (ที่เดียวของ key format — data design §5)
+│   │   │   ├── rate_limiter.py
+│   │   │   ├── idempotency_store.py
+│   │   │   ├── job_state.py    # HASH + STREAM + done signal
+│   │   │   ├── tickets.py
+│   │   │   └── cache.py
+│   │   ├── agent/
+│   │   │   ├── client.py       # AgentClient (httpx): timeout, retry, deadline, cancel, NDJSON
+│   │   │   ├── contracts.py    # Pydantic ของ Agent request/response (spec §9)
+│   │   │   ├── circuit_breaker.py
+│   │   │   └── auth.py         # client credentials token
+│   │   ├── storage/
+│   │   │   └── object_store.py # data export (MinIO/S3)
+│   │   └── audit.py            # AuditWriter
+│   │
+│   └── workers/                # ── Celery
+│       ├── celery_app.py       # config, queues, OTel propagation, correlation_id
+│       ├── tasks/
+│       │   ├── recommendation.py   # run_recommendation(job_id)
+│       │   ├── trip_alerts.py      # scheduled re-assessment
+│       │   ├── purge.py            # retention (data design §6.1)
+│       │   ├── account.py          # delete user, export data
+│       │   └── reaper.py           # job ค้าง
+│       └── schedule.py         # beat schedule (P-50)
+│
+├── migrations/                 # Alembic
+│   ├── env.py
+│   └── versions/               # 0001_extensions ... 0007_reference_tables
+│
+├── mock_agent/                 # Mock Travel AI Agent (ใช้จนกว่า Module 03 พร้อม)
+│   ├── Dockerfile
+│   ├── main.py                 # POST /v1/agent/runs, DELETE /runs/{id}, /health
+│   └── scenarios/              # JSON: low_risk, high_risk, partial_disaster_down,
+│                               #       needs_clarification, bad_schema, slow_20s
+│
+├── scripts/
+│   ├── seed_reference_data.py  # coverage_areas, emergency_defaults
+│   ├── dev_token.py            # ออก JWT สำหรับ dev (local issuer)
+│   └── export_openapi.py       # เขียน openapi.json ให้ทีม Web App
+│
+└── tests/
+    ├── conftest.py
+    ├── factories.py            # สร้าง test data
+    ├── fixtures/               # agent responses (JSON)
+    ├── unit/                   # domain + services (ไม่มี I/O)
+    ├── integration/            # repositories, redis, alembic (Testcontainers)
+    ├── api/                    # HTTP ผ่าน httpx.AsyncClient + respx mock agent
+    ├── contract/               # OpenAPI snapshot, Agent contract
+    └── e2e/                    # docker compose + mock_agent (optional ใน CI)
+```
+
+---
+
+## 2. Layer Rules
+
+```mermaid
+flowchart LR
+  subgraph Presentation
+    API[api/ + schemas/]
+    W[workers/]
+  end
+  S[services/]
+  D[domain/]
+  I[infrastructure/]
+  C[core/]
+  API --> S
+  W --> S
+  S --> D
+  S --> I
+  I --> D
+  API -.-> C
+  S -.-> C
+  I -.-> C
+  W -.-> C
+```
+
+| Layer | Import ได้ | ห้าม import |
+|---|---|---|
+| `domain` | stdlib, `core.clock`, `core.geo` | FastAPI, SQLAlchemy, Redis, httpx, Pydantic schemas ของ API |
+| `services` | `domain`, `infrastructure` (ผ่าน interface/Protocol), `core` | `api`, `schemas` (รับ/คืน domain model) |
+| `infrastructure` | `domain`, `core` | `api`, `services` |
+| `api` | `services`, `schemas`, `core` | `infrastructure` โดยตรง (ยกเว้น `deps.py` ที่ประกอบ dependency) |
+| `workers` | `services`, `core` | `api` |
+
+- ตรวจอัตโนมัติด้วย **import-linter** ใน CI — *D-18*
+- `services` พึ่ง **Protocol** (เช่น `RecommendationRepository`, `AgentPort`) → unit test ใส่ fake ได้โดยไม่ต้องมี DB
+- การแปลง `schemas` ↔ `domain` ทำที่ `api` layer (mapper function ในไฟล์ router หรือ `schemas/v1/*`)
+
+---
+
+## 3. Request Flow → ไฟล์ที่เกี่ยวข้อง
+
+| ขั้น (02_step.txt) | ไฟล์ |
+|---|---|
+| 1. รับ request | `api/v1/recommendations.py` |
+| 2. auth / rate limit / schema | `core/security.py`, `api/middleware/rate_limit.py`, `schemas/v1/travel.py` |
+| 3. request_id / correlation_id | `api/middleware/request_context.py` |
+| 4. normalize | `domain/normalization.py` |
+| 5–6. Agent / job queue | `services/recommendation_service.py` → `workers/tasks/recommendation.py` → `infrastructure/agent/client.py` |
+| 7. progress | `infrastructure/redis/job_state.py` → `api/v1/jobs.py` (SSE) |
+| 8. validate / sanitize | `infrastructure/agent/contracts.py`, `domain/safety_gate.py`, `domain/sanitizer.py` |
+| 9. return + freshness | `domain/freshness.py`, `schemas/v1/travel.py` |
+| 10. retention | `domain/retention.py`, `workers/tasks/purge.py` |
+| 11. follow-up | `services/conversation_service.py` |
+| error mapping | `core/errors.py`, `api/error_handlers.py` |
+
+---
+
+## 4. Configuration
+
+### 4.1 Settings (`app/core/config.py`)
+
+- ใช้ `pydantic-settings` อ่านจาก env → ไฟล์ `.env` (dev เท่านั้น)
+- จัดกลุ่มเป็น nested settings: `app`, `db`, `redis`, `auth`, `agent`, `limits`, `retention`, `cache`, `observability`, `storage`, `secrets`
+- ค่าทุกตัวใน spec §2 (P-xx) มี default = ค่าเสนอ → เปลี่ยนได้ด้วย env โดยไม่ต้องแก้โค้ด
+- Secret ใช้ `SecretStr` (ไม่หลุดใน log/repr)
+- Validate ตอน startup: ค่าผิด → process ไม่ start
+
+### 4.2 Environment Variables
+
+**บังคับ (จาก 01_env.txt — ตรงกับ `.env.example` ที่ root แล้ว)**
+
+| Variable | ตัวอย่าง dev |
+|---|---|
+| `DATABASE_URL` | `postgresql+asyncpg://tsa:tsa@postgres:5432/tsa` |
+| `REDIS_URL` | `redis://redis-core:6379/0` (ใช้เป็น core) |
+| `JWT_ISSUER` | `http://localhost:8000/dev-issuer` |
+| `JWT_AUDIENCE` | `travel-safety-api` |
+| `AGENT_SERVICE_URL` | `http://mock-agent:8010` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | ว่างได้ (ปิด tracing) |
+| `LOG_LEVEL` | `INFO` |
+
+**เพิ่มเติม (เสนอ — ต้องเพิ่มใน `.env.example` ตอน Phase 5)**
+
+| Variable | หมายเหตุ |
+|---|---|
+| `APP_ENV` | `dev` / `test` / `staging` / `prod` — ใช้เป็น Redis key prefix |
+| `REDIS_CACHE_URL` | ถ้าว่าง → ใช้ `REDIS_URL` DB `/1` (D-14) |
+| `CELERY_BROKER_URL` | ถ้าว่าง → ใช้ `REDIS_URL` DB `/2` |
+| `JWKS_URL` | ถ้าว่าง → ค้นจาก `{JWT_ISSUER}/.well-known/openid-configuration` |
+| `DEV_JWT_SIGNING_KEY` | ใช้เฉพาะ `APP_ENV=dev/test` |
+| `AGENT_CLIENT_ID`, `AGENT_CLIENT_SECRET` | service auth ไป Agent |
+| `PSEUDONYM_SECRET`, `IP_HASH_SECRET`, `COLUMN_ENCRYPTION_KEY` | secret manager ใน prod |
+| `OBJECT_STORE_URL`, `OBJECT_STORE_BUCKET`, `OBJECT_STORE_ACCESS_KEY`, `OBJECT_STORE_SECRET_KEY` | data export |
+| `ENABLE_DOCS` | เปิด/ปิด `/docs` |
+| P-xx config keys | ตาม spec §2 (ไม่ต้องใส่ถ้าใช้ค่า default) |
+
+> ⚠️ `.env.example` ที่ root มี `FEEDBACK_RETENTION_DAYS=90` (Module 08) แต่ P-23 เสนอ 180 วัน → ต้องตกลงให้ตรงกัน (Open Q1)
+
+### 4.3 Startup / Lifespan
+
+1. โหลด Settings → ตั้ง logging + telemetry
+2. สร้าง DB engine, Redis clients, AgentClient (httpx `AsyncClient` ตัวเดียว ใช้ connection pool)
+3. Warm JWKS cache (ไม่ fail ถ้าไม่ได้ — `/ready` จะรายงาน)
+4. Shutdown: ปิด httpx, Redis, DB engine ตามลำดับ
+
+---
+
+## 5. Docker
+
+### 5.1 Dockerfile (multi-stage)
+
+| Stage | ทำอะไร |
+|---|---|
+| `base` | `python:3.12-slim`, ติดตั้ง `libpq`/`libgeos` เท่าที่จำเป็น, user non-root `app` |
+| `deps` | `uv sync --frozen --no-dev` |
+| `dev` | + dev dependencies, mount source, `--reload` |
+| `runtime` | copy venv + `app/` + `migrations/`, `HEALTHCHECK` เรียก `/health` |
+
+- Image เดียวใช้ 3 บทบาทโดยเปลี่ยน command:
+  - api: `python -m app.serve --workers 2` (ตรวจ config ก่อน แล้วค่อยเรียก uvicorn หลาย worker — D-25)
+  - worker: `celery -A app.workers.celery_app worker -Q recommendations,maintenance`
+  - beat: `celery -A app.workers.celery_app beat`
+- Migration รันเป็น one-off service (`migrate`) ก่อน api start — ไม่รันใน api container
+
+### 5.2 `docker-compose.yml` (backend dev stack)
+
+| Service | Image | Port (host) | Depends on | หมายเหตุ |
+|---|---|---|---|---|
+| `api` | build `dev` | 8000 | migrate, redis-core, mock-agent | hot reload |
+| `worker` | build `dev` | — | redis-core, postgres | |
+| `beat` | build `dev` | — | redis-core | |
+| `migrate` | build `dev` | — | postgres (healthy) | `alembic upgrade head` แล้วจบ |
+| `postgres` | `postgis/postgis:16-3.4` | 5432 | — | volume `pgdata` |
+| `redis-core` | `redis:7-alpine` | 6379 | — | `--appendonly yes --maxmemory-policy noeviction` |
+| `redis-cache` | `redis:7-alpine` | 6380 | — | `--maxmemory 128mb --maxmemory-policy allkeys-lru` |
+| `mock-agent` | build `mock_agent/` | 8010 | — | `MOCK_SCENARIO` env เลือก scenario |
+| `minio` | `minio/minio` | 9000/9001 | — | profile `export` (เปิดเมื่อต้องการ) |
+| `otel-collector` + `jaeger` | — | 16686 | — | profile `observability` |
+
+- Network เดียว `backend`; ทุก service มี `healthcheck`
+- Port ตรงกับ `.env.example` ที่ root (`api` 8000, agent 8010)
+- ตอนรวมทีม: root `docker-compose.yml` ใช้ `include:` ไฟล์นี้ หรือ copy service `api`/`worker`/`beat` ไป แล้วเปลี่ยน `AGENT_SERVICE_URL` เป็น Agent ตัวจริง — *D-19*
+- Prometheus/Grafana ใช้ของทีมกลาง (`08_monitoring`) → backend เปิด `/metrics` บน network ภายในเท่านั้น
+
+---
+
+## 6. Celery Layout
+
+| Queue | Tasks | Concurrency (เสนอ) |
+|---|---|---|
+| `recommendations` | `run_recommendation` | 4 (prefork; งานส่วนใหญ่คือรอ Agent) |
+| `alerts` | `reassess_trip` | 2 |
+| `maintenance` | `purge_expired`, `reap_stuck_jobs`, `delete_account`, `build_data_export` | 1 |
+
+- `task_acks_late=True`, `worker_prefetch_multiplier=1`, `task_reject_on_worker_lost=True`
+- Task รับแค่ `job_id` (ไม่ส่ง payload/PII ผ่าน broker) → โหลดจาก DB
+- ส่ง `correlation_id` + `traceparent` ผ่าน task headers
+- Task เป็น sync function เรียก `asyncio.run()` เข้า service async — *D-20*
+- Retry เฉพาะ error ชั่วคราว (ตาม spec §9.5); ครบแล้ว → job `failed`
+
+---
+
+## 7. Dependencies (`pyproject.toml`)
+
+| กลุ่ม | Packages |
+|---|---|
+| Core | `fastapi`, `uvicorn[standard]`, `pydantic>=2`, `pydantic-settings`, `sse-starlette` |
+| Data | `sqlalchemy>=2`, `alembic`, `asyncpg`, `geoalchemy2`, `shapely`, `python-geohash` (หรือ `pygeohash`), `redis>=5` |
+| Auth / HTTP | `authlib`, `httpx` |
+| Jobs | `celery[redis]` |
+| Observability | `structlog`, `prometheus-client`, `opentelemetry-sdk`, `opentelemetry-exporter-otlp`, `opentelemetry-instrumentation-{fastapi,httpx,sqlalchemy,celery,redis}` |
+| Utils | `uuid6` (UUIDv7), `tzdata`, `cryptography`, `orjson` |
+| Dev / Test | `pytest`, `pytest-asyncio`, `pytest-cov`, `respx`, `testcontainers[postgres,redis]`, `freezegun` หรือ Clock abstraction, `schemathesis`, `ruff`, `mypy`, `import-linter`, `pre-commit` |
+
+- ใช้ **uv** จัดการ dependency + lock (`uv.lock` มีใน `.gitattributes` แล้ว) — *D-21*
+- เลือก **Authlib** อย่างเดียว (ไม่ติดตั้ง python-jose คู่กัน) — *D-22*
+- Celery อย่างเดียว ไม่มี RQ/Arq (ตาม 01_env.txt)
+
+---
+
+## 8. Testing Strategy
+
+| ระดับ | ทดสอบอะไร | เครื่องมือ | รันใน CI |
+|---|---|---|---|
+| Unit | domain (safety gate, normalization, freshness, cache policy), services กับ fake repo | pytest | ทุก push |
+| Integration | repositories + PostGIS, Redis keys/TTL, Alembic upgrade/downgrade | Testcontainers | ทุก push |
+| API | ทุก endpoint: auth, IDOR, rate limit, idempotency, error shape, SSE | httpx `AsyncClient`, respx | ทุก push |
+| Contract | OpenAPI snapshot ไม่เปลี่ยนโดยไม่ตั้งใจ; Agent fixtures ผ่าน `contracts.py`; fuzz schema | schemathesis | ทุก push |
+| E2E | compose stack + mock-agent ทุก scenario | pytest + docker compose | PR เข้า develop |
+
+**Test cases บังคับ (Safety):**
+- R-01..R-07 ทุกข้อมี test ทั้งกรณีผ่าน/ไม่ผ่าน
+- disaster ล่ม → ไม่มีวันได้ `TRAVEL_NORMALLY`
+- user A เข้าถึง resource ของ user B → 404
+- log ไม่มี token / email / พิกัดละเอียด (capture log แล้ว assert)
+
+**Coverage เป้าหมาย (เสนอ):** รวม ≥ 80%, `domain/` ≥ 95%
+
+---
+
+## 9. Developer Commands (Makefile)
+
+| คำสั่ง | ทำอะไร |
+|---|---|
+| `make up` / `make down` | เปิด/ปิด compose stack |
+| `make logs` | ดู log api + worker |
+| `make migrate` / `make revision m="..."` | Alembic |
+| `make seed` | reference data |
+| `make token` | ออก dev JWT |
+| `make test` / `make test-unit` / `make test-e2e` | pytest |
+| `make lint` | ruff + mypy + import-linter |
+| `make openapi` | เขียน `openapi.json` |
+| `make scenario s=high_risk` | เปลี่ยน scenario ของ mock-agent |
+
+> บน Windows ใช้ผ่าน Git Bash หรือ WSL; ถ้าไม่มี `make` ใช้คำสั่งเต็มใน README
+
+---
+
+## 10. Code Conventions
+
+| หัวข้อ | กติกา |
+|---|---|
+| Style | ruff (format + lint), line length 100 |
+| Typing | mypy strict ใน `domain/`, `services/`; ที่เหลือ standard |
+| Async | I/O ทั้งหมดเป็น async ใน api; ห้าม blocking call ใน event loop |
+| Naming | ไฟล์ `snake_case`, class `PascalCase`, Pydantic schema ลงท้าย `Request`/`Response`, ORM ลงท้าย `Model` |
+| Errors | raise `AppError(code=...)` เท่านั้น ห้าม `HTTPException` ใน services/domain |
+| Logging | `log.info("event_name", key=value)` — ชื่อ event เป็น snake_case, ห้าม f-string ใส่ข้อมูลผู้ใช้ |
+| Comments | ภาษาอังกฤษ สั้น อธิบาย "ทำไม" ไม่ใช่ "ทำอะไร" |
+| Commits | Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`) |
+| Branch | `sakda-02-api-backend` → PR เข้า `develop` |
+
+---
+
+## 11. CI Pipeline (GitHub Actions — เสนอ)
+
+1. `lint` — ruff, mypy, import-linter
+2. `test` — unit + integration + api + contract (Testcontainers ใช้ Docker ของ runner)
+3. `build` — build image `runtime`, scan ด้วย Trivy
+4. `openapi-diff` — เทียบ `openapi.json` กับ `develop` แจ้งถ้ามี breaking change
+5. `e2e` — เฉพาะ PR เข้า `develop`
+
+> ใช้ `paths:` filter ให้ทำงานเมื่อไฟล์ใน `DL-07-Agentic-AI-System-II/02_api_backend/**` เปลี่ยนเท่านั้น (repo รวม 8 โมดูล)
+
+---
+
+## 12. Decision Log
+
+| ID | การตัดสินใจ (ปัจจุบัน) | ทางเลือกอื่น | สถานะ |
+|---|---|---|---|
+| D-18 | บังคับ layer rule ด้วย import-linter | review ด้วยคน | Proposed |
+| D-19 | Backend มี compose ของตัวเอง + ให้ root compose `include:` | root compose ไฟล์เดียว | Proposed (คุยทีม) |
+| D-20 | Celery task sync + `asyncio.run()` | Celery + async pool เฉพาะ / เปลี่ยนเป็น Arq | Proposed |
+| D-21 | uv จัดการ dependency | pip + requirements.txt / poetry | Proposed |
+| D-22 | Authlib อย่างเดียว | python-jose | Proposed |
+| D-23 | SSE ใช้ `sse-starlette` | เขียน `StreamingResponse` เอง | Proposed |
+| D-24 | Mock Agent อยู่ใน repo ของ backend | ให้ Module 03 ทำ stub | Proposed |
+| D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
+
+## 13. Open Questions (Phase 4)
+
+1. `FEEDBACK_RETENTION_DAYS` ของ Module 08 = 90 วัน vs P-23 = 180 วัน — ใช้ค่าไหน
+2. ทีมจะมี root `docker-compose.yml` ไฟล์เดียวหรือให้แต่ละโมดูลมีของตัวเอง (D-19)
+3. CI ใช้ GitHub Actions ได้ไหม (repo มี 8 โมดูล ใครดูแล workflow กลาง)
+4. `08_monitoring` (Prometheus/Grafana) ใครเป็นเจ้าของ — backend ต้องส่ง scrape config ให้หรือไม่
+
+## 14. Phase 5 — ลำดับการ Implement ที่เสนอ
+
+| Step | งาน | ผลลัพธ์ที่ทดสอบได้ |
+|---|---|---|
+| 5.1 | Skeleton: pyproject, config, logging, errors, `/health`, Dockerfile, compose (postgres, redis) | `make up` → `/health` = 200 |
+| 5.2 | DB models + Alembic 0001–0007 + seed | migration up/down ผ่าน |
+| 5.3 | Auth (dev issuer + JWKS), request context, error handlers, rate limit, idempotency | API tests: 401/403/422/429/409 |
+| 5.4 | Mock Agent + AgentClient (timeout, retry, circuit breaker) | respx tests ทุก error mapping |
+| 5.5 | Domain: normalization, freshness, safety gate, sanitizer | unit tests R-01..R-07 |
+| 5.6 | Recommendation flow: service + Celery task + job state + SSE | E2E: 200 / 202 + events |
+| 5.7 | Conversations + follow-up | |
+| 5.8 | Trips + alerts, feedback + review queue | |
+| 5.9 | Me: delete / export, purge + reaper jobs | |
+| 5.10 | Observability (OTel, metrics), `/ready`, service-status | |
+| 5.11 | Admin endpoints | |
+| 5.12 | OpenAPI export, contract tests, CI | |
+
+## 15. Change Log
+
+| Version | วันที่ | รายละเอียด |
+|---|---|---|
+| 0.1 | 2026-09-17 | Draft แรก |
+| 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
