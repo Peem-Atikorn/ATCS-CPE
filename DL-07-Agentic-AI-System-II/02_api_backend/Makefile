@@ -2,7 +2,7 @@ UV ?= uv
 COMPOSE ?= docker compose
 
 .PHONY: install up down logs ps migrate downgrade revision seed token scenario test test-unit test-api \
-	test-integration test-fast cov lint format typecheck check
+	test-integration test-e2e test-fast cov lint format typecheck check
 
 install:
 	$(UV) sync
@@ -14,7 +14,7 @@ down:
 	$(COMPOSE) down
 
 logs:
-	$(COMPOSE) logs -f api
+	$(COMPOSE) logs -f api worker
 
 ps:
 	$(COMPOSE) ps
@@ -48,6 +48,9 @@ test-api:
 
 test-integration:
 	$(UV) run pytest tests/integration
+
+test-e2e:
+	E2E_BASE_URL=http://localhost:8000 E2E_MOCK_AGENT_URL=http://localhost:8010 $(UV) run pytest -m e2e tests/e2e
 
 test-fast:
 	$(UV) run pytest -m "not integration"

@@ -1,0 +1,571 @@
+"""Database access for the recommendation flow (docs/03_data_design.md sections 3.1-3.8).
+
+Each method runs in its own transaction. Reads take the caller's `user_id`, so another
+user's resource looks exactly like a missing one (IDOR, spec section 3).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from datetime import datetime
+from decimal import Decimal
+from typing import Any
+from uuid import UUID
+
+from geoalchemy2 import Geography, Geometry, WKTElement
+from sqlalchemy import cast, func, or_, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.core.ids import new_id
+from app.domain.enums import (
+    AvoidOption,
+    JobStage,
+    JobStatus,
+    JobType,
+    MessageRole,
+    MobilityNeed,
+    RecommendationStatus,
+    TravelMode,
+)
+from app.domain.normalization import GeoPoint, NormalizedTravelRequest, TravelPreferences
+from app.domain.retention import expires_at
+from app.domain.sanitizer import truncate
+from app.infrastructure.db.models import (
+    AgentRunModel,
+    ConversationModel,
+    CoverageAreaModel,
+    EmergencyDefaultModel,
+    JobModel,
+    MessageModel,
+    RecommendationModel,
+    TravelRequestModel,
+    TripModel,
+    UserModel,
+)
+from app.services.ports import (
+    CreatedRecommendation,
+    JobOutcome,
+    JobRecord,
+    NewRecommendation,
+    RecommendationRecord,
+    StoredResult,
+    UserRef,
+    WorkItem,
+)
+
+MESSAGE_MAX_CHARS = 4000
+TITLE_MAX_CHARS = 200
+_ACTIVE = (JobStatus.QUEUED.value, JobStatus.RUNNING.value)
+
+
+def _point(point: GeoPoint) -> WKTElement:
+    return WKTElement(f"POINT({point.lon!r} {point.lat!r})", srid=4326)
+
+
+def _geo_json(point: GeoPoint) -> dict[str, Any]:
+    return {"lat": point.lat, "lon": point.lon, "name": point.name, "place_id": point.place_id}
+
+
+def _preferences_json(prefs: TravelPreferences) -> dict[str, Any]:
+    return {
+        "travel_modes": list(prefs.travel_modes),
+        "avoid": list(prefs.avoid),
+        "max_travel_hours": prefs.max_travel_hours,
+        "mobility_needs": list(prefs.mobility_needs),
+        "traveler_count": prefs.traveler_count,
+    }
+
+
+def _preferences(data: dict[str, Any]) -> TravelPreferences:
+    return TravelPreferences(
+        travel_modes=tuple(TravelMode(v) for v in data.get("travel_modes", [])),
+        avoid=tuple(AvoidOption(v) for v in data.get("avoid", [])),
+        max_travel_hours=data.get("max_travel_hours"),
+        mobility_needs=tuple(MobilityNeed(v) for v in data.get("mobility_needs", [])),
+        traveler_count=data.get("traveler_count", 1),
+    )
+
+
+def _title(request: NormalizedTravelRequest) -> str | None:
+    if request.origin.name and request.destination.name:
+        return truncate(f"{request.origin.name} → {request.destination.name}", TITLE_MAX_CHARS)
+    return None
+
+
+def _decimal(value: float | None) -> Decimal | None:
+    return Decimal(str(round(value, 3))) if value is not None else None
+
+
+def _user_ref(row: UserModel) -> UserRef:
+    return UserRef(
+        id=row.id,
+        pseudonymous_id=row.pseudonymous_id,
+        language=row.language,
+        home_region=row.home_region,
+    )
+
+
+def _job_record(row: JobModel) -> JobRecord:
+    return JobRecord(
+        id=row.id,
+        user_id=row.user_id,
+        type=JobType(row.type),
+        status=JobStatus(row.status),
+        stage=JobStage(row.stage),
+        progress=row.progress,
+        recommendation_id=row.recommendation_id,
+        error_code=row.error_code,
+        created_at=row.created_at,
+        updated_at=row.finished_at or row.started_at or row.created_at,
+    )
+
+
+class SqlRecommendationRepository:
+    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
+        self._sessions = sessions
+
+    # ------------------------------------------------------------------ users and lookups
+
+    async def get_or_create_user(
+        self, issuer: str, subject: str, *, pseudonym: Callable[[UUID], str]
+    ) -> UserRef:
+        identity = (UserModel.oidc_issuer == issuer, UserModel.oidc_subject == subject)
+        async with self._sessions() as session:
+            existing = await session.scalar(select(UserModel).where(*identity))
+            if existing is not None:
+                return _user_ref(existing)
+        user_id = new_id()
+        async with self._sessions() as session, session.begin():
+            await session.execute(
+                insert(UserModel)
+                .values(
+                    id=user_id,
+                    oidc_issuer=issuer,
+                    oidc_subject=subject,
+                    pseudonymous_id=pseudonym(user_id),
+                )
+                .on_conflict_do_nothing(index_elements=["oidc_issuer", "oidc_subject"])
+            )
+            # Another request may have created the user first; its row wins.
+            row = await session.scalar(select(UserModel).where(*identity))
+            assert row is not None
+            return _user_ref(row)
+
+    async def conversation_exists(self, user_id: UUID, conversation_id: UUID) -> bool:
+        async with self._sessions() as session:
+            found = await session.scalar(
+                select(ConversationModel.id).where(
+                    ConversationModel.id == conversation_id, ConversationModel.user_id == user_id
+                )
+            )
+            return found is not None
+
+    async def trip_exists(self, user_id: UUID, trip_id: UUID) -> bool:
+        async with self._sessions() as session:
+            found = await session.scalar(
+                select(TripModel.id).where(TripModel.id == trip_id, TripModel.user_id == user_id)
+            )
+            return found is not None
+
+    async def region_for(self, lat: float, lon: float) -> str | None:
+        point = cast(func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326), Geography)
+        async with self._sessions() as session:
+            code: str | None = await session.scalar(
+                select(CoverageAreaModel.code)
+                .where(CoverageAreaModel.active, func.ST_Covers(CoverageAreaModel.area, point))
+                .order_by(CoverageAreaModel.code)
+                .limit(1)
+            )
+            return code
+
+    async def emergency_default(self, region_code: str, language: str) -> dict[str, Any] | None:
+        async with self._sessions() as session:
+            row = await session.get(EmergencyDefaultModel, (region_code, language))
+            return dict(row.instructions) if row is not None else None
+
+    # ------------------------------------------------------------------ create
+
+    async def _create(
+        self, session: AsyncSession, new: NewRecommendation
+    ) -> tuple[ConversationModel, RecommendationModel, TravelRequestModel]:
+        request = new.request
+        now = new.now
+        if new.conversation_id is None:
+            conversation = ConversationModel(
+                id=new_id(),
+                user_id=new.user_id,
+                title=_title(request),
+                language=request.language,
+                message_count=0,
+                created_at=now,
+                updated_at=now,
+                expires_at=expires_at(now, new.conversation_days),
+            )
+            session.add(conversation)
+            await session.flush()
+        else:
+            found = await session.scalar(
+                select(ConversationModel)
+                .where(
+                    ConversationModel.id == new.conversation_id,
+                    ConversationModel.user_id == new.user_id,
+                )
+                .with_for_update()
+            )
+            if found is None:
+                raise LookupError("conversation not found")
+            conversation = found
+
+        expiry = expires_at(now, new.retention_days)
+        travel = TravelRequestModel(
+            id=new_id(),
+            user_id=new.user_id,
+            conversation_id=conversation.id,
+            trip_id=new.trip_id,
+            source=new.source.value,
+            origin=_point(request.origin),
+            origin_name=request.origin.name,
+            destination=_point(request.destination),
+            destination_name=request.destination.name,
+            waypoints=[_geo_json(p) for p in request.waypoints],
+            departure_time=request.departure_time,
+            timezone=request.timezone,
+            language=request.language,
+            preferences=_preferences_json(request.preferences),
+            has_question=request.question is not None,
+            mode=new.mode.value,
+            cache_key=new.cache_key,
+            correlation_id=new.correlation_id,
+            created_at=now,
+            expires_at=expiry,
+        )
+        session.add(travel)
+        await session.flush()
+        recommendation = RecommendationModel(
+            id=new_id(),
+            request_id=travel.id,
+            user_id=new.user_id,
+            conversation_id=conversation.id,
+            trip_id=new.trip_id,
+            status=RecommendationStatus.PROCESSING.value,
+            origin_name=request.origin.name,
+            destination_name=request.destination.name,
+            departure_time=request.departure_time,
+            created_at=now,
+            expires_at=expiry,
+        )
+        session.add(recommendation)
+        await session.flush()
+        if request.question is not None:
+            session.add(
+                MessageModel(
+                    id=new_id(),
+                    conversation_id=conversation.id,
+                    role=MessageRole.USER.value,
+                    content=request.question,
+                    recommendation_id=recommendation.id,
+                    created_at=now,
+                )
+            )
+            conversation.message_count += 1
+        conversation.last_request_id = travel.id
+        conversation.updated_at = now
+        conversation.expires_at = expires_at(now, new.conversation_days)
+        return conversation, recommendation, travel
+
+    async def create_pending(self, new: NewRecommendation) -> CreatedRecommendation:
+        async with self._sessions() as session, session.begin():
+            conversation, recommendation, travel = await self._create(session, new)
+            job = JobModel(
+                id=new.job_id or new_id(),
+                user_id=new.user_id,
+                type=JobType.RECOMMENDATION.value,
+                recommendation_id=recommendation.id,
+                status=JobStatus.QUEUED.value,
+                stage=JobStage.QUEUED.value,
+                progress=0,
+                attempts=0,
+                created_at=new.now,
+                expires_at=expires_at(new.now, new.retention_days),
+            )
+            session.add(job)
+            return CreatedRecommendation(
+                travel.id, recommendation.id, conversation.id, job.id, new.now
+            )
+
+    async def create_completed(
+        self, new: NewRecommendation, result: StoredResult
+    ) -> CreatedRecommendation:
+        async with self._sessions() as session, session.begin():
+            conversation, recommendation, travel = await self._create(session, new)
+            _apply_result(session, conversation, recommendation, result, new.now)
+            conversation.expires_at = expires_at(new.now, new.conversation_days)
+            return CreatedRecommendation(
+                travel.id, recommendation.id, conversation.id, None, new.now
+            )
+
+    async def set_task_id(self, job_id: UUID, task_id: str) -> None:
+        async with self._sessions() as session, session.begin():
+            job = await session.get(JobModel, job_id)
+            if job is not None:
+                job.celery_task_id = task_id[:64]
+
+    async def fail_job(self, job_id: UUID, error_code: str, now: datetime) -> None:
+        async with self._sessions() as session, session.begin():
+            job = await session.get(JobModel, job_id, with_for_update=True)
+            if job is None:
+                return
+            _mark_failed(job, error_code, now)
+            recommendation = await session.get(RecommendationModel, job.recommendation_id)
+            if recommendation is not None:
+                _fail_recommendation(recommendation, error_code, now)
+
+    # ------------------------------------------------------------------ reads
+
+    async def get_recommendation(
+        self, user_id: UUID, recommendation_id: UUID
+    ) -> RecommendationRecord | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(RecommendationModel).where(
+                    RecommendationModel.id == recommendation_id,
+                    RecommendationModel.user_id == user_id,
+                )
+            )
+            if row is None:
+                return None
+            job_id = await session.scalar(
+                select(JobModel.id)
+                .where(JobModel.recommendation_id == row.id, JobModel.status.in_(_ACTIVE))
+                .order_by(JobModel.created_at.desc())
+                .limit(1)
+            )
+            return RecommendationRecord(
+                id=row.id,
+                user_id=row.user_id,
+                request_id=row.request_id,
+                conversation_id=row.conversation_id,
+                status=RecommendationStatus(row.status),
+                payload=row.payload,
+                error_code=row.error_code,
+                created_at=row.created_at,
+                job_id=job_id,
+            )
+
+    async def get_job(self, user_id: UUID, job_id: UUID) -> JobRecord | None:
+        async with self._sessions() as session:
+            row = await session.scalar(
+                select(JobModel).where(JobModel.id == job_id, JobModel.user_id == user_id)
+            )
+            return _job_record(row) if row is not None else None
+
+    # ------------------------------------------------------------------ worker
+
+    async def start_job(
+        self, job_id: UUID, now: datetime, *, context_messages: int
+    ) -> WorkItem | None:
+        async with self._sessions() as session, session.begin():
+            job = await session.get(JobModel, job_id, with_for_update=True)
+            if job is None or job.status not in _ACTIVE or job.recommendation_id is None:
+                return None
+            job.status = JobStatus.RUNNING.value
+            job.started_at = job.started_at or now
+            job.attempts += 1
+
+            recommendation = await session.get(RecommendationModel, job.recommendation_id)
+            user = await session.get(UserModel, job.user_id)
+            assert recommendation is not None
+            assert user is not None
+            request = await self._load_request(session, recommendation.request_id)
+            question = await session.scalar(
+                select(MessageModel.content).where(
+                    MessageModel.recommendation_id == recommendation.id,
+                    MessageModel.role == MessageRole.USER.value,
+                )
+            )
+            travel = await session.get(TravelRequestModel, recommendation.request_id)
+            assert travel is not None
+            context: tuple[tuple[str, str], ...] = ()
+            previous: UUID | None = None
+            if recommendation.conversation_id is not None:
+                context = await self._context(
+                    session, recommendation.conversation_id, recommendation.id, context_messages
+                )
+                conversation = await session.get(ConversationModel, recommendation.conversation_id)
+                if conversation is not None and conversation.last_recommendation_id not in (
+                    None,
+                    recommendation.id,
+                ):
+                    previous = conversation.last_recommendation_id
+            return WorkItem(
+                job_id=job.id,
+                attempt=job.attempts,
+                user=_user_ref(user),
+                recommendation_id=recommendation.id,
+                request_id=recommendation.request_id,
+                conversation_id=recommendation.conversation_id,
+                previous_recommendation_id=previous,
+                request=NormalizedTravelRequest(
+                    origin=request[0],
+                    destination=request[1],
+                    waypoints=request[2],
+                    departure_time=travel.departure_time,
+                    timezone=travel.timezone,
+                    language=travel.language,
+                    preferences=_preferences(travel.preferences),
+                    question=question,
+                ),
+                context=context,
+                cache_key=travel.cache_key,
+            )
+
+    async def _load_request(
+        self, session: AsyncSession, request_id: UUID
+    ) -> tuple[GeoPoint, GeoPoint, tuple[GeoPoint, ...]]:
+        origin = cast(TravelRequestModel.origin, Geometry)
+        destination = cast(TravelRequestModel.destination, Geometry)
+        row = (
+            await session.execute(
+                select(
+                    func.ST_Y(origin),
+                    func.ST_X(origin),
+                    TravelRequestModel.origin_name,
+                    func.ST_Y(destination),
+                    func.ST_X(destination),
+                    TravelRequestModel.destination_name,
+                    TravelRequestModel.waypoints,
+                ).where(TravelRequestModel.id == request_id)
+            )
+        ).one()
+        waypoints = tuple(
+            GeoPoint(p["lat"], p["lon"], name=p.get("name"), place_id=p.get("place_id"))
+            for p in row[6]
+        )
+        return (
+            GeoPoint(row[0], row[1], name=row[2]),
+            GeoPoint(row[3], row[4], name=row[5]),
+            waypoints,
+        )
+
+    async def _context(
+        self, session: AsyncSession, conversation_id: UUID, current: UUID, limit: int
+    ) -> tuple[tuple[str, str], ...]:
+        if limit <= 0:
+            return ()
+        rows = (
+            await session.execute(
+                select(MessageModel.role, MessageModel.content)
+                .where(
+                    MessageModel.conversation_id == conversation_id,
+                    or_(
+                        MessageModel.recommendation_id.is_(None),
+                        MessageModel.recommendation_id != current,
+                    ),
+                )
+                .order_by(MessageModel.created_at.desc(), MessageModel.id.desc())
+                .limit(limit)
+            )
+        ).all()
+        return tuple((role, content) for role, content in reversed(rows))
+
+    async def finish_job(self, job_id: UUID, outcome: JobOutcome) -> None:
+        now = outcome.finished_at
+        async with self._sessions() as session, session.begin():
+            job = await session.get(JobModel, job_id, with_for_update=True)
+            if job is None:
+                return
+            recommendation = await session.get(RecommendationModel, job.recommendation_id)
+            assert recommendation is not None
+            if outcome.status is JobStatus.SUCCEEDED and outcome.result is not None:
+                job.status = JobStatus.SUCCEEDED.value
+                job.stage = JobStage.COMPLETED.value
+                job.progress = 100
+                job.finished_at = now
+                conversation = None
+                if recommendation.conversation_id is not None:
+                    conversation = await session.get(
+                        ConversationModel, recommendation.conversation_id
+                    )
+                _apply_result(session, conversation, recommendation, outcome.result, now)
+                if conversation is not None:
+                    conversation.expires_at = expires_at(now, outcome.conversation_days)
+            else:
+                code = outcome.error_code or "INTERNAL_ERROR"
+                _mark_failed(job, code, now)
+                _fail_recommendation(recommendation, code, now)
+            if outcome.agent_run is not None:
+                run = outcome.agent_run
+                session.add(
+                    AgentRunModel(
+                        id=run.run_id,
+                        job_id=job.id,
+                        attempt=run.attempt,
+                        status=run.status.value,
+                        http_status=run.http_status,
+                        error_code=run.error_code[:40] if run.error_code else None,
+                        duration_ms=int((run.finished_at - run.started_at).total_seconds() * 1000),
+                        tool_calls=run.tool_calls,
+                        agent_version=run.agent_version,
+                        trace_id=run.trace_id[:64] if run.trace_id else None,
+                        started_at=run.started_at,
+                        finished_at=run.finished_at,
+                    )
+                )
+
+
+def _apply_result(
+    session: AsyncSession,
+    conversation: ConversationModel | None,
+    recommendation: RecommendationModel,
+    result: StoredResult,
+    now: datetime,
+) -> None:
+    recommendation.status = result.status.value
+    recommendation.risk_level = result.risk_level.value if result.risk_level else None
+    recommendation.risk_score = _decimal(result.risk_score)
+    recommendation.risk_confidence = _decimal(result.risk_confidence)
+    recommendation.recommendation_type = (
+        result.recommendation_type.value if result.recommendation_type else None
+    )
+    recommendation.payload = result.payload
+    recommendation.warning_codes = list(result.warning_codes)
+    recommendation.safety_gate_rules = list(result.applied_rules)
+    recommendation.overall_is_stale = result.overall_is_stale
+    recommendation.valid_until = result.valid_until
+    recommendation.api_version = result.api_version
+    recommendation.agent_version = result.agent_version
+    recommendation.risk_model_version = result.risk_model_version
+    recommendation.prompt_version = result.prompt_version
+    recommendation.completed_at = now
+    if conversation is None:
+        return
+    if result.message:
+        session.add(
+            MessageModel(
+                id=new_id(),
+                conversation_id=conversation.id,
+                role=MessageRole.ASSISTANT.value,
+                content=truncate(result.message, MESSAGE_MAX_CHARS),
+                recommendation_id=recommendation.id,
+                created_at=now,
+            )
+        )
+        conversation.message_count += 1
+    conversation.last_recommendation_id = recommendation.id
+    conversation.updated_at = now
+
+
+def _mark_failed(job: JobModel, error_code: str, now: datetime) -> None:
+    job.status = JobStatus.FAILED.value
+    job.stage = JobStage.FAILED.value
+    job.error_code = error_code[:40]
+    job.finished_at = now
+
+
+def _fail_recommendation(
+    recommendation: RecommendationModel, error_code: str, now: datetime
+) -> None:
+    recommendation.status = RecommendationStatus.FAILED.value
+    recommendation.error_code = error_code[:40]
+    recommendation.completed_at = now

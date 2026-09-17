@@ -91,17 +91,21 @@ async def get_principal(request: Request, response: Response) -> Principal:
     return principal
 
 
+def ensure_scopes(principal: Principal, *scopes: Scope) -> None:
+    if not principal.has_scopes(scopes):
+        raise AppError(
+            ErrorCode.FORBIDDEN,
+            headers={
+                "WWW-Authenticate": (
+                    f'Bearer error="insufficient_scope", scope="{" ".join(scopes)}"'
+                )
+            },
+        )
+
+
 def require_scopes(*scopes: Scope) -> Callable[..., Awaitable[Principal]]:
     async def dependency(principal: Principal = Depends(get_principal)) -> Principal:
-        if not principal.has_scopes(scopes):
-            raise AppError(
-                ErrorCode.FORBIDDEN,
-                headers={
-                    "WWW-Authenticate": (
-                        f'Bearer error="insufficient_scope", scope="{" ".join(scopes)}"'
-                    )
-                },
-            )
+        ensure_scopes(principal, *scopes)
         return principal
 
     return dependency

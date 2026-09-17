@@ -497,11 +497,10 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | `rl:user:{user_id}:export` | STRING | 24 h | core | 1 ครั้ง/วัน |
 | `idem:{user_id}:{method}:{route}:{key}` | HASH `{body_hash, state, status, response, created_at}` | P-25 | core | spec §11.1 |
 | `job:{job_id}` | HASH `{user_id, status, stage, progress, result_ref, error_code, updated_at}` | P-05 | core | live status (E-04 อ่านที่นี่ก่อน DB) |
-| `job:{job_id}:events` | STREAM (`MAXLEN ~ 100`) | P-05 | core | SSE + resume ด้วย `Last-Event-ID` = stream entry id |
-| `job:{job_id}:done` | STRING | P-05 | core | ให้ API ที่รอ sync ใช้ `BLPOP`/รอสัญญาณ |
-| `jobs:active:{user_id}` | SET | P-04 × 2 | core | P-33 |
+| `job:{job_id}:events` | STREAM (`MAXLEN ~ 100`) | P-05 | core | SSE + resume ด้วย `Last-Event-ID` = stream entry id; API ที่รอแบบ sync ก็อ่านที่นี่ (D-38) |
+| `jobs:active:{user_id}` | ZSET (member = job id, score = expiry) | P-04 × 2 | core | P-33 (D-39) |
 | `streams:{user_id}` | ZSET (member = connection id, score = expiry) | P-35 × 3 | core | P-34 (ลบ member ที่หมดอายุได้แม้ connection หลุด) |
-| `sse:ticket:{ticket}` | HASH `{user_id, job_id}` | 60 s, ใช้ครั้งเดียว (`GETDEL`) | core | D-06 |
+| `sse:ticket:{sha256(ticket)}` | STRING (JSON `{user_id, job_id}`) | P-54, ใช้ครั้งเดียว (`GETDEL`) | core | D-06, D-40 |
 | `ws:auth-pending:{conn}` | STRING | 5 s | core | timeout ของ auth message |
 | `cb:agent` | HASH `{state, failures, opened_at}` | ไม่มี | core | circuit breaker P-08 (ใช้ร่วมทุก worker) |
 | `reco:{cache_key}` | STRING (JSON ไม่มี PII) | min(P-26, valid_until) | cache | spec §11.2 |
@@ -620,4 +619,5 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
+| 0.3 | 2026-09-17 | Step 5.6: ตัด `job:{id}:done` (D-38), `jobs:active` เป็น ZSET (D-39), ชื่อ key ของ ticket เป็น hash (D-40) |
 | 0.2 | 2026-09-17 | Step 5.2: เพิ่ม DP-09, `coverage_areas.source`, `data_exports.expires_at` nullable, audit_logs มี default partition, roles ย้ายไปทำตอน deploy (D-27) |

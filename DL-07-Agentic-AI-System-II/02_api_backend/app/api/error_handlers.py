@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.api.problem import app_error_response, problem_response
 from app.core.errors import STATUS_TO_CODE, AppError, ErrorCode, FieldError
 from app.core.logging import get_logger
+from app.domain.errors import InvalidInput
 
 log = get_logger(__name__)
 
@@ -52,6 +53,15 @@ def register_error_handlers(app: FastAPI, *, type_base_url: str) -> None:
             errors=validation_field_errors(exc),
         )
 
+    async def handle_invalid_input(request: Request, exc: Exception) -> JSONResponse:
+        assert isinstance(exc, InvalidInput)
+        return problem_response(
+            ErrorCode.VALIDATION_ERROR,
+            instance=request.url.path,
+            type_base_url=type_base_url,
+            errors=[FieldError(field=i.field, message=i.message, code=i.code) for i in exc.issues],
+        )
+
     async def handle_http(request: Request, exc: Exception) -> JSONResponse:
         assert isinstance(exc, StarletteHTTPException)
         code = STATUS_TO_CODE.get(exc.status_code, ErrorCode.INTERNAL_ERROR)
@@ -70,5 +80,6 @@ def register_error_handlers(app: FastAPI, *, type_base_url: str) -> None:
 
     app.add_exception_handler(AppError, handle_app_error)
     app.add_exception_handler(RequestValidationError, handle_validation)
+    app.add_exception_handler(InvalidInput, handle_invalid_input)
     app.add_exception_handler(StarletteHTTPException, handle_http)
     app.add_exception_handler(Exception, handle_unexpected)

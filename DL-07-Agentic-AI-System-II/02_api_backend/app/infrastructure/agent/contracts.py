@@ -14,7 +14,7 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from app.domain.enums import JobStage, RecommendationType, RiskLevel
+from app.domain.enums import DataCategory, JobStage, RecommendationType, RiskLevel, ServiceState
 
 
 class _Request(BaseModel):
@@ -98,20 +98,6 @@ class AgentRunStatus(StrEnum):
     PARTIAL_RESULT = "partial_result"
     NEEDS_CLARIFICATION = "needs_clarification"
     FAILED = "failed"
-
-
-class ServiceState(StrEnum):
-    OK = "ok"
-    DEGRADED = "degraded"
-    UNAVAILABLE = "unavailable"
-    NOT_USED = "not_used"
-
-
-class DataCategory(StrEnum):
-    WEATHER = "WEATHER"
-    TRANSPORT = "TRANSPORT"
-    DISASTER = "DISASTER"
-    KNOWLEDGE_BASE = "KNOWLEDGE_BASE"
 
 
 class RiskFactor(_Response):

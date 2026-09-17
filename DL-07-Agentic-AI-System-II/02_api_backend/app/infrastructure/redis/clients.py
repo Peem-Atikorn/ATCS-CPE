@@ -20,12 +20,13 @@ class RedisClients:
 
 
 def _client(url: str, settings: RedisSettings) -> Redis:
-    return Redis.from_url(
+    client: Redis = Redis.from_url(
         url,
         socket_timeout=settings.redis_socket_timeout_seconds,
         socket_connect_timeout=settings.redis_socket_timeout_seconds,
         health_check_interval=30,
     )
+    return client
 
 
 def create_redis_clients(settings: RedisSettings) -> RedisClients:

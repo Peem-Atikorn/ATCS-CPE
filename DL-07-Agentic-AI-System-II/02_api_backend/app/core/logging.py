@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
+import traceback
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
@@ -42,6 +43,8 @@ _SENSITIVE_KEYS = frozenset(
     }
 )
 _MAX_DEPTH = 6
+# Database errors quote bound values and row data (e.g. "Key (x)=(...)") in their text.
+_REDACTED_EXCEPTION_MODULES = ("sqlalchemy", "asyncpg", "psycopg")
 
 
 def _is_sensitive(key: str) -> bool:
@@ -75,6 +78,32 @@ def redact_processor(
     return event_dict
 
 
+def _exception_of(exc_info: Any) -> BaseException | None:
+    if exc_info is True:
+        return sys.exc_info()[1]
+    if isinstance(exc_info, BaseException):
+        return exc_info
+    if isinstance(exc_info, tuple) and len(exc_info) == 3:
+        value = exc_info[1]
+        return value if isinstance(value, BaseException) else None
+    return None
+
+
+def redact_exception_processor(
+    _logger: Any, _method: str, event_dict: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
+    """Keep the traceback of database errors but drop their message."""
+    exc = _exception_of(event_dict.get("exc_info"))
+    if exc is None or not type(exc).__module__.startswith(_REDACTED_EXCEPTION_MODULES):
+        return event_dict
+    event_dict.pop("exc_info")
+    frames = "".join(traceback.format_tb(exc.__traceback__))
+    event_dict["exception"] = (
+        f"Traceback (most recent call last):\n{frames}{type(exc).__name__}: {REDACTED}"
+    )
+    return event_dict
+
+
 def configure_logging(level: str = "INFO", json_output: bool = True) -> None:
     shared: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
@@ -90,6 +119,7 @@ def configure_logging(level: str = "INFO", json_output: bool = True) -> None:
     structlog.configure(
         processors=[
             *shared,
+            redact_exception_processor,
             structlog.processors.format_exc_info,
             renderer,
         ],

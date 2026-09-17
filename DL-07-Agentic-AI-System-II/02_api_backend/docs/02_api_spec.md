@@ -88,6 +88,10 @@
 | P-48 | Geohash precision ใน prediction_records | 5 ตัว (~5 km) | `PREDICTION_GEOHASH_PRECISION` |
 | P-49 | อายุไฟล์ data export | 7 วัน | `DATA_EXPORT_TTL_DAYS` |
 | P-50 | เวลารัน purge job | 03:00 Asia/Bangkok | `PURGE_CRON`, `PURGE_TIMEZONE` |
+| P-51 | ความเชื่อมั่นต่ำกว่านี้ → warning `LOW_CONFIDENCE` | 0.5 | `LOW_CONFIDENCE_THRESHOLD` |
+| P-52 | ระยะขั้นต่ำระหว่างต้นทาง/ปลายทาง และระหว่าง waypoint ที่ติดกัน | 50 m | `MIN_ROUTE_DISTANCE_METERS` |
+| P-53 | อายุสูงสุดของ SSE connection หนึ่งครั้ง (client ต่อใหม่ด้วย `Last-Event-ID`) | 300 s | `SSE_MAX_STREAM_SECONDS` |
+| P-54 | อายุ stream ticket (D-06) | 60 s | `STREAM_TICKET_SECONDS` |
 
 ---
 
@@ -256,6 +260,15 @@
 
 > เหตุผล: มี code path เดียว (worker เป็นคนเรียก Agent เสมอ) ทดสอบง่าย และไม่ต้องยกเลิกงาน sync แล้วเริ่ม async ซ้ำ — *ปรับได้ (D-03)*
 
+**รายละเอียดที่ตัดสินใจตอน implement (Step 5.6):**
+
+- ลำดับใน API: normalize → ตรวจเจ้าของ `conversation_id`/`trip_id` (ไม่ใช่ของตัวเอง = `404`) → ตรวจพื้นที่ให้บริการของ origin / destination / waypoints (`422 UNSUPPORTED_REGION` + `errors[]`) → cache → จอง slot งานค้าง (P-33, `429 TOO_MANY_ACTIVE_JOBS` + `Retry-After: 5`) → บันทึก DB → สถานะเริ่มต้นใน Redis → ส่ง Celery
+- API รอผลโดยอ่าน event stream ของ job ใน Redis (D-38); job `failed` ภายใน P-02 → ตอบ error ตาม code ของ job (เช่น `502`, `503` + `Retry-After: 5`, `504`)
+- `mode=sync` ที่ไม่เสร็จใน P-02 → `504 AGENT_TIMEOUT` แต่ job ยังทำต่อและผลจะอยู่ในประวัติ (D-44)
+- Cache ใช้เฉพาะ `auto`/`sync`; `async` สร้าง job เสมอ; ผลใน cache ที่ข้อมูลกลายเป็น stale แล้ว = cache miss (D-45)
+- ส่งงานเข้า Celery ไม่ได้ → job `failed` + `503 DEPENDENCY_UNAVAILABLE`
+- ทุก recommendation อยู่ใน conversation: ไม่ส่ง `conversation_id` → backend สร้างใหม่ (D-41)
+
 ### 5.3 `RecommendationResponse`
 
 ```json
@@ -384,11 +397,23 @@
 
 > R-02: เมื่อข้อมูลไม่ครบ `recommendation.type` เป็น `null` แทนการเดา — *ปรับได้ (D-05)*
 
+**รายละเอียดที่ตัดสินใจตอน implement (Step 5.5, `app/domain/safety_gate.py`):**
+
+- ลำดับการตรวจ: สัญญา (Agent `failed`, R-05, R-04) → R-02 → R-03 → R-01 → `LOW_CONFIDENCE`
+- R-02 ถือว่า weather/disaster "ไม่มี" เมื่อ service state เป็น `unavailable`, `not_used` หรือไม่ได้รายงาน, หรือ freshness ไม่มี/ไม่มีเวลา → `DATA_INCOMPLETE`; มีเวลาแต่เกินอายุ (P-28) → `DATA_STALE`
+- R-02 ทำให้เป็น `null` **เฉพาะ** `TRAVEL_NORMALLY`; คำแนะนำที่ระวังกว่า (`CHANGE_ROUTE`, `DELAY_TRAVEL`, `AVOID_TRAVEL`) คงไว้แต่ status เป็น `partial_result` — *D-34*
+- R-03 นับ `degraded` / `unavailable` ของทุก service (`not_used` ไม่นับ)
+- `completed` ที่ไม่มี `risk` หรือ `recommendation` → reject ด้วย R-05 (`502`); `partial_result` ไม่มี recommendation ได้
+- Agent ตอบ `status = failed` → `503 DEPENDENCY_UNAVAILABLE` — *D-35*
+- `risk.confidence < P-51` → warning `LOW_CONFIDENCE` อย่างเดียว ไม่เปลี่ยน status
+- R-06 (`app/domain/sanitizer.py`): ข้อความ → NFC, ตัด control / zero-width / bidi-override; URL ต้องเป็น `https` ไม่มี user:password และยาวไม่เกิน 2048; ตัด key `diagnostics`, `prompt(s)`, `tool_trace`, `trace`, `cost`, `debug`, `internal`, `_*`, `internal_*` ทุกระดับ
+- R-07 (`app/domain/freshness.py`): เวลาอนาคตเกิน 5 นาที = ไม่น่าเชื่อถือ (stale); `valid_until` ไม่ย้อนหลังกว่าเวลาปัจจุบัน
+
 ### 5.5 E-02 / E-03 — History
 
 - `GET /v1/travel/recommendations?limit=&cursor=&from=&to=&risk_level=` → `{ items: RecommendationSummary[], next_cursor }`
   - `RecommendationSummary`: `recommendation_id`, `created_at`, `status`, `risk_level`, `recommendation_type`, `origin_name`, `destination_name`, `departure_time`
-- `GET /v1/travel/recommendations/{id}` → `RecommendationResponse` (ถ้ายัง `processing` คืน `status=processing` + `job_id`)
+- `GET /v1/travel/recommendations/{id}` → `RecommendationResponse` (ถ้ายัง `processing` คืน `status=processing` + `job_id`; ถ้า `failed` คืน `error: { code, message }`)
 
 ---
 
@@ -426,6 +451,11 @@
 - heartbeat comment `: ping` ทุก `P-35`
 - ปิด stream หลัง event `completed` / `failed` / `cancelled`
 - ถ้า client ส่ง token ผ่าน header ไม่ได้ (EventSource) → ใช้ **short-lived stream ticket**: `POST /v1/jobs/{job_id}/stream-ticket` → `{ ticket, expires_in: 60 }` แล้วเรียก `?ticket=` (ไม่ใส่ JWT ใน URL) — *D-06*
+- ticket ใช้ได้ครั้งเดียว ผูกกับ job นั้น (ใช้กับ job อื่น / ซ้ำ / หมดอายุ → `401`); เก็บใน Redis เป็น hash ของ ticket (D-40)
+- เปิด stream พร้อมกันเกิน P-34 → `429 RATE_LIMITED`; stream ปิดเองหลัง P-53 (client ต่อใหม่ด้วย `Last-Event-ID`)
+- event ของ job ที่หมดอายุใน Redis แล้วแต่ job จบแล้ว → ส่ง event สุดท้ายหนึ่งตัวจาก DB (ไม่มี `id:`)
+- `data` ของทุก event มี `job_id`; `progress.message` สร้างโดย backend ตามภาษาของ request (D-49)
+- Header ของ response: `Content-Type: text/event-stream`, `Cache-Control: no-store`, `X-Accel-Buffering: no`
 
 ```text
 id: 3
@@ -810,5 +840,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.7 | 2026-09-17 | Step 5.6: P-53, P-54, รายละเอียด §5.2 และ §6.3; `RecommendationResponse` มี `job_id` (ระหว่าง processing) และ `error` (เมื่อ failed) |
+| 0.6 | 2026-09-17 | Step 5.5: P-51, P-52 และรายละเอียด Safety Gate / sanitizer / freshness (§5.4) |
 | 0.5 | 2026-09-17 | Step 5.4: รายละเอียด NDJSON error line, retry, circuit breaker, cancel, และ error mapping เพิ่มเติม (§9) |
 | 0.4 | 2026-09-17 | Step 5.3: รายละเอียด idempotency (§11.1) และ rate limit (§13), D-08 Accepted |

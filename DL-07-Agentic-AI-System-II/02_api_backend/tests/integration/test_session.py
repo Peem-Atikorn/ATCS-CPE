@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError
 
 from app.core.config import DatabaseSettings
 from app.infrastructure.db.models import UserModel
@@ -65,3 +66,18 @@ async def test_session_scope_rolls_back_on_error(migrated_db_url: str) -> None:
         assert count == 0
     finally:
         await engine.dispose()
+
+
+async def test_database_errors_do_not_contain_parameters(migrated_db_url: str) -> None:
+    # SQLAlchemy must not append bound values; driver text is redacted when logged
+    # (tests/unit/test_logging.py).
+    engine = create_engine(_settings(migrated_db_url))
+    secret = "question-with-personal-data"
+    try:
+        async with engine.connect() as conn:
+            with pytest.raises(DBAPIError) as info:
+                await conn.execute(text("SELECT CAST(:value AS integer)"), {"value": secret})
+    finally:
+        await engine.dispose()
+
+    assert "[SQL parameters hidden due to hide_parameters=True]" in str(info.value)

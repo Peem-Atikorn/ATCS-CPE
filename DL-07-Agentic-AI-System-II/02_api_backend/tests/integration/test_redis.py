@@ -17,6 +17,7 @@ from app.infrastructure.redis.idempotency_store import (
     StoredResponse,
 )
 from app.infrastructure.redis.rate_limiter import RedisRateLimiter
+from app.infrastructure.redis.slots import RedisSlotLimiter
 
 pytestmark = pytest.mark.integration
 
@@ -99,3 +100,23 @@ async def test_client_factory_derives_cache_database(redis_url: str) -> None:
         assert clients.cache.connection_pool.connection_kwargs["db"] == 1
     finally:
         await clients.aclose()
+
+
+async def test_slots_are_atomic_under_concurrency(redis: Redis) -> None:
+    slots = RedisSlotLimiter(redis)
+
+    results = await asyncio.gather(
+        *(slots.acquire("slots", f"job-{n}", limit=3, ttl_seconds=60) for n in range(20))
+    )
+
+    assert sum(results) == 3
+    assert await redis.zcard("slots") == 3
+
+
+async def test_expired_slot_is_freed(redis: Redis) -> None:
+    slots = RedisSlotLimiter(redis)
+    await slots.acquire("slots", "crashed", limit=1, ttl_seconds=1)
+
+    await asyncio.sleep(1.1)
+
+    assert await slots.acquire("slots", "next", limit=1, ttl_seconds=60)

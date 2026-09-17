@@ -129,3 +129,49 @@ class AuditResult(StrEnum):
     SUCCESS = "success"
     DENIED = "denied"
     ERROR = "error"
+
+
+class DataCategory(StrEnum):
+    WEATHER = "WEATHER"
+    TRANSPORT = "TRANSPORT"
+    DISASTER = "DISASTER"
+    KNOWLEDGE_BASE = "KNOWLEDGE_BASE"
+
+
+class ServiceState(StrEnum):
+    OK = "ok"
+    DEGRADED = "degraded"
+    UNAVAILABLE = "unavailable"
+    NOT_USED = "not_used"
+
+
+class WarningCode(StrEnum):
+    DATA_INCOMPLETE = "DATA_INCOMPLETE"
+    DATA_STALE = "DATA_STALE"
+    SERVICE_DEGRADED = "SERVICE_DEGRADED"
+    LOW_CONFIDENCE = "LOW_CONFIDENCE"
+    OUTSIDE_COVERAGE = "OUTSIDE_COVERAGE"
+
+
+class TravelMode(StrEnum):
+    CAR = "CAR"
+    TRAIN = "TRAIN"
+    BUS = "BUS"
+    FLIGHT = "FLIGHT"
+    FERRY = "FERRY"
+    WALK = "WALK"
+    BICYCLE = "BICYCLE"
+
+
+class AvoidOption(StrEnum):
+    TOLLS = "TOLLS"
+    HIGHWAYS = "HIGHWAYS"
+    FERRIES = "FERRIES"
+    NIGHT_TRAVEL = "NIGHT_TRAVEL"
+
+
+class MobilityNeed(StrEnum):
+    WHEELCHAIR = "WHEELCHAIR"
+    ELDERLY = "ELDERLY"
+    CHILDREN = "CHILDREN"
+    PETS = "PETS"

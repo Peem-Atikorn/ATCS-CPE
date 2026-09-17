@@ -198,6 +198,7 @@ class LimitSettings(BaseSettings):
     max_waypoints: int = Field(default=5, ge=0)  # P-42
     max_days_ahead: int = Field(default=14, gt=0)  # P-43
     rate_limit_window_seconds: int = Field(default=60, gt=0)
+    min_route_distance_meters: float = Field(default=50.0, ge=0)  # P-52
     # Rate limiting protects capacity; an unavailable Redis should not take the API down.
     rate_limit_fail_open: bool = True
 
@@ -209,6 +210,9 @@ class JobSettings(BaseSettings):
     idempotency_ttl_seconds: int = Field(default=24 * 3600, gt=0)  # P-25
     # A key stays locked this long if a worker dies before storing the response.
     idempotency_lock_seconds: int = Field(default=120, gt=0)
+    # Clients reconnect with Last-Event-ID after this, so no stream is held forever.
+    sse_max_stream_seconds: int = Field(default=300, gt=0)  # P-53
+    stream_ticket_seconds: int = Field(default=60, gt=0)  # P-54 (D-06)
 
 
 class CacheSettings(BaseSettings):
@@ -264,6 +268,12 @@ class ObservabilitySettings(BaseSettings):
         return value or None
 
 
+class SafetySettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    low_confidence_threshold: float = Field(default=0.5, ge=0, le=1)  # P-51
+
+
 class SecretSettings(BaseSettings):
     model_config = _ENV_CONFIG
 
@@ -288,6 +298,7 @@ class Settings(BaseModel):
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    safety: SafetySettings = Field(default_factory=SafetySettings)
     secrets: SecretSettings = Field(default_factory=SecretSettings)
 
     @model_validator(mode="after")

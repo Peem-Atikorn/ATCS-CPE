@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from sqlalchemy.exc import DBAPIError
 
 from app.core.logging import REDACTED, configure_logging, get_logger, redact_processor
 
@@ -62,3 +63,30 @@ def test_level_filter_drops_debug(capsys: pytest.CaptureFixture[str]) -> None:
     get_logger("test").info("hidden_event")
 
     assert "hidden_event" not in capsys.readouterr().out
+
+
+def test_database_exception_messages_are_redacted(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging(level="INFO", json_output=True)
+    error = DBAPIError("SELECT 1", {"q": "secret-question"}, Exception("Key (q)=(secret-question)"))
+
+    try:
+        raise error
+    except DBAPIError:
+        get_logger("test").exception("db_failed")
+
+    line = capsys.readouterr().out.strip().splitlines()[-1]
+    record = json.loads(line)
+    assert "secret-question" not in line
+    assert "DBAPIError" in record["exception"]
+    assert "test_database_exception_messages_are_redacted" in record["exception"]
+
+
+def test_other_exception_messages_are_kept(capsys: pytest.CaptureFixture[str]) -> None:
+    configure_logging(level="INFO", json_output=True)
+
+    try:
+        raise ValueError("plain failure")
+    except ValueError:
+        get_logger("test").exception("failed")
+
+    assert "plain failure" in capsys.readouterr().out

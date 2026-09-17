@@ -16,7 +16,16 @@ import asyncpg  # type: ignore[import-untyped]
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from fakeredis import FakeAsyncRedis
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from app.core.config import Settings
+from tests.integration.flow import Flow
 
 POSTGIS_IMAGE = "postgis/postgis:16-3.4"
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -115,3 +124,52 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         finally:
             await session.close()
             await transaction.rollback()
+
+
+@pytest.fixture
+async def session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+    """Committing sessions with reference data; tests isolate themselves with fresh users."""
+    from app.infrastructure.db.reference_data import seed_reference_data
+
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    async with sessions() as session:
+        await seed_reference_data(session)
+        await session.commit()
+    return sessions
+
+
+@pytest.fixture
+async def flow(
+    session_factory: async_sessionmaker[AsyncSession],
+    redis: FakeAsyncRedis,
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Flow:
+    from app.core.logging import configure_logging
+    from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
+    from app.infrastructure.redis.cache import RedisRecommendationCache
+    from app.infrastructure.redis.job_state import RedisJobStateStore
+    from app.infrastructure.redis.keys import RedisKeys
+    from app.infrastructure.redis.slots import RedisSlotLimiter
+    from app.infrastructure.redis.tickets import RedisTicketStore
+    from mock_agent.main import MockState
+    from tests.integration.flow import build_agent
+
+    configure_logging("INFO", json_output=True)
+    monkeypatch.delenv("MOCK_REQUIRE_TOKEN", raising=False)
+    monkeypatch.setenv("MOCK_STEP_DELAY_SECONDS", "0")
+    state = MockState()
+    keys = RedisKeys("test")
+    agent = build_agent(state, redis, settings)
+    return Flow(
+        settings=settings,
+        repo=SqlRecommendationRepository(session_factory),
+        redis=redis,
+        keys=keys,
+        jobs=RedisJobStateStore(redis, keys, ttl_seconds=3600),
+        slots=RedisSlotLimiter(redis),
+        tickets=RedisTicketStore(redis, keys),
+        cache=RedisRecommendationCache(redis, keys),
+        agent_state=state,
+        agent=agent,
+    )

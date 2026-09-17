@@ -18,10 +18,11 @@ from pydantic import SecretStr
 
 from app.core.config import AgentSettings
 from app.core.errors import ErrorCode
+from app.domain.enums import DataCategory
 from app.infrastructure.agent.auth import StaticToken
 from app.infrastructure.agent.circuit_breaker import RedisCircuitBreaker
 from app.infrastructure.agent.client import AgentCallError, AgentClient, AgentFailure
-from app.infrastructure.agent.contracts import AgentRunResponse, DataCategory, ProgressLine
+from app.infrastructure.agent.contracts import AgentRunResponse, ProgressLine
 from mock_agent.main import SCENARIOS, MockState, build_result, create_app
 from tests.support.agent import run_request
 

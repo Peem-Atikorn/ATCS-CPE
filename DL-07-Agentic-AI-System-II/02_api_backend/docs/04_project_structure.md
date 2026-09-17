@@ -43,7 +43,7 @@
 │   │   ├── resources.py        # AppResources: verifier, redis, rate limiter, idempotency store
 │   │   ├── auth.py             # get_principal, require_scopes, RateLimit (P-30, P-32)
 │   │   ├── idempotency.py      # IdempotentRoute (spec §11.1)
-│   │   ├── deps.py             # Depends: db session, services, pagination (Step 5.6)
+│   │   ├── deps.py             # Depends: current user (JIT), services — ประกอบ infrastructure ที่นี่ที่เดียว
 │   │   ├── middleware/
 │   │   │   ├── request_context.py   # request_id, correlation_id, access log, last-resort 500
 │   │   │   ├── body_guard.py        # 413 (P-44) / 415
@@ -86,18 +86,20 @@
 │   │   ├── feedback_service.py        # + safety review routing
 │   │   ├── user_service.py            # JIT provisioning, consent, delete, export
 │   │   ├── status_service.py
-│   │   └── agent_run_service.py       # ใช้ใน worker: call agent → safety gate → persist
+│   │   ├── agent_run_service.py       # ใช้ใน worker: call agent → safety gate → persist
+│   │   ├── recommendation_payload.py  # assess(): freshness → safety gate → payload ที่ sanitize แล้ว
+│   │   ├── progress.py                # stage → % และข้อความตามภาษา
+│   │   └── ports.py                   # Protocol + record ที่ services ใช้
 │   │
 │   ├── domain/                 # ── Domain layer (pure Python, ไม่ import FastAPI/SQLAlchemy)
 │   │   ├── enums.py            # RiskLevel, RecommendationType, Status, Stage, ...
-│   │   ├── models.py           # dataclasses: NormalizedRequest, Recommendation, Freshness, ...
+│   │   ├── errors.py           # DomainError, FieldIssue, InvalidInput
 │   │   ├── normalization.py    # timezone, language, coordinates, preferences
 │   │   ├── safety_gate.py      # R-01..R-07
 │   │   ├── freshness.py        # is_stale / valid_until (P-28)
 │   │   ├── sanitizer.py        # ตัด field ภายใน, ตรวจ URL, control chars
 │   │   ├── cache_policy.py     # cache key + เงื่อนไขห้าม cache
-│   │   ├── retention.py        # คำนวณ expires_at
-│   │   └── errors.py           # DomainError (แปลงเป็น HTTP ที่ api layer)
+│   │   └── retention.py        # คำนวณ expires_at
 │   │
 │   ├── infrastructure/         # ── Repository & Client layer
 │   │   ├── db/
@@ -109,26 +111,30 @@
 │   │   │   │                   #      mlops.py (prediction_records, feedback), audit.py, reference.py
 │   │   │   ├── migration_filters.py  # autogenerate filter (ใช้ร่วมกับ drift test)
 │   │   │   ├── reference_data.py     # seed coverage_areas / emergency_defaults
-│   │   │   └── repositories/   # หนึ่งไฟล์ต่อ aggregate; ทุก method รับ user_id (กัน IDOR)
+│   │   │   └── repositories/   # recommendations.py (Step 5.6); ทุก read รับ user_id (กัน IDOR)
 │   │   ├── redis/
 │   │   │   ├── clients.py      # core / cache connections
 │   │   │   ├── keys.py         # key builders (ที่เดียวของ key format — data design §5)
 │   │   │   ├── rate_limiter.py
 │   │   │   ├── idempotency_store.py
 │   │   │   ├── job_state.py    # HASH + STREAM + done signal
+│   │   │   ├── slots.py        # จำกัดงานค้าง / stream ต่อ user (ZSET)
 │   │   │   ├── tickets.py
 │   │   │   └── cache.py
 │   │   ├── agent/
 │   │   │   ├── client.py       # AgentClient (httpx): timeout, retry, deadline, cancel, NDJSON
 │   │   │   ├── contracts.py    # Pydantic ของ Agent request/response (spec §9)
 │   │   │   ├── circuit_breaker.py
-│   │   │   └── auth.py         # client credentials token
+│   │   │   ├── auth.py         # client credentials token
+│   │   │   └── factory.py      # build_agent_client (ใช้ทั้ง api และ worker)
+│   │   ├── queue.py            # CeleryJobQueue: ส่งงานจาก async code
 │   │   ├── storage/
 │   │   │   └── object_store.py # data export (MinIO/S3)
 │   │   └── audit.py            # AuditWriter
 │   │
 │   └── workers/                # ── Celery
-│       ├── celery_app.py       # config, queues, OTel propagation, correlation_id
+│       ├── celery_app.py       # config, queues (สร้าง app ตอนใช้ครั้งแรก)
+│       ├── runtime.py          # asyncio.Runner + resources ต่อ process (D-50)
 │       ├── tasks/
 │       │   ├── recommendation.py   # run_recommendation(job_id)
 │       │   ├── trip_alerts.py      # scheduled re-assessment
@@ -283,7 +289,7 @@ flowchart LR
 
 - Image เดียวใช้ 3 บทบาทโดยเปลี่ยน command:
   - api: `python -m app.serve --workers 2` (ตรวจ config ก่อน แล้วค่อยเรียก uvicorn หลาย worker — D-25)
-  - worker: `celery -A app.workers.celery_app worker -Q recommendations,maintenance`
+  - worker: `celery -A app.workers.celery_app:celery_app worker -Q recommendations` (queue `maintenance` เพิ่มใน 5.9)
   - beat: `celery -A app.workers.celery_app beat`
 - Migration รันเป็น one-off service (`migrate`) ก่อน api start — ไม่รันใน api container
 
@@ -418,7 +424,7 @@ flowchart LR
 | D-20 | Celery task sync + `asyncio.run()` | Celery + async pool เฉพาะ / เปลี่ยนเป็น Arq | Proposed |
 | D-21 | uv จัดการ dependency | pip + requirements.txt / poetry | Proposed |
 | D-22 | ~~Authlib~~ → **joserfc** (ไลบรารี JOSE ตัวใหม่จากผู้พัฒนา Authlib; `authlib.jose` ถูก deprecate) | python-jose | Accepted (Step 5.3) |
-| D-23 | SSE ใช้ `sse-starlette` | เขียน `StreamingResponse` เอง | Proposed |
+| D-23 | ~~SSE ใช้ `sse-starlette`~~ → แทนด้วย D-37 | เขียน `StreamingResponse` เอง | Superseded (Step 5.6) |
 | D-24 | Mock Agent อยู่ใน repo ของ backend | ให้ Module 03 ทำ stub | Accepted (Step 5.4) |
 | D-31 | Mock Agent ใช้ image `tsa-backend:dev` เดียวกัน (ไม่มี Dockerfile แยก) และไม่ import โค้ด backend | image แยก | Accepted (Step 5.4) |
 | D-32 | Circuit breaker เก็บ state ใน Redis ใช้เวลาจาก app clock (ทดสอบได้) | Redis `TIME` / in-process | Accepted (Step 5.4) |
@@ -426,6 +432,24 @@ flowchart LR
 | D-28 | Rate limit **fail open** เมื่อ Redis ล่ม (ตั้งค่าได้), Idempotency **fail closed** (503) | ทั้งคู่ fail closed | Accepted (Step 5.3) |
 | D-29 | Idempotency เก็บเฉพาะ response 2xx | เก็บทุก response ยกเว้น 5xx (แบบ Stripe) | Accepted (Step 5.3) |
 | D-30 | Dev token ใช้ HS256 จาก `DEV_JWT_SIGNING_KEY`; production ใช้ JWKS (RS/ES/PS/EdDSA เท่านั้น) | dev issuer ที่มี JWKS endpoint | Accepted (Step 5.3) |
+| D-34 | R-02 เปลี่ยนเฉพาะ `TRAVEL_NORMALLY` เป็น `null`; action ที่ระวังกว่าคงไว้ + `partial_result`; `not_used` ของ weather/disaster นับว่าไม่มีข้อมูล | null ทุก action | Accepted (Step 5.5) |
+| D-35 | Agent ตอบ `failed` → 503 (ไม่ใช่ 502) เพราะ Agent ยังตอบตามสัญญา | 502 | Accepted (Step 5.5) |
+| D-36 | ตรวจ timezone กับ `available_timezones()` + แพ็กเกจ `tzdata` (Windows ตัด space/จุดท้ายชื่อไฟล์ ทำให้การเปิดไฟล์อย่างเดียวผ่านผิด) | `ZoneInfo(name)` อย่างเดียว | Accepted (Step 5.5) |
+| D-37 | SSE เขียนเองด้วย `StreamingResponse` (Starlette 1.6 ยกเลิก generator เมื่อ client หลุด); heartbeat ของเราเองต่ออายุ stream slot | `sse-starlette` | Accepted (Step 5.6) |
+| D-38 | API ที่รอแบบ sync อ่าน event stream ของ job (`XREAD BLOCK` ≤ 1 s ต่อครั้ง); ไม่มี key `job:{id}:done` | `BLPOP` บน key แยก | Accepted (Step 5.6) |
+| D-39 | `jobs:active` / `streams` เป็น ZSET (score = เวลาหมดอายุ) ปรับด้วย Lua ตัวเดียว | SET + TTL ทั้ง key | Accepted (Step 5.6) |
+| D-40 | Stream ticket เก็บใต้ `sha256(ticket)` และใช้ `GETDEL` | ticket ดิบใน key | Accepted (Step 5.6) |
+| D-41 | ทุก recommendation อยู่ใน conversation (สร้างให้ถ้าไม่ส่งมา); คำถามเก็บเป็น message `user`, summary เป็น `assistant` | สร้าง conversation เฉพาะเมื่อ follow-up | Accepted (Step 5.6) |
+| D-42 | `agent_runs` หนึ่งแถวต่อการเรียก `AgentClient.run()` (`id` = `run_id`); retry ภายในบันทึกแค่ใน log | หนึ่งแถวต่อ HTTP attempt | Accepted (Step 5.6) |
+| D-43 | JIT user provisioning แบบย่อ (แถว `users` ต่อ `iss`+`sub`) ทำใน 5.6; profile/consent/ลบบัญชีอยู่ 5.9 | รอ 5.9 | Accepted (Step 5.6) |
+| D-44 | `mode=sync` ที่เกิน P-02 → `504 AGENT_TIMEOUT` (job ทำต่อ) | รอถึง P-04 | Accepted (Step 5.6) |
+| D-45 | อ่าน cache เฉพาะ `auto`/`sync`; ข้อมูลใน cache ที่ stale แล้ว = miss | ใช้ cache ทุก mode | Accepted (Step 5.6) |
+| D-46 | ไม่มี retry ระดับ Celery task (AgentClient retry ตาม P-07 แล้ว) | Celery autoretry | Accepted (Step 5.6) |
+| D-47 | `service_status` ที่ส่งให้ผู้ใช้มีเฉพาะ service ที่รู้จัก; Safety Gate ยังนับทุก service | ส่งทุก key | Accepted (Step 5.6) |
+| D-48 | R-02 ตัด `TRAVEL_NORMALLY` แล้วตัด `reasons` และ `suggested_departure_time` ของ Agent ด้วย | เก็บไว้ | Accepted (Step 5.6) |
+| D-49 | ข้อความ progress สร้างโดย backend ตามภาษา; ไม่แสดงข้อความจาก Agent | ส่งต่อข้อความ Agent | Accepted (Step 5.6) |
+| D-50 | Celery task ใช้ `asyncio.Runner` หนึ่งตัวต่อ process และส่ง `contextvars.copy_context()` ทุกครั้ง (ขยาย D-20) | `asyncio.run()` ต่อ task | Accepted (Step 5.6) |
+| D-51 | ใช้ `redis` 6.4 ตามที่ `kombu[redis]` รองรับ (`<6.5`) | redis 8 + celery ไม่มี extra | Accepted (Step 5.6) |
 | D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
 | D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
 | D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
@@ -446,10 +470,10 @@ flowchart LR
 | 5.3 | Auth (dev issuer + JWKS), request context, error handlers, rate limit, idempotency | API tests: 401/403/422/429/409 |
 | 5.4 | Mock Agent + AgentClient (timeout, retry, circuit breaker) | respx tests ทุก error mapping |
 | 5.5 | Domain: normalization, freshness, safety gate, sanitizer | unit tests R-01..R-07 |
-| 5.6 | Recommendation flow: service + Celery task + job state + SSE | E2E: 200 / 202 + events |
-| 5.7 | Conversations + follow-up | |
+| 5.6 | Recommendation flow: service + Celery task + job state + SSE (+ stream ticket, cache, JIT user แบบย่อ) | E2E: 200 / 202 + events — **done** |
+| 5.7 | Conversations + follow-up, `GET /v1/travel/recommendations` (E-02, cursor) | |
 | 5.8 | Trips + alerts, feedback + review queue | |
-| 5.9 | Me: delete / export, purge + reaper jobs | |
+| 5.9 | Me: delete / export / consent, purge + reaper jobs, `DELETE /v1/jobs/{id}` (E-05), `prediction_records`, beat container | |
 | 5.10 | Observability (OTel, metrics), `/ready`, service-status | |
 | 5.11 | Admin endpoints | |
 | 5.12 | OpenAPI export, contract tests, CI | |
@@ -460,6 +484,8 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.7 | 2026-09-17 | Step 5.6: D-37..D-51 (D-23 แทนด้วย D-37), ไฟล์ใหม่ใน tree, งานที่เลื่อนไป 5.7 / 5.9 |
+| 0.6 | 2026-09-17 | Step 5.5: D-34..D-36, `tests/unit/domain/test_layering.py` ตรวจ layer rule ของ domain (แทน import-linter ชั่วคราว) |
 | 0.5 | 2026-09-17 | Step 5.4: เพิ่ม D-31..D-33, D-24 Accepted, mock agent ไม่มี Dockerfile แยก |
 | 0.4 | 2026-09-17 | Step 5.3: D-22 เปลี่ยนเป็น joserfc, เพิ่ม D-28..D-30, ไฟล์ `api/auth.py`, `api/idempotency.py`, `api/resources.py` |
 | 0.3 | 2026-09-17 | Step 5.2: ปรับชื่อไฟล์ models ตามที่ implement จริง, เพิ่ม D-26, D-27 |

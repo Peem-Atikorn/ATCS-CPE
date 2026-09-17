@@ -89,3 +89,24 @@ def test_secrets_are_not_exposed_in_repr() -> None:
 
 def test_get_settings_is_cached() -> None:
     assert get_settings() is get_settings()
+
+
+def test_safety_settings_defaults_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert Settings().safety.low_confidence_threshold == 0.5  # P-51
+    assert Settings().limits.min_route_distance_meters == 50  # P-52
+
+    monkeypatch.setenv("LOW_CONFIDENCE_THRESHOLD", "1.5")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_stream_settings_defaults_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert Settings().jobs.sse_max_stream_seconds == 300  # P-53
+    assert Settings().jobs.stream_ticket_seconds == 60  # P-54
+
+    monkeypatch.setenv("SSE_MAX_STREAM_SECONDS", "30")
+    monkeypatch.setenv("STREAM_TICKET_SECONDS", "0")
+    with pytest.raises(ValidationError):
+        Settings()
+    monkeypatch.setenv("STREAM_TICKET_SECONDS", "10")
+    assert Settings().jobs.sse_max_stream_seconds == 30
