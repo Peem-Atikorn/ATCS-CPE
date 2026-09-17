@@ -9,6 +9,7 @@ from __future__ import annotations
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -32,6 +33,8 @@ class AppSettings(BaseSettings):
     cors_allowed_origins: Annotated[list[str], NoDecode]
     max_body_bytes: int = Field(default=64 * 1024, gt=0)  # P-44
     error_type_base_url: str = "https://errors.travel-safety.example/"
+    # Proxies whose X-Forwarded-For is trusted for the client IP (rate limits use it).
+    forwarded_allow_ips: str = "127.0.0.1"
 
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
@@ -66,6 +69,30 @@ class RedisSettings(BaseSettings):
     redis_url: SecretStr
     redis_cache_url: SecretStr | None = None  # empty -> REDIS_URL database /1 (D-14)
     celery_broker_url: SecretStr | None = None  # empty -> REDIS_URL database /2
+    redis_socket_timeout_seconds: float = Field(default=2.0, gt=0)
+
+    @field_validator("redis_cache_url", "celery_broker_url", mode="before")
+    @classmethod
+    def _empty_to_none(cls, value: object) -> object:
+        return value or None
+
+    def core_url(self) -> str:
+        return self.redis_url.get_secret_value()
+
+    def cache_url(self) -> str:
+        if self.redis_cache_url is not None:
+            return self.redis_cache_url.get_secret_value()
+        return _with_redis_db(self.core_url(), 1)
+
+    def broker_url(self) -> str:
+        if self.celery_broker_url is not None:
+            return self.celery_broker_url.get_secret_value()
+        return _with_redis_db(self.core_url(), 2)
+
+
+def _with_redis_db(url: str, db: int) -> str:
+    parts = urlsplit(url)
+    return urlunsplit(parts._replace(path=f"/{db}"))
 
 
 class AuthSettings(BaseSettings):
@@ -75,7 +102,41 @@ class AuthSettings(BaseSettings):
     jwt_audience: str = Field(min_length=1)
     jwks_url: str | None = None
     jwks_cache_seconds: int = Field(default=600, gt=0)  # P-11
+    jwks_min_refresh_seconds: int = Field(default=60, gt=0)
+    jwt_algorithms: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["RS256", "ES256"]
+    )
+    jwt_leeway_seconds: int = Field(default=30, ge=0)
     dev_jwt_signing_key: SecretStr | None = None
+
+    @field_validator("jwks_url", "dev_jwt_signing_key", mode="before")
+    @classmethod
+    def _empty_to_none(cls, value: object) -> object:
+        return value or None
+
+    @field_validator("jwt_algorithms", mode="before")
+    @classmethod
+    def _split_algorithms(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("jwt_algorithms")
+    @classmethod
+    def _asymmetric_only(cls, value: list[str]) -> list[str]:
+        # Shared-secret algorithms are only allowed through DEV_JWT_SIGNING_KEY.
+        allowed = {"RS256", "RS384", "RS512", "PS256", "ES256", "ES384", "EdDSA"}
+        unsupported = [alg for alg in value if alg not in allowed]
+        if unsupported or not value:
+            raise ValueError(f"unsupported JWT algorithms: {unsupported or value}")
+        return value
+
+    @field_validator("dev_jwt_signing_key")
+    @classmethod
+    def _dev_key_length(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None and len(value.get_secret_value()) < 32:
+            raise ValueError("DEV_JWT_SIGNING_KEY must be at least 32 characters")
+        return value
 
 
 class AgentSettings(BaseSettings):
@@ -107,6 +168,9 @@ class LimitSettings(BaseSettings):
     max_question_chars: int = Field(default=1000, gt=0)  # P-41
     max_waypoints: int = Field(default=5, ge=0)  # P-42
     max_days_ahead: int = Field(default=14, gt=0)  # P-43
+    rate_limit_window_seconds: int = Field(default=60, gt=0)
+    # Rate limiting protects capacity; an unavailable Redis should not take the API down.
+    rate_limit_fail_open: bool = True
 
 
 class JobSettings(BaseSettings):
@@ -114,6 +178,8 @@ class JobSettings(BaseSettings):
 
     job_result_ttl_seconds: int = Field(default=24 * 3600, gt=0)  # P-05
     idempotency_ttl_seconds: int = Field(default=24 * 3600, gt=0)  # P-25
+    # A key stays locked this long if a worker dies before storing the response.
+    idempotency_lock_seconds: int = Field(default=120, gt=0)
 
 
 class CacheSettings(BaseSettings):
@@ -169,6 +235,18 @@ class ObservabilitySettings(BaseSettings):
         return value or None
 
 
+class SecretSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    pseudonym_secret: SecretStr | None = None
+    ip_hash_secret: SecretStr | None = None
+
+    @field_validator("pseudonym_secret", "ip_hash_secret", mode="before")
+    @classmethod
+    def _empty_to_none(cls, value: object) -> object:
+        return value or None
+
+
 class Settings(BaseModel):
     app: AppSettings = Field(default_factory=AppSettings)
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
@@ -181,11 +259,20 @@ class Settings(BaseModel):
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    secrets: SecretSettings = Field(default_factory=SecretSettings)
 
     @model_validator(mode="after")
     def _production_guards(self) -> Settings:
         if self.app.is_production and self.auth.dev_jwt_signing_key is not None:
             raise ValueError("DEV_JWT_SIGNING_KEY must not be set outside dev/test")
+        if self.app.is_production:
+            missing = [
+                name.upper()
+                for name in ("pseudonym_secret", "ip_hash_secret")
+                if getattr(self.secrets, name) is None
+            ]
+            if missing:
+                raise ValueError(f"required outside dev/test: {', '.join(missing)}")
         return self
 
 

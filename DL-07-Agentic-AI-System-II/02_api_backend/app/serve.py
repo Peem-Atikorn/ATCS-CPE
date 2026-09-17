@@ -64,6 +64,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(line, file=sys.stderr)
         print("refusing to start: fix the configuration above", file=sys.stderr)
         return EXIT_CONFIG_ERROR
+    settings = get_settings()
 
     uvicorn.run(
         APP_FACTORY,
@@ -75,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         reload_dirs=["app"] if args.reload else None,
         access_log=False,
         proxy_headers=True,
-        forwarded_allow_ips="*",
+        forwarded_allow_ips=settings.app.forwarded_allow_ips,
     )
     return 0
 

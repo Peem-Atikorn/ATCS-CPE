@@ -68,7 +68,7 @@ def test_valid_config_starts_uvicorn_with_factory(uvicorn_calls: list[dict[str, 
             "reload_dirs": None,
             "access_log": False,
             "proxy_headers": True,
-            "forwarded_allow_ips": "*",
+            "forwarded_allow_ips": "127.0.0.1",
         }
     ]
 

@@ -40,13 +40,15 @@
 │   │   └── clock.py            # Clock abstraction (ทดสอบเวลาได้)
 │   │
 │   ├── api/                    # ── Presentation layer (HTTP / SSE / WS)
-│   │   ├── deps.py             # Depends: current_user, db session, services, pagination
+│   │   ├── resources.py        # AppResources: verifier, redis, rate limiter, idempotency store
+│   │   ├── auth.py             # get_principal, require_scopes, RateLimit (P-30, P-32)
+│   │   ├── idempotency.py      # IdempotentRoute (spec §11.1)
+│   │   ├── deps.py             # Depends: db session, services, pagination (Step 5.6)
 │   │   ├── middleware/
-│   │   │   ├── request_context.py   # request_id, correlation_id, contextvars
-│   │   │   ├── body_limit.py        # P-44
-│   │   │   ├── rate_limit.py        # P-30..P-32
-│   │   │   ├── idempotency.py       # spec §11.1
-│   │   │   ├── access_log.py
+│   │   │   ├── request_context.py   # request_id, correlation_id, access log, last-resort 500
+│   │   │   ├── body_guard.py        # 413 (P-44) / 415
+│   │   │   ├── rate_limit.py        # per-IP limit (P-31)
+│   │   │   ├── problem_asgi.py      # Problem Details จาก ASGI middleware
 │   │   │   └── security_headers.py
 │   │   ├── error_handlers.py   # AppError / ValidationError → Problem Details
 │   │   ├── ops.py              # /health /ready /metrics
@@ -101,10 +103,12 @@
 │   │   ├── db/
 │   │   │   ├── base.py         # DeclarativeBase + naming convention
 │   │   │   ├── session.py      # async engine, session factory
-│   │   │   ├── types.py        # Geography helpers, EncryptedText
-│   │   │   ├── models/         # ORM: user.py, conversation.py, trip.py, request.py,
-│   │   │   │                   #      recommendation.py, job.py, agent_run.py,
-│   │   │   │                   #      prediction.py, feedback.py, export.py, audit.py, reference.py
+│   │   │   ├── types.py        # EncryptedText (Step 5.9) — Geography/JSON_DOC อยู่ใน base.py
+│   │   │   ├── models/         # ORM: user.py, conversation.py (+messages), trip.py, request.py,
+│   │   │   │                   #      recommendation.py, job.py (+agent_runs, data_exports),
+│   │   │   │                   #      mlops.py (prediction_records, feedback), audit.py, reference.py
+│   │   │   ├── migration_filters.py  # autogenerate filter (ใช้ร่วมกับ drift test)
+│   │   │   ├── reference_data.py     # seed coverage_areas / emergency_defaults
 │   │   │   └── repositories/   # หนึ่งไฟล์ต่อ aggregate; ทุก method รับ user_id (กัน IDOR)
 │   │   ├── redis/
 │   │   │   ├── clients.py      # core / cache connections
@@ -328,14 +332,14 @@ flowchart LR
 |---|---|
 | Core | `fastapi`, `uvicorn[standard]`, `pydantic>=2`, `pydantic-settings`, `sse-starlette` |
 | Data | `sqlalchemy>=2`, `alembic`, `asyncpg`, `geoalchemy2`, `shapely`, `python-geohash` (หรือ `pygeohash`), `redis>=5` |
-| Auth / HTTP | `authlib`, `httpx` |
+| Auth / HTTP | `joserfc`, `httpx` |
 | Jobs | `celery[redis]` |
 | Observability | `structlog`, `prometheus-client`, `opentelemetry-sdk`, `opentelemetry-exporter-otlp`, `opentelemetry-instrumentation-{fastapi,httpx,sqlalchemy,celery,redis}` |
 | Utils | `uuid6` (UUIDv7), `tzdata`, `cryptography`, `orjson` |
 | Dev / Test | `pytest`, `pytest-asyncio`, `pytest-cov`, `respx`, `testcontainers[postgres,redis]`, `freezegun` หรือ Clock abstraction, `schemathesis`, `ruff`, `mypy`, `import-linter`, `pre-commit` |
 
 - ใช้ **uv** จัดการ dependency + lock (`uv.lock` มีใน `.gitattributes` แล้ว) — *D-21*
-- เลือก **Authlib** อย่างเดียว (ไม่ติดตั้ง python-jose คู่กัน) — *D-22*
+- ใช้ **joserfc** ตรวจ JWT (ไม่ติดตั้ง python-jose หรือ `authlib.jose` คู่กัน) — *D-22*
 - Celery อย่างเดียว ไม่มี RQ/Arq (ตาม 01_env.txt)
 
 ---
@@ -414,9 +418,14 @@ flowchart LR
 | D-19 | Backend มี compose ของตัวเอง + ให้ root compose `include:` | root compose ไฟล์เดียว | Proposed (คุยทีม) |
 | D-20 | Celery task sync + `asyncio.run()` | Celery + async pool เฉพาะ / เปลี่ยนเป็น Arq | Proposed |
 | D-21 | uv จัดการ dependency | pip + requirements.txt / poetry | Proposed |
-| D-22 | Authlib อย่างเดียว | python-jose | Proposed |
+| D-22 | ~~Authlib~~ → **joserfc** (ไลบรารี JOSE ตัวใหม่จากผู้พัฒนา Authlib; `authlib.jose` ถูก deprecate) | python-jose | Accepted (Step 5.3) |
 | D-23 | SSE ใช้ `sse-starlette` | เขียน `StreamingResponse` เอง | Proposed |
 | D-24 | Mock Agent อยู่ใน repo ของ backend | ให้ Module 03 ทำ stub | Proposed |
+| D-28 | Rate limit **fail open** เมื่อ Redis ล่ม (ตั้งค่าได้), Idempotency **fail closed** (503) | ทั้งคู่ fail closed | Accepted (Step 5.3) |
+| D-29 | Idempotency เก็บเฉพาะ response 2xx | เก็บทุก response ยกเว้น 5xx (แบบ Stripe) | Accepted (Step 5.3) |
+| D-30 | Dev token ใช้ HS256 จาก `DEV_JWT_SIGNING_KEY`; production ใช้ JWKS (RS/ES/PS/EdDSA เท่านั้น) | dev issuer ที่มี JWKS endpoint | Accepted (Step 5.3) |
+| D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
+| D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
 | D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
 
 ## 13. Open Questions (Phase 4)
@@ -449,3 +458,5 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.4 | 2026-09-17 | Step 5.3: D-22 เปลี่ยนเป็น joserfc, เพิ่ม D-28..D-30, ไฟล์ `api/auth.py`, `api/idempotency.py`, `api/resources.py` |
+| 0.3 | 2026-09-17 | Step 5.2: ปรับชื่อไฟล์ models ตามที่ implement จริง, เพิ่ม D-26, D-27 |

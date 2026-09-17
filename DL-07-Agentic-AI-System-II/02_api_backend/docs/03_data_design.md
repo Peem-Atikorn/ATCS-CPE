@@ -17,6 +17,7 @@
 | DP-06 | ID เป็น UUIDv7 สร้างฝั่ง application; เวลาเป็น `timestamptz` (UTC) |
 | DP-07 | Response ที่ sanitize แล้วเก็บเป็น `jsonb` ทั้งก้อน + ดึง field ที่ต้อง query ออกมาเป็น column |
 | DP-08 | Schema เปลี่ยนผ่าน **Alembic migration เท่านั้น** |
+| DP-09 | คอลัมน์ `jsonb` ใช้ `JSONB(none_as_null=True)` — Python `None` ต้องเป็น SQL `NULL` ไม่ใช่ JSON `null` (ไม่งั้น NOT NULL / `IS NOT NULL` ตรวจไม่เจอ) |
 
 ---
 
@@ -619,3 +620,4 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
+| 0.2 | 2026-09-17 | Step 5.2: เพิ่ม DP-09, `coverage_areas.source`, `data_exports.expires_at` nullable, audit_logs มี default partition, roles ย้ายไปทำตอน deploy (D-27) |

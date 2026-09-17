@@ -94,7 +94,9 @@ def configure_logging(level: str = "INFO", json_output: bool = True) -> None:
             renderer,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(level)),
-        logger_factory=structlog.PrintLoggerFactory(sys.stdout),
+        # No explicit file: each logger resolves sys.stdout when it is created, so a
+        # replaced stream (test capture, reloader) is never written to after it closes.
+        logger_factory=structlog.PrintLoggerFactory(),
         cache_logger_on_first_use=False,
     )
     # Route stdlib loggers (uvicorn, libraries) to the same level.

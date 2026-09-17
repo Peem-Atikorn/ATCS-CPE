@@ -6,14 +6,13 @@ preflight and unexpected 500s) carries X-Request-ID and X-Correlation-ID.
 
 from __future__ import annotations
 
-import json
 import time
 
 import structlog
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.api.problem import PROBLEM_MEDIA_TYPE, problem_body
+from app.api.middleware.problem_asgi import send_problem
 from app.core.errors import ErrorCode
 from app.core.ids import accept_client_id, correlation_id_var, new_id, request_id_var
 from app.core.logging import get_logger
@@ -67,7 +66,13 @@ class RequestContextMiddleware:
             log.exception("unhandled_exception", error_type=type(exc).__name__)
             if scope["type"] != "http" or response_started:
                 raise
-            await self._send_internal_error(path, request_id, correlation_id, send)
+            await send_problem(
+                send,
+                ErrorCode.INTERNAL_ERROR,
+                path,
+                self.type_base_url,
+                {REQUEST_ID_HEADER: request_id, CORRELATION_ID_HEADER: correlation_id},
+            )
             status_code = 500
         finally:
             if path not in _QUIET_PATHS:
@@ -78,23 +83,3 @@ class RequestContextMiddleware:
                     status=status_code,
                     duration_ms=round((time.perf_counter() - started) * 1000, 2),
                 )
-
-    async def _send_internal_error(
-        self, path: str, request_id: str, correlation_id: str, send: Send
-    ) -> None:
-        body = json.dumps(
-            problem_body(ErrorCode.INTERNAL_ERROR, instance=path, type_base_url=self.type_base_url)
-        ).encode()
-        await send(
-            {
-                "type": "http.response.start",
-                "status": 500,
-                "headers": [
-                    (b"content-type", PROBLEM_MEDIA_TYPE.encode()),
-                    (b"content-length", str(len(body)).encode()),
-                    (REQUEST_ID_HEADER.lower().encode(), request_id.encode()),
-                    (CORRELATION_ID_HEADER.lower().encode(), correlation_id.encode()),
-                ],
-            }
-        )
-        await send({"type": "http.response.body", "body": body})

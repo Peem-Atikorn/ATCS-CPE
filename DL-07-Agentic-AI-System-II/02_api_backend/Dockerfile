@@ -34,6 +34,9 @@ CMD ["python", "-m", "app.serve", "--reload"]
 FROM base AS runtime
 COPY --from=deps /opt/venv /opt/venv
 COPY --chown=app:app app ./app
+COPY --chown=app:app migrations ./migrations
+COPY --chown=app:app scripts ./scripts
+COPY --chown=app:app alembic.ini ./
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \

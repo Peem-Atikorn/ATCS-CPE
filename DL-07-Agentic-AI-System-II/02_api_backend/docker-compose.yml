@@ -1,5 +1,5 @@
 # Backend development stack (docs/04_project_structure.md section 5.2).
-# Services added in later steps: migrate (5.2), mock-agent (5.4), worker/beat (5.6).
+# Services added in later steps: mock-agent (5.4), worker/beat (5.6).
 name: tsa-backend
 
 x-api-env: &api-env
@@ -15,6 +15,10 @@ x-api-env: &api-env
   AGENT_SERVICE_URL: ${AGENT_SERVICE_URL:-http://mock-agent:8010}
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
   OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+  # Dev-only HS256 key so `python -m scripts.dev_token` can issue tokens (never set in prod).
+  DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:-dev-only-signing-key-change-me-0123456789}
+  PSEUDONYM_SECRET: ${PSEUDONYM_SECRET:-}
+  IP_HASH_SECRET: ${IP_HASH_SECRET:-}
 
 services:
   api:
@@ -30,8 +34,8 @@ services:
     volumes:
       - ./app:/app/app:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis-core:
         condition: service_healthy
       redis-cache:
@@ -46,6 +50,24 @@ services:
       timeout: 3s
       retries: 5
       start_period: 15s
+    networks: [backend]
+
+  migrate:
+    image: tsa-backend:dev
+    build:
+      context: .
+      target: dev
+    command: ["sh", "-c", "alembic upgrade head && python -m scripts.seed_reference_data"]
+    environment:
+      <<: *api-env
+    volumes:
+      - ./app:/app/app:ro
+      - ./migrations:/app/migrations:ro
+      - ./scripts:/app/scripts:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
     networks: [backend]
 
   postgres:

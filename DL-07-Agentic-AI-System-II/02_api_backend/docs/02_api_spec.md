@@ -656,8 +656,12 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 
 ### 11.1 Idempotency
 
-- Redis key: `idem:{user_id}:{method}:{path}:{idempotency_key}` → `{ body_hash, status, response, created_at }`, TTL `P-25`
-- ขั้นตอน: `SET NX` สถานะ `in_progress` → ประมวลผล → เก็บ response
+- Redis key: `idem:{caller_hash}:{method}:{route_hash}:{key_hash}` (HASH) → `{ state, owner, body_hash, status_code, headers, body, created_at }`
+- ขั้นตอน (Lua, atomic): สร้าง `in_progress` พร้อม lock TTL `IDEMPOTENCY_LOCK_SECONDS` (120 s) → ประมวลผล → แทนที่ด้วย response และตั้ง TTL `P-25`
+- เก็บเฉพาะ response **2xx**; ถ้า error lock จะถูกปลด client ใช้ key เดิมลองใหม่ได้ (D-29)
+- Redis ใช้ไม่ได้ → `503 DEPENDENCY_UNAVAILABLE` (fail closed, D-28)
+- `Idempotency-Key`: 8–128 ตัว `[A-Za-z0-9._:-]`; ไม่มี/ผิดรูป → `400 INVALID_REQUEST`
+- Replay ส่งกลับเฉพาะ header `Content-Type`, `Location` + `Idempotent-Replayed: true`
 - key ซ้ำ + body_hash เท่ากัน + เสร็จแล้ว → ส่ง response เดิม + `Idempotent-Replayed: true`
 - key ซ้ำ + body_hash ต่าง → `409 IDEMPOTENCY_CONFLICT`
 - key ซ้ำ + ยัง `in_progress` → `409 IDEMPOTENCY_IN_PROGRESS` + `Retry-After: 2`
@@ -753,7 +757,11 @@ sequenceDiagram
 | Streams | `streams:{user_id}` (counter) | P-34 |
 | Data export | `rl:user:{user_id}:export` | 1/day |
 
-Algorithm: sliding window (Redis sorted set หรือ GCRA) — *D-08*
+Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis) — *D-08 (Accepted)*
+
+- IP limit ทำใน middleware ก่อน auth; ยกเว้น `/health`, `/ready`, `/metrics` และ `OPTIONS`
+- user / endpoint limit ทำใน dependency หลังตรวจ token; key ใช้ HMAC ของ `iss|sub` (ยังไม่มี `user_id` จนกว่าจะมี JIT provisioning ใน Step 5.9)
+- Redis ใช้ไม่ได้ → ปล่อยผ่าน (fail open) และ log warning; ตั้ง `RATE_LIMIT_FAIL_OPEN=false` เพื่อตอบ 503 แทน (D-28)
 
 ---
 
@@ -789,3 +797,4 @@ Algorithm: sliding window (Redis sorted set หรือ GCRA) — *D-08*
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.4 | 2026-09-17 | Step 5.3: รายละเอียด idempotency (§11.1) และ rate limit (§13), D-08 Accepted |

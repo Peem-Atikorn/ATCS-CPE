@@ -7,6 +7,7 @@ import pytest
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
+from app.api.resources import AppResources
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode
 from app.main import create_app
@@ -29,8 +30,8 @@ class _Body(BaseModel):
 
 
 @pytest.fixture
-def app(settings: Settings) -> FastAPI:
-    app = create_app(settings)
+def app(settings: Settings, resources: AppResources) -> FastAPI:
+    app = create_app(settings, resources)
 
     @app.get("/_test/boom")
     async def boom() -> None:
@@ -162,9 +163,11 @@ async def test_cors_allows_configured_origin_only(client: httpx.AsyncClient) -> 
     assert "X-Request-ID" in allowed.headers
 
 
-async def test_docs_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_docs_can_be_disabled(
+    monkeypatch: pytest.MonkeyPatch, resources: AppResources
+) -> None:
     monkeypatch.setenv("ENABLE_DOCS", "false")
-    app = create_app(Settings())
+    app = create_app(Settings(), resources)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         assert (await c.get("/docs")).status_code == 404

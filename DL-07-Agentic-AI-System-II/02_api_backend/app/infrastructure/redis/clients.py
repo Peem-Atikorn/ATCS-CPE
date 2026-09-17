@@ -1,0 +1,35 @@
+"""Redis connections: core (noeviction) and cache (allkeys-lru), see D-14."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from redis.asyncio import Redis
+
+from app.core.config import RedisSettings
+
+
+@dataclass
+class RedisClients:
+    core: Redis
+    cache: Redis
+
+    async def aclose(self) -> None:
+        await self.core.aclose()
+        await self.cache.aclose()
+
+
+def _client(url: str, settings: RedisSettings) -> Redis:
+    return Redis.from_url(
+        url,
+        socket_timeout=settings.redis_socket_timeout_seconds,
+        socket_connect_timeout=settings.redis_socket_timeout_seconds,
+        health_check_interval=30,
+    )
+
+
+def create_redis_clients(settings: RedisSettings) -> RedisClients:
+    return RedisClients(
+        core=_client(settings.core_url(), settings),
+        cache=_client(settings.cache_url(), settings),
+    )
