@@ -57,6 +57,12 @@ class RecommendationModel(UUIDPrimaryKey, CreatedAt, Base):
             "status",
             postgresql_where=text("status = 'processing'"),
         ),
+        Index(
+            "ix_recommendations_trip_recent",
+            "trip_id",
+            text("created_at DESC"),
+            postgresql_where=text("trip_id IS NOT NULL"),
+        ),
         Index("ix_recommendations_expires_at", "expires_at"),
     )
 

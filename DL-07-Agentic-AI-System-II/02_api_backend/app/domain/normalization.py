@@ -143,12 +143,19 @@ def _distance(a: GeoPoint, b: GeoPoint) -> float:
 
 
 def _departure(
-    value: datetime, now: datetime, limits: NormalizationLimits, issues: list[FieldIssue]
+    value: datetime,
+    now: datetime,
+    limits: NormalizationLimits,
+    issues: list[FieldIssue],
+    *,
+    check_window: bool,
 ) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         issues.append(FieldIssue("departure_time", "timezone_required", "include a UTC offset"))
         return value
     utc = value.astimezone(UTC)
+    if not check_window:
+        return utc
     if utc < now - limits.past_tolerance:
         issues.append(FieldIssue("departure_time", "in_past", "departure time has passed"))
     elif utc > now + timedelta(days=limits.max_days_ahead):
@@ -216,7 +223,11 @@ def _waypoints(
 
 
 def normalize_travel_request(
-    raw: TravelRequestInput, *, now: datetime, limits: NormalizationLimits
+    raw: TravelRequestInput,
+    *,
+    now: datetime,
+    limits: NormalizationLimits,
+    check_departure_window: bool = True,
 ) -> NormalizedTravelRequest:
     issues: list[FieldIssue] = []
     before = len(issues)
@@ -227,7 +238,9 @@ def normalize_travel_request(
             FieldIssue("destination", "same_as_origin", "destination must differ from origin")
         )
     waypoints = _waypoints(raw.waypoints, limits, issues)
-    departure = _departure(raw.departure_time, now, limits, issues)
+    departure = _departure(
+        raw.departure_time, now, limits, issues, check_window=check_departure_window
+    )
     timezone_name = _timezone(raw.timezone, issues)
     preferences = _preferences(raw.preferences, issues)
     question = clean_text(raw.question)

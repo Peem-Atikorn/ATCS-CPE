@@ -4,32 +4,40 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from app.core.errors import AppError, ErrorCode
 from app.core.ids import new_id
 from app.domain.enums import (
+    FeedbackOutcome,
     JobStage,
     JobStatus,
     JobType,
     MessageRole,
     RecommendationStatus,
     RecommendationType,
+    ReportType,
+    ReviewStatus,
     RiskLevel,
 )
 from app.domain.errors import DomainError
+from app.domain.normalization import GeoPoint, NormalizationLimits
+from app.domain.trips import TripChanges, TripDraft, apply_trip_changes
 from app.infrastructure.redis.job_state import JobEvent
 from app.services.conversation_service import MessageReply
 from app.services.pagination import Page
 from app.services.ports import (
     ConversationRecord,
+    FeedbackRecord,
     JobRecord,
     MessageRecord,
     RecommendationRecord,
     RecommendationSummaryRecord,
+    ReviewItem,
+    TripRecord,
     UserRef,
 )
 from app.services.recommendation_service import Accepted, CreateOutcome, CreateRecommendation
@@ -319,3 +327,135 @@ class FakeConversations:
             raise self.reply
         assert self.reply is not None
         return self.reply
+
+
+def trip(**changes: Any) -> TripRecord:
+    values: dict[str, Any] = {
+        "id": new_id(),
+        "user_id": USER.id,
+        "draft": TripDraft(
+            name="North trip",
+            origin=GeoPoint(13.7563, 100.5018, name="Bangkok"),
+            destination=GeoPoint(18.7883, 98.9853, name="Chiang Mai"),
+            departure_time=T0 + timedelta(days=3),
+            timezone="Asia/Bangkok",
+        ),
+        "last_assessment": None,
+        "assessment_outdated": False,
+        "created_at": T0,
+        "updated_at": T0,
+    }
+    values.update(changes)
+    return TripRecord(**values)
+
+
+@dataclass
+class FakeTrips:
+    records: dict[UUID, TripRecord] = field(default_factory=dict)
+    outcome: CreateOutcome | None = None
+    page: Page[RecommendationSummaryRecord] = field(default_factory=lambda: Page([], None))
+    calls: list[tuple[str, Any]] = field(default_factory=list)
+
+    def _owned(self, user: UserRef, trip_id: UUID) -> TripRecord:
+        found = self.records.get(trip_id)
+        if found is None or found.user_id != user.id:
+            raise AppError(ErrorCode.NOT_FOUND)
+        return found
+
+    async def create(self, user: UserRef, draft: TripDraft) -> TripRecord:
+        self.calls.append(("create", draft))
+        created = trip(draft=draft)
+        self.records[created.id] = created
+        return created
+
+    async def get(self, user: UserRef, trip_id: UUID) -> TripRecord:
+        return self._owned(user, trip_id)
+
+    async def list(self, user: UserRef, **kwargs: Any) -> Page[TripRecord]:
+        self.calls.append(("list", kwargs))
+        return Page(list(self.records.values()), "next-page")
+
+    async def update(self, user: UserRef, trip_id: UUID, changes: TripChanges) -> TripRecord:
+        current = self._owned(user, trip_id)
+        self.calls.append(("update", changes))
+        draft = apply_trip_changes(
+            current.draft, changes, now=T0, limits=NormalizationLimits(max_days_ahead=90)
+        )
+        updated = replace(current, draft=draft)
+        self.records[trip_id] = updated
+        return updated
+
+    async def delete(self, user: UserRef, trip_id: UUID) -> None:
+        self._owned(user, trip_id)
+        del self.records[trip_id]
+
+    async def assess(self, user: UserRef, trip_id: UUID, **kwargs: Any) -> CreateOutcome:
+        self._owned(user, trip_id)
+        self.calls.append(("assess", kwargs))
+        assert self.outcome is not None
+        return self.outcome
+
+    async def assessments(
+        self, user: UserRef, trip_id: UUID, **kwargs: Any
+    ) -> Page[RecommendationSummaryRecord]:
+        self._owned(user, trip_id)
+        self.calls.append(("assessments", kwargs))
+        return self.page
+
+
+def feedback_record(**changes: Any) -> FeedbackRecord:
+    values: dict[str, Any] = {
+        "id": new_id(),
+        "recommendation_id": new_id(),
+        "rating": 1,
+        "helpful": False,
+        "outcome": FeedbackOutcome.UNKNOWN,
+        "report_type": ReportType.UNSAFE_ADVICE,
+        "comment": "Flooded road",
+        "review_status": ReviewStatus.PENDING,
+        "reviewed_at": None,
+        "review_note": None,
+        "created_at": T0,
+    }
+    values.update(changes)
+    return FeedbackRecord(**values)
+
+
+@dataclass
+class FakeFeedback:
+    records: dict[UUID, FeedbackRecord] = field(default_factory=dict)
+    owned: set[UUID] = field(default_factory=set)
+    calls: list[tuple[str, Any, dict[str, Any]]] = field(default_factory=list)
+
+    async def submit(
+        self, user: UserRef, recommendation_id: UUID, raw: Any, **kwargs: Any
+    ) -> FeedbackRecord:
+        if recommendation_id not in self.owned:
+            raise AppError(ErrorCode.NOT_FOUND)
+        self.calls.append(("submit", raw, kwargs))
+        made = feedback_record(recommendation_id=recommendation_id)
+        self.records[made.id] = made
+        return made
+
+    async def reviews(self, reviewer: str, **kwargs: Any) -> Page[ReviewItem]:
+        self.calls.append(("reviews", reviewer, kwargs))
+        items = [
+            ReviewItem(r, {"recommendation": {"summary": "Go"}}) for r in self.records.values()
+        ]
+        return Page(items, "next-page")
+
+    async def review(self, reviewer: str, feedback_id: UUID, **kwargs: Any) -> FeedbackRecord:
+        self.calls.append(("review", reviewer, kwargs))
+        found = self.records.get(feedback_id)
+        if found is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        if found.review_status is not ReviewStatus.PENDING:
+            raise AppError(ErrorCode.REVIEW_NOT_PENDING)
+        updated = replace(
+            found,
+            review_status=ReviewStatus(kwargs["decision"].value),
+            review_note=kwargs["note"],
+            reviewed_at=T0,
+        )
+        self.records[feedback_id] = updated
+        return updated

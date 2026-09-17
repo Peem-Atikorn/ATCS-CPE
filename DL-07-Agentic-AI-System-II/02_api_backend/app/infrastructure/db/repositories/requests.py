@@ -32,7 +32,7 @@ def preferences_json(prefs: TravelPreferences) -> dict[str, Any]:
     }
 
 
-def _preferences(data: dict[str, Any]) -> TravelPreferences:
+def parse_preferences(data: dict[str, Any]) -> TravelPreferences:
     return TravelPreferences(
         travel_modes=tuple(TravelMode(v) for v in data.get("travel_modes", [])),
         avoid=tuple(AvoidOption(v) for v in data.get("avoid", [])),
@@ -70,7 +70,7 @@ async def load_request(
         departure_time=travel.departure_time,
         timezone=travel.timezone,
         language=travel.language,
-        preferences=_preferences(travel.preferences),
+        preferences=parse_preferences(travel.preferences),
         question=question,
     )
     return request, travel

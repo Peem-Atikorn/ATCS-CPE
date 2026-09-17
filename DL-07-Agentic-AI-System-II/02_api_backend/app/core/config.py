@@ -225,6 +225,16 @@ class CacheSettings(BaseSettings):
     stale_transport_minutes: int = Field(default=10, gt=0)  # P-28
 
 
+class TripSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    max_trip_days_ahead: int = Field(default=90, gt=0)  # P-55
+    trip_alert_scan_minutes: int = Field(default=15, gt=0)  # P-56
+    trip_alert_window_hours: int = Field(default=24, gt=0)  # P-57
+    trip_alert_reassess_minutes: int = Field(default=60, gt=0)  # P-58
+    trip_alert_batch_size: int = Field(default=100, gt=0)  # P-59
+
+
 class RetentionSettings(BaseSettings):
     model_config = _ENV_CONFIG
 
@@ -295,6 +305,7 @@ class Settings(BaseModel):
     limits: LimitSettings = Field(default_factory=LimitSettings)
     jobs: JobSettings = Field(default_factory=JobSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
+    trips: TripSettings = Field(default_factory=TripSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)

@@ -14,7 +14,7 @@ down:
 	$(COMPOSE) down
 
 logs:
-	$(COMPOSE) logs -f api worker
+	$(COMPOSE) logs -f api worker beat
 
 ps:
 	$(COMPOSE) ps

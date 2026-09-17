@@ -10,12 +10,17 @@ from app.core.clock import SystemClock
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
 from app.core.security import Principal
+from app.infrastructure.audit import SqlAuditWriter
 from app.infrastructure.db.repositories.conversations import SqlConversationRepository
+from app.infrastructure.db.repositories.feedback import SqlFeedbackRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
+from app.infrastructure.db.repositories.trips import SqlTripRepository
 from app.services.conversation_service import ConversationService
+from app.services.feedback_service import FeedbackService
 from app.services.job_service import JobService
 from app.services.ports import UserRef
 from app.services.recommendation_service import RecommendationService
+from app.services.trip_service import TripService
 from app.services.user_service import UserService
 
 log = get_logger(__name__)
@@ -84,6 +89,28 @@ def get_conversation_service(request: Request) -> ConversationService:
     return ConversationService(
         conversations=SqlConversationRepository(_require(resources.sessions, "sessions")),
         recommendations=get_recommendation_service(request),
+        settings=resources.settings,
+        clock=_CLOCK,
+    )
+
+
+def get_trip_service(request: Request) -> TripService:
+    resources = get_resources(request)
+    return TripService(
+        trips=SqlTripRepository(_require(resources.sessions, "sessions")),
+        recommendations=get_recommendation_service(request),
+        settings=resources.settings,
+        clock=_CLOCK,
+    )
+
+
+def get_feedback_service(request: Request) -> FeedbackService:
+    resources = get_resources(request)
+    sessions = _require(resources.sessions, "sessions")
+    return FeedbackService(
+        feedback=SqlFeedbackRepository(sessions),
+        recommendations=SqlRecommendationRepository(sessions),
+        audit=SqlAuditWriter(sessions),
         settings=resources.settings,
         clock=_CLOCK,
     )

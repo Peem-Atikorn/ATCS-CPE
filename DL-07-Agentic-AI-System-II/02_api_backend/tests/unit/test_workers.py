@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
@@ -11,9 +12,17 @@ from app.core.config import Settings
 from app.core.ids import correlation_id_var, new_id
 from app.infrastructure.queue import CeleryJobQueue
 from app.workers import celery_app as celery_module
-from app.workers.celery_app import RECOMMENDATION_QUEUE, RUN_RECOMMENDATION, create_celery
+from app.workers.celery_app import (
+    ALERT_QUEUE,
+    RECOMMENDATION_QUEUE,
+    RUN_RECOMMENDATION,
+    SCAN_TRIP_ALERTS,
+    create_celery,
+)
 from app.workers.runtime import WorkerRuntime
+from app.workers.schedule import beat_schedule
 from app.workers.tasks import recommendation as task_module
+from app.workers.tasks import trip_alerts as alert_module
 
 
 def test_celery_configuration(settings: Settings) -> None:
@@ -28,6 +37,9 @@ def test_celery_configuration(settings: Settings) -> None:
     assert conf.accept_content == ["json"]
     assert conf.task_default_queue == RECOMMENDATION_QUEUE
     assert conf.task_routes[RUN_RECOMMENDATION] == {"queue": RECOMMENDATION_QUEUE}
+    assert conf.task_routes[SCAN_TRIP_ALERTS] == {"queue": ALERT_QUEUE}
+    assert "app.workers.tasks.trip_alerts" in conf.include
+    assert conf.beat_schedule == beat_schedule(settings)
     # Our JSON logs go to the real stdout; the redirect proxy would swallow them.
     assert conf.worker_redirect_stdouts is False
 
@@ -38,6 +50,7 @@ def test_module_exposes_a_configured_app_with_the_task() -> None:
     app = celery_module.celery_app
 
     assert RUN_RECOMMENDATION in app.tasks
+    assert SCAN_TRIP_ALERTS in app.tasks
     with pytest.raises(AttributeError):
         _ = celery_module.not_there
 
@@ -129,3 +142,57 @@ def test_runtime_runs_each_job_in_the_callers_context(monkeypatch: pytest.Monkey
         runtime.close()
 
     assert seen == ["first", "second"]
+
+
+def test_beat_schedule_follows_the_scan_interval(settings: Settings) -> None:
+    trips = settings.trips.model_copy(update={"trip_alert_scan_minutes": 5})
+    changed = settings.model_copy(update={"trips": trips})
+
+    entry = beat_schedule(changed)["scan-trip-alerts"]
+
+    assert entry["task"] == SCAN_TRIP_ALERTS
+    assert entry["schedule"] == timedelta(minutes=5)
+    # A run that waited longer than one interval is dropped; the next one covers it.
+    assert entry["options"] == {"queue": ALERT_QUEUE, "expires": 300}
+
+
+class FakeAlertRuntime:
+    def __init__(self) -> None:
+        self.correlation_ids: list[str | None] = []
+
+    def scan_trip_alerts(self) -> dict[str, int]:
+        self.correlation_ids.append(correlation_id_var.get())
+        return {"queued": 2, "skipped": 1}
+
+
+def test_scan_task_runs_with_its_own_correlation_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeAlertRuntime()
+    monkeypatch.setattr(alert_module, "runtime", runtime)
+
+    assert alert_module.scan_trip_alerts() == {"queued": 2, "skipped": 1}
+    alert_module.scan_trip_alerts()
+
+    first, second = runtime.correlation_ids
+    assert first
+    assert second
+    assert first != second
+    assert correlation_id_var.get() is None
+
+
+def test_runtime_scans_in_the_callers_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = WorkerRuntime()
+    seen: list[str | None] = []
+
+    async def fake_scan() -> dict[str, int]:
+        seen.append(correlation_id_var.get())
+        return {"queued": 0, "skipped": 0}
+
+    monkeypatch.setattr(runtime, "_scan", fake_scan)
+    token = correlation_id_var.set("scan-1")
+    try:
+        assert runtime.scan_trip_alerts() == {"queued": 0, "skipped": 0}
+    finally:
+        correlation_id_var.reset(token)
+        runtime.close()
+
+    assert seen == ["scan-1"]

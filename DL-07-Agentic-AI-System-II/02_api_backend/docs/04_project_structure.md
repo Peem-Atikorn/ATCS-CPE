@@ -44,6 +44,7 @@
 │   │   ├── auth.py             # get_principal, require_scopes, RateLimit (P-30, P-32)
 │   │   ├── idempotency.py      # IdempotentRoute (spec §11.1)
 │   │   ├── deps.py             # Depends: current user (JIT), services — ประกอบ infrastructure ที่นี่ที่เดียว
+│   │   ├── audit.py            # ip hash + correlation id สำหรับ audit log (Step 5.8)
 │   │   ├── middleware/
 │   │   │   ├── request_context.py   # request_id, correlation_id, access log, last-resort 500
 │   │   │   ├── body_guard.py        # 413 (P-44) / 415
@@ -58,13 +59,13 @@
 │   │       ├── jobs.py         # + SSE events + stream ticket
 │   │       ├── ws.py
 │   │       ├── conversations.py
-│   │       ├── trips.py
-│   │       ├── feedback.py
+│   │       ├── trips.py        # E-14..E-18 (Step 5.8)
+│   │       ├── feedback.py     # E-19 (Step 5.8)
 │   │       ├── me.py
 │   │       ├── service_status.py
 │   │       └── admin/
 │   │           ├── jobs.py
-│   │           ├── reviews.py
+│   │           ├── reviews.py  # safety review queue (Step 5.8)
 │   │           └── audit.py
 │   │
 │   ├── schemas/                # ── API contract (Pydantic v2) — versioned
@@ -83,8 +84,9 @@
 │   │   ├── job_service.py             # status, cancel, events, tickets
 │   │   ├── conversation_service.py    # conversations, messages, follow-up (Step 5.7)
 │   │   ├── pagination.py              # cursor + Page (keyset)
-│   │   ├── trip_service.py
-│   │   ├── feedback_service.py        # + safety review routing
+│   │   ├── trip_service.py            # trips + การประเมิน (Step 5.8)
+│   │   ├── trip_alert_service.py      # scan trip ที่เปิด live alert (Step 5.8)
+│   │   ├── feedback_service.py        # + safety review routing, audit
 │   │   ├── user_service.py            # JIT provisioning, consent, delete, export
 │   │   ├── status_service.py
 │   │   ├── agent_run_service.py       # ใช้ใน worker: call agent → safety gate → persist
@@ -98,6 +100,8 @@
 │   │   ├── normalization.py    # timezone, language, coordinates, preferences
 │   │   ├── safety_gate.py      # R-01..R-07
 │   │   ├── follow_up.py        # รวม overrides เข้ากับ request เดิม (Step 5.7)
+│   │   ├── trips.py            # ตรวจ trip, merge patch, สถานะ, consent (Step 5.8)
+│   │   ├── feedback.py         # ตรวจ feedback + review routing (Step 5.8)
 │   │   ├── freshness.py        # is_stale / valid_until (P-28)
 │   │   ├── sanitizer.py        # ตัด field ภายใน, ตรวจ URL, control chars
 │   │   ├── cache_policy.py     # cache key + เงื่อนไขห้าม cache
@@ -113,7 +117,8 @@
 │   │   │   │                   #      mlops.py (prediction_records, feedback), audit.py, reference.py
 │   │   │   ├── migration_filters.py  # autogenerate filter (ใช้ร่วมกับ drift test)
 │   │   │   ├── reference_data.py     # seed coverage_areas / emergency_defaults
-│   │   │   └── repositories/   # recommendations.py, conversations.py, requests.py; ทุก read รับ user_id (กัน IDOR)
+│   │   │   └── repositories/   # recommendations.py, conversations.py, requests.py, trips.py, feedback.py;
+│   │   │                       #   ทุก read ของผู้ใช้รับ user_id (กัน IDOR)
 │   │   ├── redis/
 │   │   │   ├── clients.py      # core / cache connections
 │   │   │   ├── keys.py         # key builders (ที่เดียวของ key format — data design §5)
@@ -132,18 +137,18 @@
 │   │   ├── queue.py            # CeleryJobQueue: ส่งงานจาก async code
 │   │   ├── storage/
 │   │   │   └── object_store.py # data export (MinIO/S3)
-│   │   └── audit.py            # AuditWriter
+│   │   └── audit.py            # SqlAuditWriter (Step 5.8)
 │   │
 │   └── workers/                # ── Celery
 │       ├── celery_app.py       # config, queues (สร้าง app ตอนใช้ครั้งแรก)
 │       ├── runtime.py          # asyncio.Runner + resources ต่อ process (D-50)
 │       ├── tasks/
 │       │   ├── recommendation.py   # run_recommendation(job_id)
-│       │   ├── trip_alerts.py      # scheduled re-assessment
+│       │   ├── trip_alerts.py      # scan_trip_alerts: คิวประเมิน trip ใหม่ (Step 5.8)
 │       │   ├── purge.py            # retention (data design §6.1)
 │       │   ├── account.py          # delete user, export data
 │       │   └── reaper.py           # job ค้าง
-│       └── schedule.py         # beat schedule (P-50)
+│       └── schedule.py         # beat schedule (P-56; P-50 เพิ่มใน 5.9)
 │
 ├── migrations/                 # Alembic
 │   ├── env.py
@@ -292,8 +297,8 @@ flowchart LR
 
 - Image เดียวใช้ 3 บทบาทโดยเปลี่ยน command:
   - api: `python -m app.serve --workers 2` (ตรวจ config ก่อน แล้วค่อยเรียก uvicorn หลาย worker — D-25)
-  - worker: `celery -A app.workers.celery_app:celery_app worker -Q recommendations` (queue `maintenance` เพิ่มใน 5.9)
-  - beat: `celery -A app.workers.celery_app beat`
+  - worker: `celery -A app.workers.celery_app:celery_app worker -Q recommendations,alerts` (queue `maintenance` เพิ่มใน 5.9)
+  - beat: `celery -A app.workers.celery_app:celery_app beat --schedule /tmp/celerybeat-schedule` (หนึ่งตัวต่อ stack, Step 5.8)
 - Migration รันเป็น one-off service (`migrate`) ก่อน api start — ไม่รันใน api container
 
 ### 5.2 `docker-compose.yml` (backend dev stack)
@@ -323,7 +328,7 @@ flowchart LR
 | Queue | Tasks | Concurrency (เสนอ) |
 |---|---|---|
 | `recommendations` | `run_recommendation` | 4 (prefork; งานส่วนใหญ่คือรอ Agent) |
-| `alerts` | `reassess_trip` | 2 |
+| `alerts` | `scan_trip_alerts` (งานประเมินไปเข้า `recommendations`) | 2 — ตอนนี้ worker ตัวเดียวฟังทั้งสอง queue |
 | `maintenance` | `purge_expired`, `reap_stuck_jobs`, `delete_account`, `build_data_export` | 1 |
 
 - `task_acks_late=True`, `worker_prefetch_multiplier=1`, `task_reject_on_worker_lost=True`
@@ -460,6 +465,19 @@ flowchart LR
 | D-56 | cursor / `limit` ผิด → `422 VALIDATION_ERROR` พร้อมชื่อ field | `400 INVALID_REQUEST` | Accepted (Step 5.7) |
 | D-57 | list conversations เรียงตาม `updated_at` (index เดิม); รายการที่เปลี่ยนระหว่างเปิดหน้าอาจย้ายที่ | เรียงตาม `created_at` | Accepted (Step 5.7) |
 | D-58 | `infrastructure` import `services.ports` / `services.pagination` ได้ (Protocol + record ของ port) | ย้าย port ไป `domain` | Accepted (Step 5.7) |
+| D-59 | trip บันทึกล่วงหน้าได้ถึง P-55; P-43 ใช้ตอนประเมิน; ตรวจช่วงเวลาเฉพาะเมื่อ `departure_time` เปลี่ยน | ใช้ P-43 ทุกที่ | Accepted (Step 5.8) |
+| D-60 | `PATCH /v1/trips/{id}` เป็น JSON Merge Patch; location แทนทั้งก้อน, `preferences`/`alerts` รวมทีละ key; `null` บน field บังคับ → 422 | PUT ทั้งก้อน | Accepted (Step 5.8) |
+| D-61 | สถานะ trip `PLANNED → ACTIVE/COMPLETED/CANCELLED`, `ACTIVE → COMPLETED/CANCELLED`; trip ที่ปิดแล้วแก้หรือประเมินไม่ได้ | เปลี่ยนสถานะได้อิสระ | Accepted (Step 5.8) |
+| D-62 | เปิด alert ต้องส่ง `consent_at`; เก็บเวลาของ server; ปิด alert ล้าง consent | เก็บเวลาที่ client ส่ง | Accepted (Step 5.8) |
+| D-63 | ประเมิน trip ใช้ conversation เดิมของ trip; `jobs.type = TRIP_ASSESSMENT` สำหรับ source `TRIP_ASSESSMENT` และ `TRIP_ALERT` | conversation ใหม่ทุกครั้ง | Accepted (Step 5.8) |
+| D-64 | `last_assessment` = ผลล่าสุดที่จบแล้ว; ล้าง `outdated` เมื่อ request ตรงกับ trip ปัจจุบันเท่านั้น; job ที่ fail ไม่เปลี่ยนอะไร | ล้างทุกครั้งที่มีผล | Accepted (Step 5.8) |
+| D-65 | beat สั่ง `scan_trip_alerts` ทุก P-56 (queue `alerts`) → คิวประเมินแบบ async ตาม P-57/P-58/P-59; ข้าม user ที่ชน P-33; container `beat` ย้ายมาทำใน 5.8 | task แยกต่อ trip / ตั้ง ETA ต่อ trip | Accepted (Step 5.8) |
+| D-66 | alert แบบ in-app = ข้อความ assistant ใน conversation ของ trip เฉพาะเมื่อ risk level หรือ type เปลี่ยน; push ผ่าน WS รอ E-07 | ตาราง notifications | Accepted (Step 5.8) |
+| D-67 | รับ feedback เฉพาะ recommendation ที่จบแล้วและมีเนื้อหา; ส่งได้หลายครั้ง | หนึ่งครั้งต่อ recommendation | Accepted (Step 5.8) |
+| D-68 | "แจ้ง Ops" = log warning `safety_review_requested` + audit `feedback.report`; metric ทำใน 5.10 | ส่ง email / webhook | Accepted (Step 5.8) |
+| D-69 | review queue (`safety:review`) ทำใน 5.8; ค่า status เป็นตัวพิมพ์เล็ก; review ได้เฉพาะ `pending` (`409 REVIEW_NOT_PENDING`); approved → `usable_for_training` | รอ 5.11 | Accepted (Step 5.8) |
+| D-70 | `SqlAuditWriter` เขียนลง default partition; `actor_ref` = pseudonym (user) หรือ `sub` (staff); `ip_hash` = HMAC | เขียน audit ผ่าน log | Accepted (Step 5.8) |
+| D-71 | migration `0008`: index `recommendations (trip_id, created_at DESC) WHERE trip_id IS NOT NULL` | ไม่มี index | Accepted (Step 5.8) |
 | D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
 | D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
 | D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
@@ -482,8 +500,8 @@ flowchart LR
 | 5.5 | Domain: normalization, freshness, safety gate, sanitizer | unit tests R-01..R-07 |
 | 5.6 | Recommendation flow: service + Celery task + job state + SSE (+ stream ticket, cache, JIT user แบบย่อ) | E2E: 200 / 202 + events — **done** |
 | 5.7 | Conversations + follow-up, `GET /v1/travel/recommendations` (E-02, cursor) | ครบ E-02, E-08..E-13 — **done** |
-| 5.8 | Trips + alerts, feedback + review queue | |
-| 5.9 | Me: delete / export / consent, purge + reaper jobs, `DELETE /v1/jobs/{id}` (E-05), `prediction_records`, beat container | |
+| 5.8 | Trips + alerts, feedback + review queue (+ beat container, audit writer) | E-14..E-19 และ review queue — **done** |
+| 5.9 | Me: delete / export / consent, purge + reaper jobs, `DELETE /v1/jobs/{id}` (E-05), `prediction_records`, partition audit รายเดือน | |
 | 5.10 | Observability (OTel, metrics), `/ready`, service-status | |
 | 5.11 | Admin endpoints | |
 | 5.12 | OpenAPI export, contract tests, CI | |
@@ -494,6 +512,7 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.9 | 2026-09-17 | Step 5.8: D-59..D-71, ไฟล์ trips / feedback / audit / alert scan, container `beat` (ย้ายจาก 5.9), queue `alerts` |
 | 0.8 | 2026-09-17 | Step 5.7: D-52..D-58, ไฟล์ `follow_up.py`, `pagination.py`, `conversation_service.py`, repositories ใหม่ |
 | 0.7 | 2026-09-17 | Step 5.6: D-37..D-51 (D-23 แทนด้วย D-37), ไฟล์ใหม่ใน tree, งานที่เลื่อนไป 5.7 / 5.9 |
 | 0.6 | 2026-09-17 | Step 5.5: D-34..D-36, `tests/unit/domain/test_layering.py` ตรวจ layer rule ของ domain (แทน import-linter ชั่วคราว) |

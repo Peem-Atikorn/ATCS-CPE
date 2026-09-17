@@ -20,7 +20,8 @@ Design documents:
 | 5.5 | Domain: normalization, freshness (R-07), Safety Gate (R-01..R-05), sanitizer (R-06) | done |
 | 5.6 | Recommendation flow: `POST/GET /v1/travel/recommendations`, Celery worker, job state and SSE in Redis, stream tickets, cache | done |
 | 5.7 | Conversations and follow-up questions (`/v1/conversations`), recommendation history with cursor pagination | done |
-| 5.8–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
+| 5.8 | Trips, assessments and live alerts (`/v1/trips`, Celery beat), feedback and the safety review queue | done |
+| 5.9–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
 
 ## Requirements
 
@@ -38,7 +39,7 @@ uv run pytest
 Integration tests start a PostGIS container with Testcontainers, so Docker must be running.
 Use `uv run pytest -m "not integration"` for a quick run without Docker.
 
-Run the full stack (API, Celery worker, mock Agent, PostGIS, Redis core, Redis cache). The
+Run the full stack (API, Celery worker and beat, mock Agent, PostGIS, Redis core, Redis cache). The
 `migrate` service applies migrations and seeds reference data before the API starts:
 
 ```bash
@@ -120,6 +121,63 @@ curl -s -X POST http://localhost:8000/v1/conversations/$CONV/messages \
 `GET /v1/conversations/{id}/messages` and `GET /v1/travel/recommendations` return pages
 (`items`, `next_cursor`); pass `?cursor=` to get the next page.
 
+## Trips and live alerts
+
+Save a trip, assess it on demand, and turn on live alerts (the user must agree first;
+the server records the consent time). Celery beat scans trips with alerts on every
+`TRIP_ALERT_SCAN_MINUTES` and re-assesses those that leave within 24 hours; when the risk
+changes, an assistant message appears in the trip's conversation.
+
+```bash
+TRIP=$(curl -s -X POST http://localhost:8000/v1/trips \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: trip-$(date +%s)" \
+  -H "content-type: application/json" \
+  -d '{"name":"เชียงใหม่ ก.ย.","origin":{"lat":13.7563,"lon":100.5018},
+       "destination":{"lat":18.7883,"lon":98.9853},
+       "departure_time":"2026-09-20T01:00:00Z","timezone":"Asia/Bangkok",
+       "alerts":{"enabled":true,"consent_at":"2026-09-17T08:00:00Z"}}' \
+  | python -c "import sys, json; print(json.load(sys.stdin)['trip_id'])")
+# Assess now; the answer is the same as for POST /v1/travel/recommendations
+REC=$(curl -s -X POST http://localhost:8000/v1/trips/$TRIP/assessments \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: assess-$(date +%s)" \
+  -H "content-type: application/json" -d '{"mode":"sync"}' \
+  | python -c "import sys, json; print(json.load(sys.stdin)['recommendation_id'])")
+# Change the time (JSON Merge Patch): last_assessment.outdated becomes true
+curl -s -X PATCH http://localhost:8000/v1/trips/$TRIP \
+  -H "Authorization: Bearer $TOKEN" -H "content-type: application/merge-patch+json" \
+  -d '{"departure_time":"2026-09-20T04:00:00Z"}'
+```
+
+`GET /v1/trips/{id}/assessments` lists the assessments of a trip. Run a scan now instead
+of waiting for beat:
+
+```bash
+docker compose exec worker celery -A app.workers.celery_app:celery_app call app.workers.tasks.trip_alerts.scan_trip_alerts --queue alerts
+```
+
+## Feedback and safety review
+
+Users rate a finished recommendation or report a problem. `UNSAFE_ADVICE` and
+`INCORRECT_INFO` reports wait in the safety review queue (log event
+`safety_review_requested`, audit row `feedback.report`); reviewers need the
+`safety:review` scope, and every review is audited.
+
+```bash
+curl -s -X POST http://localhost:8000/v1/recommendations/$REC/feedback \
+  -H "Authorization: Bearer $TOKEN" -H "Idempotency-Key: fb-$(date +%s)" \
+  -H "content-type: application/json" \
+  -d '{"rating":1,"report_type":"UNSAFE_ADVICE","comment":"ถนนปิด"}'
+REVIEWER=$(docker compose exec -T api python -m scripts.dev_token --sub reviewer \
+  --scope safety:review)
+curl -s -H "Authorization: Bearer $REVIEWER" http://localhost:8000/v1/admin/feedback/reviews
+curl -s -X PATCH http://localhost:8000/v1/admin/feedback/reviews/<feedback_id> \
+  -H "Authorization: Bearer $REVIEWER" -H "content-type: application/json" \
+  -d '{"status":"approved","note":"ยืนยันแล้ว"}'
+```
+
+On Windows, `curl.exe` may replace Thai text in `-d '...'` with `?` before sending it.
+Put the body in a UTF-8 file and send it with `--data-binary @body.json` instead.
+
 ## Mock Travel AI Agent
 
 Until Module 03 is ready, the `mock-agent` service (port 8010) implements the Agent
@@ -154,7 +212,7 @@ To use the real Agent, set `AGENT_SERVICE_URL` and its credentials
 | `make install` | `uv sync` |
 | `make up` | `docker compose up -d --build --wait` |
 | `make down` | `docker compose down` |
-| `make logs` | `docker compose logs -f api worker` |
+| `make logs` | `docker compose logs -f api worker beat` |
 | `make migrate` | `docker compose run --rm migrate` |
 | `make downgrade` | `docker compose run --rm migrate alembic downgrade -1` |
 | `make revision m="..."` | `uv run alembic revision -m "..."` |
@@ -196,14 +254,17 @@ app/
   core/                config, logging, errors, ids, geo
   api/                 routers (/v1), deps, auth dependencies, idempotency, middleware, error handlers
   schemas/v1/          request and response contracts
-  services/            use cases: recommendations, jobs, users, worker run, payload (assess)
-  domain/              enums, normalization, freshness, safety gate, sanitizer, cache policy
+  services/            use cases: recommendations, conversations, trips, alert scan, feedback,
+                       jobs, users, worker run, payload (assess)
+  domain/              enums, normalization, follow-up, trips, feedback, freshness, safety gate,
+                       sanitizer, cache policy
   infrastructure/db/   SQLAlchemy models, session, reference data, repositories
+  infrastructure/audit.py audit log writer
   infrastructure/redis/ rate limiter, idempotency, job state, slots, tickets, cache, key names
   infrastructure/agent/ Agent contract, client, circuit breaker, service auth, factory
-  workers/             Celery app, per-process runtime, tasks
+  workers/             Celery app, beat schedule, per-process runtime, tasks
 mock_agent/            Mock Travel AI Agent (dev and contract tests)
-migrations/            Alembic revisions 0001-0007
+migrations/            Alembic revisions 0001-0008
 scripts/               seed_reference_data, dev_token
 tests/
   unit/                pure tests, no I/O

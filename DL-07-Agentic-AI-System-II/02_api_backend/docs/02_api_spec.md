@@ -92,6 +92,11 @@
 | P-52 | ระยะขั้นต่ำระหว่างต้นทาง/ปลายทาง และระหว่าง waypoint ที่ติดกัน | 50 m | `MIN_ROUTE_DISTANCE_METERS` |
 | P-53 | อายุสูงสุดของ SSE connection หนึ่งครั้ง (client ต่อใหม่ด้วย `Last-Event-ID`) | 300 s | `SSE_MAX_STREAM_SECONDS` |
 | P-54 | อายุ stream ticket (D-06) | 60 s | `STREAM_TICKET_SECONDS` |
+| P-55 | บันทึก trip ล่วงหน้าได้สูงสุด (การประเมินยังใช้ P-43) | 90 วัน | `MAX_TRIP_DAYS_AHEAD` |
+| P-56 | รอบ scan trip ที่เปิด live alert (Celery beat) | 15 min | `TRIP_ALERT_SCAN_MINUTES` |
+| P-57 | scan เฉพาะ trip ที่ออกเดินทางภายใน | 24 h | `TRIP_ALERT_WINDOW_HOURS` |
+| P-58 | ประเมินซ้ำเมื่อผลล่าสุดเก่ากว่า | 60 min | `TRIP_ALERT_REASSESS_MINUTES` |
+| P-59 | จำนวน trip สูงสุดต่อการ scan หนึ่งรอบ | 100 | `TRIP_ALERT_BATCH_SIZE` |
 
 ---
 
@@ -126,6 +131,7 @@
 | 409 | `IDEMPOTENCY_CONFLICT` | key ซ้ำแต่ body ต่าง |
 | 409 | `IDEMPOTENCY_IN_PROGRESS` | key เดิมยังประมวลผลไม่เสร็จ |
 | 409 | `JOB_NOT_CANCELLABLE` | job จบแล้ว |
+| 409 | `REVIEW_NOT_PENDING` | feedback ถูก review ไปแล้ว หรือไม่ต้อง review (§8.2) |
 | 413 | `PAYLOAD_TOO_LARGE` | body เกิน `P-44` |
 | 415 | `UNSUPPORTED_MEDIA_TYPE` | ไม่ใช่ JSON |
 | 422 | `VALIDATION_ERROR` | schema ไม่ผ่าน |
@@ -541,6 +547,20 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 - `POST /v1/trips/{id}/assessments` → เหมือน E-01 แต่ใช้ข้อมูลจาก trip (`200` / `202`)
 - Live alert ส่งเฉพาะเมื่อ `alerts.enabled=true` และมี `consent_at`
 
+**รายละเอียดที่ตัดสินใจตอน implement (Step 5.8):**
+
+- `POST /v1/trips` ต้องมี `Idempotency-Key` → `201 Trip` + `Location`; `name` ตัด control chars, ไม่ว่าง, ≤ 100 ตัวอักษร; route/เวลา/preferences ตรวจแบบเดียวกับ E-01 แต่ `departure_time` ล่วงหน้าได้ถึง P-55 (P-43 ใช้ตอนประเมิน) — *D-59*
+- เปิด alert ต้องส่ง `alerts.consent_at`; server บันทึกเวลาของ server เป็นเวลายินยอม; ปิด alert → `consent_at = null`; `channels` ตอนนี้มีแค่ `IN_APP` (ไม่ว่าง ไม่ซ้ำ) — *D-62*
+- `GET /v1/trips?limit=&cursor=&status=` เรียงตาม `departure_time` ล่าสุดก่อน
+- `PATCH` (`application/merge-patch+json` หรือ `application/json`): `origin`/`destination`/`waypoints` แทนทั้งก้อน, `preferences`/`alerts` รวมทีละ key; `null` = ลบค่า (`waypoints`, `preferences`, `preferences.max_travel_hours`, ...) แต่ field บังคับ (`name`, `origin`, `destination`, `departure_time`, `timezone`, `status`, `alerts.enabled`, `alerts.channels`) เป็น `null` → `422 required`; ตรวจ `departure_time` เฉพาะเมื่อส่งมา — *D-60*
+- `status`: `PLANNED → ACTIVE/COMPLETED/CANCELLED`, `ACTIVE → COMPLETED/CANCELLED`; trip ที่ `COMPLETED`/`CANCELLED` แก้หรือประเมินไม่ได้ (`422`, `status`, `trip_closed`); ย้ายผิดทาง → `invalid_transition` — *D-61*
+- เปลี่ยน origin / destination / waypoints / departure_time / preferences → `last_assessment.outdated = true`; ผลประเมินที่ request ตรงกับ trip ปัจจุบันจึงล้าง `outdated` — *D-64*
+- `last_assessment` = `{recommendation_id, status, risk_level, recommendation_type, created_at, outdated}` ของผลประเมินล่าสุดที่จบแล้ว (job ที่ fail ไม่เปลี่ยน)
+- `POST /v1/trips/{id}/assessments` (`Idempotency-Key`, P-32) body `{ "mode?": "auto|sync|async", "language?": "th" }`; ภาษา: body → `Accept-Language` → ภาษาใน profile; ใช้ conversation เดิมของ trip (ครั้งแรกสร้างใหม่); `travel_requests.source = TRIP_ASSESSMENT`, `jobs.type = TRIP_ASSESSMENT` — *D-63*
+- `GET /v1/trips/{id}/assessments?limit=&cursor=` → `{items: RecommendationSummary[], next_cursor}` ใหม่สุดก่อน
+- `DELETE` → `204`; ผลประเมินยังอยู่ใน history (`trip_id = null`)
+- **Live alert** (D-65, D-66): Celery beat สั่ง `scan_trip_alerts` ทุก P-56 → คิวประเมินใหม่แบบ async (`source = TRIP_ALERT`) ให้ trip ที่เปิด alert, สถานะ `PLANNED`/`ACTIVE`, ออกเดินทางภายใน P-57, ผลล่าสุดไม่มี / outdated / เก่ากว่า P-58 และไม่มีการประเมินที่ค้างอยู่ (สูงสุด P-59 ต่อรอบ; user ที่ชน P-33 ข้ามไปรอบหน้า); alert แบบ in-app คือข้อความ assistant ใน conversation ของ trip ซึ่งบันทึกเฉพาะเมื่อระดับความเสี่ยงหรือชนิดคำแนะนำเปลี่ยนจากครั้งก่อน; push ผ่าน WebSocket รอ E-07
+
 ### 7.3 E-19 Feedback
 
 `POST /v1/recommendations/{recommendation_id}/feedback` (ต้องมี `Idempotency-Key`)
@@ -566,6 +586,13 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 - `201` → `{ feedback_id, created_at, review_status }`
 - `report_type = UNSAFE_ADVICE` หรือ `INCORRECT_INFO` → เข้า safety review queue (`review_status=pending`) และแจ้ง Ops
 - Feedback เก็บแยกจาก telemetry, ผูกกับ pseudonymous user id; ใช้ retrain ได้ **หลัง review เท่านั้น**
+
+**รายละเอียดที่ตัดสินใจตอน implement (Step 5.8):**
+
+- scope `travel:write`, rate limit P-30, ต้องมี `Idempotency-Key`; recommendation ของคนอื่นหรือไม่มีอยู่ → `404`
+- recommendation ที่ยัง `processing` → `422` (`recommendation_id`, `not_finished`); ต้องมีอย่างน้อยหนึ่งอย่างใน `rating`, `helpful`, `report_type`, `comment` หรือ `outcome` ที่ไม่ใช่ `UNKNOWN` ไม่งั้น `422` (`feedback`, `feedback_empty`); ส่งได้หลายครั้งต่อ recommendation — *D-67*
+- `comment` ตัด control chars; ว่าง → `null`; เกิน 1,000 → `422 too_long`; `outcome` default `UNKNOWN`
+- "แจ้ง Ops" = log event ระดับ warning `safety_review_requested` (มีแค่ feedback id, recommendation id, report type — ไม่มีข้อความ) + audit log `feedback.report`; metric / alert rule ทำใน Step 5.10 — *D-68*
 
 ### 7.4 Me (E-20 .. E-22)
 
@@ -602,11 +629,18 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 | GET | `/v1/admin/jobs?status=&from=&to=` | `admin:read` |
 | GET | `/v1/admin/recommendations/{id}` (มี versions + trace id) | `admin:read` |
 | GET | `/v1/admin/feedback/reviews?status=pending` | `safety:review` |
-| PATCH | `/v1/admin/feedback/reviews/{feedback_id}` `{ status: APPROVED\|REJECTED, note }` | `safety:review` |
+| PATCH | `/v1/admin/feedback/reviews/{feedback_id}` `{ status: approved\|rejected, note }` | `safety:review` |
 | GET | `/v1/admin/audit-logs` | `admin:read` |
 | POST | `/v1/admin/exports/training-data` | `admin:write` |
 
 ทุก admin action บันทึก audit log: `actor_id`, `action`, `target`, `at`, `correlation_id`
+
+**Review queue (ทำใน Step 5.8, ส่วน admin อื่นทำใน 5.11)** — *D-69, D-70*
+
+- `status` ใช้ค่าเดียวกับ `review_status`: filter `pending` (default) / `not_required` / `approved` / `rejected`; PATCH รับ `approved` หรือ `rejected` (ร่างเดิมเขียนเป็นตัวพิมพ์ใหญ่)
+- `GET` เรียงเก่าสุดก่อน (FIFO) + cursor → `{items: [{feedback_id, recommendation_id, rating, helpful, outcome, report_type, comment, review_status, review_note, reviewed_at, created_at, recommendation}], next_cursor}`; `recommendation` คือ payload ที่ sanitize แล้ว (`null` ถ้าถูกลบไปแล้ว)
+- `PATCH` body `{ "status": "approved", "note?": "..." }` (note ≤ 1,000) → item เดิม (ไม่มี `recommendation`); review ได้เฉพาะ `pending` ไม่งั้น `409 REVIEW_NOT_PENDING`; `approved` → `usable_for_training = true`
+- audit: `feedback.review_list` (ทุกครั้งที่เปิดคิว), `feedback.review` (`success` / `denied`); `actor_ref` = `sub` ของ reviewer, `ip_hash` = HMAC ของ IP
 
 ---
 
@@ -853,6 +887,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.9 | 2026-09-17 | Step 5.8: P-55..P-59, error `REVIEW_NOT_PENDING`, รายละเอียด §7.2 (trips, live alert), §7.3 (feedback), §8.2 (review queue: ค่า `status` เป็นตัวพิมพ์เล็ก) |
 | 0.8 | 2026-09-17 | Step 5.7: รายละเอียด §5.5 (history) และ §7.1 (conversations, follow-up, overrides) |
 | 0.7 | 2026-09-17 | Step 5.6: P-53, P-54, รายละเอียด §5.2 และ §6.3; `RecommendationResponse` มี `job_id` (ระหว่าง processing) และ `error` (เมื่อ failed) |
 | 0.6 | 2026-09-17 | Step 5.5: P-51, P-52 และรายละเอียด Safety Gate / sanitizer / freshness (§5.4) |

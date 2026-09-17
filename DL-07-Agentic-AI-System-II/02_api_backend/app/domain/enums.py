@@ -178,5 +178,9 @@ class MobilityNeed(StrEnum):
 
 
 def job_type_for(source: RequestSource) -> JobType:
-    """Follow-up messages run as MESSAGE jobs; the processing is the same (D-53)."""
-    return JobType.MESSAGE if source is RequestSource.MESSAGE else JobType.RECOMMENDATION
+    """Job type by request source; the worker processes all of them the same way (D-53, D-63)."""
+    if source is RequestSource.MESSAGE:
+        return JobType.MESSAGE
+    if source in (RequestSource.TRIP_ASSESSMENT, RequestSource.TRIP_ALERT):
+        return JobType.TRIP_ASSESSMENT
+    return JobType.RECOMMENDATION

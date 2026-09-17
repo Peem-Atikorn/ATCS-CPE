@@ -298,6 +298,7 @@ Request ที่ normalize แล้ว (หนึ่งแถวต่อห�
   - `(user_id, created_at DESC, id DESC)` — history + cursor
   - `(user_id, risk_level, created_at DESC)` — filter `risk_level`
   - `(status) WHERE status = 'processing'` — หา job ค้าง
+  - `(trip_id, created_at DESC) WHERE trip_id IS NOT NULL` — ผลประเมินของ trip และการ scan live alert (migration `0008`, D-71)
   - `(expires_at)` — purge
 - **CHECK:** `status <> 'completed' OR payload IS NOT NULL`
 - **CHECK (Safety):** `NOT (risk_level = 'HIGH' AND recommendation_type = 'TRAVEL_NORMALLY')` — กันระดับ DB อีกชั้น (R-04)
@@ -466,6 +467,8 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Follow-up context (P-45) | 10 ข้อความล่าสุด | index เดียวกัน |
 | Coverage check | `ST_Covers(area, :point)` | GiST `coverage_areas.area` |
 | Trip alert scheduler | trips ที่เปิด alert และใกล้ออกเดินทาง | partial index 3.4 |
+| Trip assessments (E-18), assessment ที่ยังค้าง | `WHERE trip_id = :tid ORDER BY created_at DESC` | `recommendations (trip_id, created_at DESC)` |
+| Safety review queue | `WHERE review_status = 'pending' ORDER BY created_at, id` | partial index 3.10 |
 | Stuck job reaper | `status IN ('queued','running') AND created_at < now() - P-04*2` | partial index 3.7 |
 | Retention purge | `WHERE expires_at < now() LIMIT 1000` (วนเป็น batch) | `(expires_at)` ทุกตาราง |
 | Safety review queue | `review_status = 'pending' ORDER BY created_at` | partial index 3.10 |
@@ -578,6 +581,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
   5. `0005_mlops_feedback`
   6. `0006_audit_logs_partitioned`
   7. `0007_reference_tables`
+  8. `0008_recommendation_trip_index` (Step 5.8)
 - กติกา: migration ต้อง backward compatible อย่างน้อย 1 version (expand → migrate → contract); สร้าง index ใหญ่ด้วย `CONCURRENTLY`
 - Seed: `coverage_areas` (TH) และ `emergency_defaults` (TH/th, TH/en) ผ่าน data migration หรือ script แยก
 
@@ -619,6 +623,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
+| 0.5 | 2026-09-17 | Step 5.8: index `recommendations (trip_id, created_at DESC)` (migration 0008); การประเมิน trip ใช้ `source = TRIP_ASSESSMENT` / `TRIP_ALERT` และ `jobs.type = TRIP_ASSESSMENT`; audit log ลง default partition จนกว่า 5.9 จะสร้าง partition รายเดือน |
 | 0.4 | 2026-09-17 | Step 5.7: ไม่เปลี่ยน schema; follow-up ใช้ `travel_requests.source = MESSAGE` และ `jobs.type = MESSAGE` |
 | 0.3 | 2026-09-17 | Step 5.6: ตัด `job:{id}:done` (D-38), `jobs:active` เป็น ZSET (D-39), ชื่อ key ของ ticket เป็น hash (D-40) |
 | 0.2 | 2026-09-17 | Step 5.2: เพิ่ม DP-09, `coverage_areas.source`, `data_exports.expires_at` nullable, audit_logs มี default partition, roles ย้ายไปทำตอน deploy (D-27) |

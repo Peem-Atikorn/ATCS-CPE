@@ -16,6 +16,7 @@ class ErrorCode(StrEnum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
     IDEMPOTENCY_IN_PROGRESS = "IDEMPOTENCY_IN_PROGRESS"
     JOB_NOT_CANCELLABLE = "JOB_NOT_CANCELLABLE"
+    REVIEW_NOT_PENDING = "REVIEW_NOT_PENDING"
     PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
     UNSUPPORTED_MEDIA_TYPE = "UNSUPPORTED_MEDIA_TYPE"
     VALIDATION_ERROR = "VALIDATION_ERROR"
@@ -55,6 +56,9 @@ ERROR_SPECS: dict[ErrorCode, ErrorSpec] = {
     ),
     ErrorCode.JOB_NOT_CANCELLABLE: ErrorSpec(
         409, "Job not cancellable", "The job has already finished."
+    ),
+    ErrorCode.REVIEW_NOT_PENDING: ErrorSpec(
+        409, "Review not pending", "This feedback has already been reviewed."
     ),
     ErrorCode.PAYLOAD_TOO_LARGE: ErrorSpec(
         413, "Payload too large", "The request body is too large."

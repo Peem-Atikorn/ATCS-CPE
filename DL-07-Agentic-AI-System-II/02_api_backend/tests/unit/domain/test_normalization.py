@@ -242,3 +242,16 @@ def test_language_falls_back_to_accept_language() -> None:
     )
 
     assert result.language == "en"
+
+
+def test_departure_window_can_be_skipped() -> None:
+    past = raw(departure_time=NOW - timedelta(days=3))
+    result = normalize_travel_request(past, now=NOW, limits=LIMITS, check_departure_window=False)
+    assert result.departure_time == NOW - timedelta(days=3)
+
+
+def test_skipped_window_still_needs_an_offset() -> None:
+    naive = raw(departure_time=datetime(2026, 9, 20, 1, 0))
+    with pytest.raises(InvalidInput) as info:
+        normalize_travel_request(naive, now=NOW, limits=LIMITS, check_departure_window=False)
+    assert info.value.issues[0].code == "timezone_required"

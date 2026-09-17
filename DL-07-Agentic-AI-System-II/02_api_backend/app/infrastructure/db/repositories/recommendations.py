@@ -12,12 +12,13 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from geoalchemy2 import Geography
-from sqlalchemy import cast, func, or_, select, tuple_
+from geoalchemy2 import Geography, Geometry
+from sqlalchemy import and_, cast, func, or_, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.ids import new_id
+from app.core.logging import get_logger
 from app.domain.enums import (
     JobStage,
     JobStatus,
@@ -25,6 +26,7 @@ from app.domain.enums import (
     MessageRole,
     RecommendationStatus,
     RecommendationType,
+    RequestSource,
     RiskLevel,
     job_type_for,
 )
@@ -62,6 +64,8 @@ from app.services.ports import (
     WorkItem,
 )
 
+log = get_logger(__name__)
+
 MESSAGE_MAX_CHARS = 4000
 TITLE_MAX_CHARS = 200
 _ACTIVE = (JobStatus.QUEUED.value, JobStatus.RUNNING.value)
@@ -77,12 +81,27 @@ def _decimal(value: float | None) -> Decimal | None:
     return Decimal(str(round(value, 3))) if value is not None else None
 
 
-def _user_ref(row: UserModel) -> UserRef:
+def user_ref(row: UserModel) -> UserRef:
     return UserRef(
         id=row.id,
         pseudonymous_id=row.pseudonymous_id,
         language=row.language,
         home_region=row.home_region,
+    )
+
+
+def summary_record(row: RecommendationModel) -> RecommendationSummaryRecord:
+    return RecommendationSummaryRecord(
+        id=row.id,
+        created_at=row.created_at,
+        status=RecommendationStatus(row.status),
+        risk_level=RiskLevel(row.risk_level) if row.risk_level else None,
+        recommendation_type=(
+            RecommendationType(row.recommendation_type) if row.recommendation_type else None
+        ),
+        origin_name=row.origin_name,
+        destination_name=row.destination_name,
+        departure_time=row.departure_time,
     )
 
 
@@ -118,7 +137,7 @@ class SqlRecommendationRepository:
         async with self._sessions() as session:
             existing = await session.scalar(select(UserModel).where(*identity))
             if existing is not None:
-                return _user_ref(existing)
+                return user_ref(existing)
         user_id = new_id()
         async with self._sessions() as session, session.begin():
             await session.execute(
@@ -134,7 +153,7 @@ class SqlRecommendationRepository:
             # Another request may have created the user first; its row wins.
             row = await session.scalar(select(UserModel).where(*identity))
             assert row is not None
-            return _user_ref(row)
+            return user_ref(row)
 
     async def conversation_exists(self, user_id: UUID, conversation_id: UUID) -> bool:
         async with self._sessions() as session:
@@ -283,7 +302,10 @@ class SqlRecommendationRepository:
     ) -> CreatedRecommendation:
         async with self._sessions() as session, session.begin():
             conversation, recommendation, travel = await self._create(session, new)
-            _apply_result(session, conversation, recommendation, result, new.now)
+            store_message = await _link_trip(session, recommendation, travel, result)
+            _apply_result(
+                session, conversation, recommendation, result, new.now, store_message=store_message
+            )
             conversation.expires_at = expires_at(new.now, new.conversation_days)
             return CreatedRecommendation(
                 travel.id, recommendation.id, conversation.id, None, new.now
@@ -337,6 +359,18 @@ class SqlRecommendationRepository:
                 job_id=job_id,
             )
 
+    async def feedback_target(
+        self, user_id: UUID, recommendation_id: UUID
+    ) -> RecommendationStatus | None:
+        async with self._sessions() as session:
+            status = await session.scalar(
+                select(RecommendationModel.status).where(
+                    RecommendationModel.id == recommendation_id,
+                    RecommendationModel.user_id == user_id,
+                )
+            )
+            return RecommendationStatus(status) if status is not None else None
+
     async def get_job(self, user_id: UUID, job_id: UUID) -> JobRecord | None:
         async with self._sessions() as session:
             row = await session.scalar(
@@ -367,21 +401,7 @@ class SqlRecommendationRepository:
         query = query.order_by(model.created_at.desc(), model.id.desc()).limit(limit + 1)
         async with self._sessions() as session:
             rows = (await session.scalars(query)).all()
-        return [
-            RecommendationSummaryRecord(
-                id=row.id,
-                created_at=row.created_at,
-                status=RecommendationStatus(row.status),
-                risk_level=RiskLevel(row.risk_level) if row.risk_level else None,
-                recommendation_type=(
-                    RecommendationType(row.recommendation_type) if row.recommendation_type else None
-                ),
-                origin_name=row.origin_name,
-                destination_name=row.destination_name,
-                departure_time=row.departure_time,
-            )
-            for row in rows
-        ]
+        return [summary_record(row) for row in rows]
 
     # ------------------------------------------------------------------ worker
 
@@ -424,7 +444,7 @@ class SqlRecommendationRepository:
             return WorkItem(
                 job_id=job.id,
                 attempt=job.attempts,
-                user=_user_ref(user),
+                user=user_ref(user),
                 recommendation_id=recommendation.id,
                 request_id=recommendation.request_id,
                 conversation_id=recommendation.conversation_id,
@@ -473,7 +493,17 @@ class SqlRecommendationRepository:
                     conversation = await session.get(
                         ConversationModel, recommendation.conversation_id
                     )
-                _apply_result(session, conversation, recommendation, outcome.result, now)
+                travel = await session.get(TravelRequestModel, recommendation.request_id)
+                assert travel is not None
+                store_message = await _link_trip(session, recommendation, travel, outcome.result)
+                _apply_result(
+                    session,
+                    conversation,
+                    recommendation,
+                    outcome.result,
+                    now,
+                    store_message=store_message,
+                )
                 if conversation is not None:
                     conversation.expires_at = expires_at(now, outcome.conversation_days)
             else:
@@ -500,12 +530,84 @@ class SqlRecommendationRepository:
                 )
 
 
+def _coordinates(points: list[dict[str, Any]]) -> list[tuple[float, float]]:
+    return [(p["lat"], p["lon"]) for p in points]
+
+
+async def _same_route(session: AsyncSession, trip: TripModel, travel: TravelRequestModel) -> bool:
+    """Whether the request still describes the trip as it is now (D-64)."""
+    if (
+        trip.departure_time != travel.departure_time
+        or _coordinates(trip.waypoints) != _coordinates(travel.waypoints)
+        or trip.preferences != travel.preferences
+    ):
+        return False
+    same = await session.scalar(
+        select(
+            and_(
+                func.ST_Equals(
+                    cast(TripModel.origin, Geometry), cast(TravelRequestModel.origin, Geometry)
+                ),
+                func.ST_Equals(
+                    cast(TripModel.destination, Geometry),
+                    cast(TravelRequestModel.destination, Geometry),
+                ),
+            )
+        )
+        .select_from(TripModel)
+        .join(TravelRequestModel, TravelRequestModel.id == travel.id)
+        .where(TripModel.id == trip.id)
+    )
+    return bool(same)
+
+
+async def _link_trip(
+    session: AsyncSession,
+    recommendation: RecommendationModel,
+    travel: TravelRequestModel,
+    result: StoredResult,
+) -> bool:
+    """Point the trip at a finished assessment; returns whether to store the assistant message.
+
+    A scheduled re-assessment (TRIP_ALERT) only speaks when the risk changed (D-66).
+    """
+    alert = travel.source == RequestSource.TRIP_ALERT.value
+    if recommendation.trip_id is None:
+        return not alert
+    trip = await session.get(TripModel, recommendation.trip_id, with_for_update=True)
+    if trip is None:
+        return not alert
+    previous = None
+    if trip.last_recommendation_id is not None:
+        previous = await session.get(RecommendationModel, trip.last_recommendation_id)
+    if previous is not None and previous.created_at > recommendation.created_at:
+        return not alert
+    trip.last_recommendation_id = recommendation.id
+    if await _same_route(session, trip, travel):
+        trip.assessment_outdated = False
+    if not alert or previous is None:
+        return not alert
+    level = result.risk_level.value if result.risk_level else None
+    action = result.recommendation_type.value if result.recommendation_type else None
+    changed = (previous.risk_level, previous.recommendation_type) != (level, action)
+    if changed:
+        log.info(
+            "trip_alert_raised",
+            trip_id=str(trip.id),
+            previous_risk_level=previous.risk_level,
+            risk_level=level,
+        )
+    return changed
+
+
 def _apply_result(
     session: AsyncSession,
     conversation: ConversationModel | None,
     recommendation: RecommendationModel,
     result: StoredResult,
     now: datetime,
+    *,
+    store_message: bool = True,
 ) -> None:
     recommendation.status = result.status.value
     recommendation.risk_level = result.risk_level.value if result.risk_level else None
@@ -526,7 +628,7 @@ def _apply_result(
     recommendation.completed_at = now
     if conversation is None:
         return
-    if result.message:
+    if result.message and store_message:
         session.add(
             MessageModel(
                 id=new_id(),

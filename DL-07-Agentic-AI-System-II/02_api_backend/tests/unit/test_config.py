@@ -110,3 +110,20 @@ def test_stream_settings_defaults_and_override(monkeypatch: pytest.MonkeyPatch) 
         Settings()
     monkeypatch.setenv("STREAM_TICKET_SECONDS", "10")
     assert Settings().jobs.sse_max_stream_seconds == 30
+
+
+def test_trip_settings_defaults_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    trips = Settings().trips
+    assert trips.max_trip_days_ahead == 90  # P-55
+    assert trips.trip_alert_scan_minutes == 15  # P-56
+    assert trips.trip_alert_window_hours == 24  # P-57
+    assert trips.trip_alert_reassess_minutes == 60  # P-58
+    assert trips.trip_alert_batch_size == 100  # P-59
+
+    monkeypatch.setenv("TRIP_ALERT_SCAN_MINUTES", "5")
+    monkeypatch.setenv("MAX_TRIP_DAYS_AHEAD", "30")
+    assert Settings().trips.trip_alert_scan_minutes == 5
+    assert Settings().trips.max_trip_days_ahead == 30
+    monkeypatch.setenv("TRIP_ALERT_BATCH_SIZE", "0")
+    with pytest.raises(ValidationError):
+        Settings()

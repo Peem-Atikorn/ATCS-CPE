@@ -8,23 +8,31 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Protocol
+from datetime import datetime, timedelta
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from app.domain.enums import (
+    ActorType,
     AgentRunStatus,
+    AuditResult,
+    FeedbackOutcome,
     JobStage,
     JobStatus,
     JobType,
     MessageRole,
     RecommendationStatus,
     RecommendationType,
+    ReportType,
     RequestMode,
     RequestSource,
+    ReviewStatus,
     RiskLevel,
+    TripStatus,
 )
+from app.domain.feedback import FeedbackInput, ReviewDecision
 from app.domain.normalization import NormalizedTravelRequest
+from app.domain.trips import TripDraft
 from app.infrastructure.agent.client import AgentCallResult
 from app.infrastructure.agent.contracts import AgentRunRequest, AgentVersions, ProgressLine
 from app.infrastructure.redis.job_state import JobEvent, JobSnapshot
@@ -192,6 +200,68 @@ class MessageRecord:
 
 
 @dataclass(frozen=True, slots=True)
+class AssessmentSummary:
+    recommendation_id: UUID
+    status: RecommendationStatus
+    risk_level: RiskLevel | None
+    recommendation_type: RecommendationType | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TripRecord:
+    id: UUID
+    user_id: UUID
+    draft: TripDraft
+    last_assessment: AssessmentSummary | None
+    assessment_outdated: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DueTrip:
+    trip_id: UUID
+    user_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class FeedbackRecord:
+    id: UUID
+    recommendation_id: UUID
+    rating: int | None
+    helpful: bool | None
+    outcome: FeedbackOutcome
+    report_type: ReportType | None
+    comment: str | None
+    review_status: ReviewStatus
+    reviewed_at: datetime | None
+    review_note: str | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewItem:
+    feedback: FeedbackRecord
+    # The sanitized recommendation the report is about; None once it was deleted.
+    recommendation: dict[str, Any] | None
+
+
+@dataclass(frozen=True, slots=True)
+class AuditEntry:
+    actor_type: ActorType
+    actor_ref: str
+    action: str
+    target_type: str | None
+    target_id: str | None
+    result: AuditResult
+    correlation_id: str
+    ip_hash: str | None
+    # Never personal data (docs/03_data_design.md section 3.12).
+    metadata: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class WorkItem:
     job_id: UUID
     attempt: int
@@ -279,6 +349,10 @@ class RecommendationRepository(Protocol):
 
     async def finish_job(self, job_id: UUID, outcome: JobOutcome) -> None: ...
 
+    async def feedback_target(
+        self, user_id: UUID, recommendation_id: UUID
+    ) -> RecommendationStatus | None: ...
+
 
 class ConversationRepository(Protocol):
     """List methods return up to `limit + 1` rows (see pagination.build_page)."""
@@ -310,6 +384,84 @@ class ConversationRepository(Protocol):
     ) -> NormalizedTravelRequest | None: ...
 
     async def reply_for(self, user_id: UUID, recommendation_id: UUID) -> MessageRecord | None: ...
+
+
+class TripRepository(Protocol):
+    """List methods return up to `limit + 1` rows (see pagination.build_page)."""
+
+    async def create(
+        self, user_id: UUID, draft: TripDraft, *, now: datetime, retention_days: int
+    ) -> TripRecord: ...
+
+    async def get(self, user_id: UUID, trip_id: UUID) -> TripRecord | None: ...
+
+    async def list_trips(
+        self, user_id: UUID, *, limit: int, cursor: Cursor | None, status: TripStatus | None
+    ) -> list[TripRecord]: ...
+
+    async def update(
+        self,
+        user_id: UUID,
+        trip_id: UUID,
+        draft: TripDraft,
+        *,
+        outdated: bool,
+        now: datetime,
+        retention_days: int,
+    ) -> TripRecord | None: ...
+
+    async def delete(self, user_id: UUID, trip_id: UUID) -> bool: ...
+
+    async def assessments(
+        self, user_id: UUID, trip_id: UUID, *, limit: int, cursor: Cursor | None
+    ) -> list[RecommendationSummaryRecord] | None: ...
+
+    async def conversation_for(self, user_id: UUID, trip_id: UUID) -> UUID | None: ...
+
+    async def due_for_alerts(
+        self,
+        now: datetime,
+        *,
+        window: timedelta,
+        stale_after: timedelta,
+        processing_after: timedelta,
+        limit: int,
+    ) -> list[DueTrip]: ...
+
+    async def user(self, user_id: UUID) -> UserRef | None: ...
+
+
+class FeedbackRepository(Protocol):
+    """`reviews` returns up to `limit + 1` rows (see pagination.build_page)."""
+
+    async def create(
+        self,
+        recommendation_id: UUID,
+        pseudonymous_id: str,
+        feedback: FeedbackInput,
+        *,
+        review_status: ReviewStatus,
+        now: datetime,
+        retention_days: int,
+    ) -> FeedbackRecord: ...
+
+    async def reviews(
+        self, *, status: ReviewStatus, limit: int, cursor: Cursor | None
+    ) -> list[ReviewItem]: ...
+
+    async def review(
+        self,
+        feedback_id: UUID,
+        *,
+        decision: ReviewDecision,
+        note: str | None,
+        reviewer: str,
+        now: datetime,
+    ) -> FeedbackRecord | Literal["not_pending"] | None: ...
+
+
+class AuditPort(Protocol):
+    async def write(self, entry: AuditEntry) -> None: ...
 
 
 ProgressCallback = Callable[[ProgressLine], Awaitable[None]]

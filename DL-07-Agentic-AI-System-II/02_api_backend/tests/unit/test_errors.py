@@ -36,3 +36,9 @@ def test_app_error_exposes_status_and_message() -> None:
     assert err.status == 429
     assert str(err) == "RATE_LIMITED"
     assert err.retry_after == 30
+
+
+def test_review_not_pending_is_a_conflict() -> None:
+    spec = ERROR_SPECS[ErrorCode.REVIEW_NOT_PENDING]
+    assert spec.status == 409
+    assert "reviewed" in spec.detail
