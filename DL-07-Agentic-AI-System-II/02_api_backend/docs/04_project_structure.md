@@ -141,11 +141,10 @@
 │   ├── env.py
 │   └── versions/               # 0001_extensions ... 0007_reference_tables
 │
-├── mock_agent/                 # Mock Travel AI Agent (ใช้จนกว่า Module 03 พร้อม)
-│   ├── Dockerfile
-│   ├── main.py                 # POST /v1/agent/runs, DELETE /runs/{id}, /health
+├── mock_agent/                 # Mock Travel AI Agent (ใช้จนกว่า Module 03 พร้อม) — D-31
+│   ├── main.py                 # POST /v1/agent/runs, DELETE /runs/{id}, /health, /_mock/scenario
 │   └── scenarios/              # JSON: low_risk, high_risk, partial_disaster_down,
-│                               #       needs_clarification, bad_schema, slow_20s
+│                               #       needs_clarification, bad_schema, slow_20s, unavailable_503
 │
 ├── scripts/
 │   ├── seed_reference_data.py  # coverage_areas, emergency_defaults
@@ -420,7 +419,10 @@ flowchart LR
 | D-21 | uv จัดการ dependency | pip + requirements.txt / poetry | Proposed |
 | D-22 | ~~Authlib~~ → **joserfc** (ไลบรารี JOSE ตัวใหม่จากผู้พัฒนา Authlib; `authlib.jose` ถูก deprecate) | python-jose | Accepted (Step 5.3) |
 | D-23 | SSE ใช้ `sse-starlette` | เขียน `StreamingResponse` เอง | Proposed |
-| D-24 | Mock Agent อยู่ใน repo ของ backend | ให้ Module 03 ทำ stub | Proposed |
+| D-24 | Mock Agent อยู่ใน repo ของ backend | ให้ Module 03 ทำ stub | Accepted (Step 5.4) |
+| D-31 | Mock Agent ใช้ image `tsa-backend:dev` เดียวกัน (ไม่มี Dockerfile แยก) และไม่ import โค้ด backend | image แยก | Accepted (Step 5.4) |
+| D-32 | Circuit breaker เก็บ state ใน Redis ใช้เวลาจาก app clock (ทดสอบได้) | Redis `TIME` / in-process | Accepted (Step 5.4) |
+| D-33 | Service auth ไป Agent: client credentials (prod) หรือ static token (dev); ไม่ตั้งเลย = ไม่ส่ง header | mTLS | Accepted (Step 5.4) |
 | D-28 | Rate limit **fail open** เมื่อ Redis ล่ม (ตั้งค่าได้), Idempotency **fail closed** (503) | ทั้งคู่ fail closed | Accepted (Step 5.3) |
 | D-29 | Idempotency เก็บเฉพาะ response 2xx | เก็บทุก response ยกเว้น 5xx (แบบ Stripe) | Accepted (Step 5.3) |
 | D-30 | Dev token ใช้ HS256 จาก `DEV_JWT_SIGNING_KEY`; production ใช้ JWKS (RS/ES/PS/EdDSA เท่านั้น) | dev issuer ที่มี JWKS endpoint | Accepted (Step 5.3) |
@@ -458,5 +460,6 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.5 | 2026-09-17 | Step 5.4: เพิ่ม D-31..D-33, D-24 Accepted, mock agent ไม่มี Dockerfile แยก |
 | 0.4 | 2026-09-17 | Step 5.3: D-22 เปลี่ยนเป็น joserfc, เพิ่ม D-28..D-30, ไฟล์ `api/auth.py`, `api/idempotency.py`, `api/resources.py` |
 | 0.3 | 2026-09-17 | Step 5.2: ปรับชื่อไฟล์ models ตามที่ implement จริง, เพิ่ม D-26, D-27 |

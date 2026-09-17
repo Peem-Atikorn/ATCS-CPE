@@ -16,6 +16,9 @@ class RedisKeys:
     def rate_limit(self, scope: str, subject_hash: str) -> str:
         return f"{self._prefix}rl:{scope}:{subject_hash}"
 
+    def circuit_breaker(self, name: str) -> str:
+        return f"{self._prefix}cb:{name}"
+
     def idempotency(self, principal_hash: str, method: str, route: str, key: str) -> str:
         route_hash = sha256_hex(route.encode())[:16]
         key_hash = sha256_hex(key.encode())

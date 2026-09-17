@@ -143,8 +143,17 @@ class AgentSettings(BaseSettings):
     model_config = _ENV_CONFIG
 
     agent_service_url: str = Field(min_length=1)
+    # Service-to-service auth (spec 9.1): OAuth2 client credentials in production,
+    # or a static shared token for development. Neither set -> no Authorization header.
+    agent_token_url: str | None = None
+    agent_audience: str = "travel-agent"
     agent_client_id: str | None = None
     agent_client_secret: SecretStr | None = None
+    agent_service_token: SecretStr | None = None
+    agent_retry_base_seconds: float = Field(default=0.5, gt=0)
+    agent_max_tool_calls: int = Field(default=20, gt=0)
+    agent_max_response_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
+    agent_cancel_timeout_seconds: float = Field(default=2.0, gt=0)
     agent_connect_timeout_seconds: float = Field(default=2.0, gt=0)  # P-06
     sync_agent_timeout_seconds: float = Field(default=8.0, gt=0)  # P-02
     job_agent_timeout_seconds: float = Field(default=60.0, gt=0)  # P-04
@@ -153,6 +162,26 @@ class AgentSettings(BaseSettings):
     agent_cb_window_seconds: int = Field(default=30, gt=0)  # P-08
     agent_cb_reset_seconds: int = Field(default=30, gt=0)  # P-08
     agent_context_messages: int = Field(default=10, ge=0)  # P-45
+
+    @field_validator(
+        "agent_token_url",
+        "agent_client_id",
+        "agent_client_secret",
+        "agent_service_token",
+        mode="before",
+    )
+    @classmethod
+    def _empty_to_none(cls, value: object) -> object:
+        return value or None
+
+    @model_validator(mode="after")
+    def _client_credentials_complete(self) -> AgentSettings:
+        parts = (self.agent_token_url, self.agent_client_id, self.agent_client_secret)
+        if any(parts) and not all(parts):
+            raise ValueError(
+                "AGENT_TOKEN_URL, AGENT_CLIENT_ID and AGENT_CLIENT_SECRET must be set together"
+            )
+        return self
 
 
 class LimitSettings(BaseSettings):

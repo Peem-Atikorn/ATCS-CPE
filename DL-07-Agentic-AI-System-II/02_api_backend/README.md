@@ -16,7 +16,8 @@ Design documents:
 | 5.1 | Skeleton: config, logging, errors, `/health`, Docker | done |
 | 5.2 | DB models, Alembic 0001–0007, reference seed data | done |
 | 5.3 | Auth (JWT/JWKS, scopes), rate limits, idempotency, body guard, security headers | done |
-| 5.4–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
+| 5.4 | Mock Agent (7 scenarios) and AgentClient: deadline, retry, circuit breaker, cancel, NDJSON | done |
+| 5.5–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
 
 ## Requirements
 
@@ -61,6 +62,31 @@ docker compose exec api python -m scripts.dev_token --sub alice --scope travel:r
 Outside dev/test the key is refused at startup and tokens are verified against the
 issuer's JWKS (`JWKS_URL`, or discovery from `JWT_ISSUER`).
 
+## Mock Travel AI Agent
+
+Until Module 03 is ready, the `mock-agent` service (port 8010) implements the Agent
+contract with canned scenarios from `mock_agent/scenarios/`:
+
+| Scenario | What it returns |
+|---|---|
+| `low_risk` | fresh data, `TRAVEL_NORMALLY` |
+| `high_risk` | flood warning, `AVOID_TRAVEL`, emergency instructions |
+| `partial_disaster_down` | disaster service unavailable but still `TRAVEL_NORMALLY` (the safety gate must catch it) |
+| `needs_clarification` | asks for the travel date |
+| `bad_schema` | a body that breaks the contract |
+| `slow_20s` | answers after 20 s (beyond the sync budget) |
+| `unavailable_503` | 503 with `Retry-After: 2` |
+
+Switch scenario at runtime:
+
+```bash
+curl -X PUT -H "content-type: application/json" -d '{"name":"high_risk"}' http://localhost:8010/_mock/scenario
+```
+
+To use the real Agent, set `AGENT_SERVICE_URL` and its credentials
+(`AGENT_TOKEN_URL` + `AGENT_CLIENT_ID` + `AGENT_CLIENT_SECRET`, or `AGENT_SERVICE_TOKEN`).
+`tests/contract/` holds the contract tests both teams can run.
+
 ## Commands
 
 `make` targets are listed below. On Windows without `make`, run the command on the right.
@@ -75,6 +101,7 @@ issuer's JWKS (`JWKS_URL`, or discovery from `JWT_ISSUER`).
 | `make downgrade` | `docker compose run --rm migrate alembic downgrade -1` |
 | `make revision m="..."` | `uv run alembic revision -m "..."` |
 | `make token` | `docker compose exec api python -m scripts.dev_token` |
+| `make scenario s=high_risk` | switch the mock agent scenario (curl above) |
 | `make seed` | `docker compose run --rm migrate python -m scripts.seed_reference_data` |
 | `make test` | `uv run pytest` |
 | `make test-fast` | `uv run pytest -m "not integration"` |
@@ -112,10 +139,13 @@ app/
   domain/              business enums and rules (no framework imports)
   infrastructure/db/   SQLAlchemy models, session, reference data
   infrastructure/redis/ rate limiter, idempotency store, key names
+  infrastructure/agent/ Agent contract, client, circuit breaker, service auth
+mock_agent/            Mock Travel AI Agent (dev and contract tests)
 migrations/            Alembic revisions 0001-0007
 scripts/               seed_reference_data, dev_token
 tests/
   unit/                pure tests, no I/O
   api/                 HTTP tests through httpx ASGITransport
-  integration/         PostGIS (Testcontainers): migrations, constraints, cascades
+  contract/            AgentClient against the mock agent (the Agent contract)
+  integration/         PostGIS and Redis (Testcontainers)
 ```

@@ -1,7 +1,7 @@
 UV ?= uv
 COMPOSE ?= docker compose
 
-.PHONY: install up down logs ps migrate downgrade revision seed token test test-unit test-api \
+.PHONY: install up down logs ps migrate downgrade revision seed token scenario test test-unit test-api \
 	test-integration test-fast cov lint format typecheck check
 
 install:
@@ -30,6 +30,9 @@ revision:
 
 token:
 	$(COMPOSE) exec api python -m scripts.dev_token
+
+scenario:
+	curl -s -X PUT -H "content-type: application/json" -d '{"name":"$(s)"}' http://localhost:8010/_mock/scenario
 
 seed:
 	$(COMPOSE) run --rm migrate python -m scripts.seed_reference_data

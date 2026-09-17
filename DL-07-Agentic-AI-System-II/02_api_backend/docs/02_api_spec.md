@@ -600,8 +600,12 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 
 ### 9.3 Progress (optional)
 
-- ถ้า Agent รองรับ: `Accept: application/x-ndjson` → Agent stream บรรทัด `{"type":"progress","stage":"fetching_data","progress":20}` และบรรทัดสุดท้าย `{"type":"result", ...}`
+- ถ้า Agent รองรับ: `Accept: application/x-ndjson` → Agent stream บรรทัด `{"type":"progress","stage":"fetching_data","progress":20,"message":"..."}` และบรรทัดสุดท้าย `{"type":"result", ...AgentRunResponse}`
+- ถ้าทำงานต่อไม่ได้: บรรทัด `{"type":"error","code":"...","message":"..."}` — code `TIMEOUT` / `DEADLINE_EXCEEDED` / `BUDGET_EXCEEDED` → `504`, code อื่น (รวม `CANCELLED`) → `503`
+- `stage` ใช้ค่าเดียวกับ job stage (§6.1); `progress` 0–100
+- Backend เลือกจาก `Content-Type` ของ response: ถ้า Agent ตอบ JSON ธรรมดาแม้ขอ NDJSON ก็รับได้
 - ถ้าไม่รองรับ: Backend ส่ง progress แบบประมาณเวลาเอง (`queued` → `fetching_data` เท่านั้น) จนได้ผล
+- ขนาด response/stream รวมไม่เกิน `AGENT_MAX_RESPONSE_BYTES` (5 MB) — เกิน → `502`
 
 ### 9.4 Response
 
@@ -637,6 +641,15 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 | `429`, `502`, `503`, connect error | retry ตาม `P-07` → ถ้ายังไม่ได้ `503 DEPENDENCY_UNAVAILABLE` |
 | timeout / เกิน `X-Deadline` | sync: เปลี่ยนเป็น async (§5.2); async: job `failed` + `AGENT_TIMEOUT` |
 | circuit breaker เปิด | `503 DEPENDENCY_UNAVAILABLE` + `Retry-After` ทันที |
+| `401` / `403` จาก Agent | `500 INTERNAL_ERROR` (service credential ผิด — ปัญหาฝั่งเรา) |
+| `500` | `503 DEPENDENCY_UNAVAILABLE` (ไม่ retry) |
+| `run_id` ใน response ไม่ตรง | `502 AGENT_BAD_RESPONSE` |
+
+**Retry:** 429 / 408 / 502 / 503 / 504 / connect error / connect timeout เท่านั้น, สูงสุด `P-07` ครั้ง, backoff `0.5 s × 2ⁿ⁻¹ + jitter(0–0.5 s)` หรือ `Retry-After` ถ้ามากกว่า และไม่ retry ถ้ารอแล้วจะเกิน deadline
+
+**Circuit breaker (P-08):** นับเฉพาะ timeout, connect error และ 5xx/429; `4xx` และ schema ผิดไม่นับ (Agent ยังตอบได้); ครึ่งเปิดให้ probe ได้ครั้งละ 1 request; state อยู่ใน Redis `cb:agent` ใช้ร่วมทุก process
+
+**Cancel:** ถ้า caller ถูก cancel (job ถูกยกเลิก / shutdown) client ส่ง `DELETE /v1/agent/runs/{run_id}` ให้อัตโนมัติ; Agent ตอบ `202` หรือ `404` (ไม่รู้จัก run) ถือว่าสำเร็จ
 
 ---
 
@@ -797,4 +810,5 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.5 | 2026-09-17 | Step 5.4: รายละเอียด NDJSON error line, retry, circuit breaker, cancel, และ error mapping เพิ่มเติม (§9) |
 | 0.4 | 2026-09-17 | Step 5.3: รายละเอียด idempotency (§11.1) และ rate limit (§13), D-08 Accepted |

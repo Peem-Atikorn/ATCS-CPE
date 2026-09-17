@@ -6,6 +6,7 @@
 !app/
 !migrations/
 !scripts/
+!mock_agent/
 !tests/
 
 **/__pycache__
