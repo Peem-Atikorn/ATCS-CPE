@@ -8,6 +8,7 @@ running app without a deliberate re-export, and it must stay a valid OpenAPI doc
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +33,16 @@ def test_openapi_snapshot_matches_the_running_app(schema: dict[str, Any]) -> Non
 
 def test_openapi_schema_is_structurally_valid(schema: dict[str, Any]) -> None:
     schemathesis.openapi.from_dict(schema).validate()
+
+
+def test_every_ref_resolves_to_a_component(schema: dict[str, Any]) -> None:
+    # validate() above checks the meta-schema only; it does not resolve $refs, and a
+    # dangling one breaks client generators and oasdiff.
+    components = schema["components"]["schemas"]
+    refs = set(re.findall(r'"#/components/schemas/([^"]+)"', json.dumps(schema)))
+
+    assert refs - components.keys() == set()
+    assert [name for name, body in components.items() if "$defs" in body] == []
 
 
 def test_422_responses_use_problem_details_not_the_fastapi_default(

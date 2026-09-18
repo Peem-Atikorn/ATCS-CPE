@@ -22,9 +22,10 @@ _DEFAULT_VALIDATION_SCHEMAS = ("HTTPValidationError", "ValidationError")
 
 def _harden_problem_responses(schema: dict[str, Any]) -> None:
     components = schema.setdefault("components", {}).setdefault("schemas", {})
-    components[_PROBLEM_SCHEMA_NAME] = ProblemResponse.model_json_schema(
-        ref_template="#/components/schemas/{model}"
-    )
+    problem = ProblemResponse.model_json_schema(ref_template="#/components/schemas/{model}")
+    # Pydantic nests referenced models (FieldErrorItem) under $defs; they must be components.
+    components.update(problem.pop("$defs", {}))
+    components[_PROBLEM_SCHEMA_NAME] = problem
     problem_422 = {
         "description": "Validation error",
         "content": {
