@@ -14,6 +14,7 @@ from collections.abc import Sequence
 import uvicorn
 from pydantic import ValidationError
 
+from app.core import metrics
 from app.core.config import Settings, get_settings
 
 EXIT_CONFIG_ERROR = 2
@@ -65,6 +66,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("refusing to start: fix the configuration above", file=sys.stderr)
         return EXIT_CONFIG_ERROR
     settings = get_settings()
+    # Metric files of the previous run would otherwise be added to the new counts.
+    metrics.reset_multiprocess_dir()
 
     uvicorn.run(
         APP_FACTORY,

@@ -32,6 +32,7 @@ from app.infrastructure.redis.cache import RedisRecommendationCache
 from app.infrastructure.redis.cooldown import RedisCooldown
 from app.infrastructure.redis.job_state import JobSnapshot, RedisJobStateStore
 from app.infrastructure.redis.keys import RedisKeys
+from app.infrastructure.redis.service_status import RedisServiceStatusStore
 from app.infrastructure.redis.slots import RedisSlotLimiter
 from app.infrastructure.redis.tickets import RedisTicketStore
 from app.infrastructure.redis.user_data import RedisUserData
@@ -133,6 +134,7 @@ class Flow:
             keys=self.keys,
             settings=settings or self.settings,
             clock=SystemClock(),
+            service_reports=RedisServiceStatusStore(self.redis, self.keys),
         )
 
     def recommendations(self, settings: Settings | None = None) -> RecommendationService:

@@ -13,6 +13,7 @@ from app.core.config import Settings
 from app.core.errors import ERROR_SPECS, AppError, ErrorCode
 from app.core.ids import new_id
 from app.core.logging import get_logger
+from app.core.metrics import JOBS
 from app.domain.enums import JobStage, JobStatus
 from app.infrastructure.redis.job_state import JobEvent
 from app.infrastructure.redis.keys import RedisKeys
@@ -75,6 +76,7 @@ class JobService:
             raise AppError(ErrorCode.NOT_FOUND)
         if outcome == "not_cancellable":
             raise AppError(ErrorCode.JOB_NOT_CANCELLABLE)
+        JOBS.labels(status=JobStatus.CANCELLED.value).inc()
         try:
             await self._jobs.update(
                 job_id, updated_at=now, status=JobStatus.CANCELLED, stage=JobStage.CANCELLED

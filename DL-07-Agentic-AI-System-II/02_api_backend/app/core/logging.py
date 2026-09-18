@@ -10,6 +10,8 @@ from typing import Any
 
 import structlog
 
+from app.core.telemetry import add_trace_ids
+
 REDACTED = "[redacted]"
 
 # Keys are matched case-insensitively against these fragments.
@@ -107,6 +109,7 @@ def redact_exception_processor(
 def configure_logging(level: str = "INFO", json_output: bool = True) -> None:
     shared: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
+        add_trace_ids,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         redact_processor,

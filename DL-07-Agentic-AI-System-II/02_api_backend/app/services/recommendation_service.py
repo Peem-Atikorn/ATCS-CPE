@@ -18,6 +18,7 @@ from app.core.config import Settings
 from app.core.errors import ERROR_SPECS, AppError, ErrorCode, FieldError
 from app.core.ids import new_id
 from app.core.logging import get_logger
+from app.core.metrics import CACHE_HITS, CACHE_MISSES, count_recommendation
 from app.domain.cache_policy import cache_key, request_is_cacheable
 from app.domain.enums import (
     JobStage,
@@ -250,6 +251,19 @@ class RecommendationService:
             raise AppError(ErrorCode.UNSUPPORTED_REGION, errors=outside)
 
     async def _from_cache(self, user: UserRef, new: NewRecommendation, key: str) -> Finished | None:
+        result = await self._cached(key, new)
+        if result is None:
+            CACHE_MISSES.inc()
+            return None
+        CACHE_HITS.inc()
+        created = await self._repo.create_completed(new, result)
+        record = await self._repo.get_recommendation(user.id, created.recommendation_id)
+        assert record is not None
+        count_recommendation(result.status, result.risk_level, result.recommendation_type)
+        log.info("recommendation_cache_hit")
+        return Finished(record)
+
+    async def _cached(self, key: str, new: NewRecommendation) -> StoredResult | None:
         cached = await self._cache.get(key)
         if cached is None:
             return None
@@ -257,15 +271,10 @@ class RecommendationService:
         if payload is None:
             return None
         try:
-            result = _cached_result(payload, self._settings.app.api_version)
+            return _cached_result(payload, self._settings.app.api_version)
         except (KeyError, TypeError, ValueError):
             log.warning("cache_entry_invalid")
             return None
-        created = await self._repo.create_completed(new, result)
-        record = await self._repo.get_recommendation(user.id, created.recommendation_id)
-        assert record is not None
-        log.info("recommendation_cache_hit")
-        return Finished(record)
 
     async def _take_slot(self, user: UserRef, job_id: UUID) -> None:
         ttl = int(self._settings.agent.job_agent_timeout_seconds * 2)

@@ -30,8 +30,8 @@
 │   ├── core/                   # ── cross-cutting (ไม่มี business rule)
 │   │   ├── config.py           # Settings (pydantic-settings) — P-xx ทั้งหมด
 │   │   ├── logging.py          # structlog + PII redaction processor
-│   │   ├── telemetry.py        # OpenTelemetry setup (FastAPI, httpx, SQLAlchemy, Celery, Redis)
-│   │   ├── metrics.py          # Prometheus metric objects
+│   │   ├── telemetry.py        # OpenTelemetry (FastAPI, httpx, SQLAlchemy, Celery, Redis) + ScrubbingExporter (5.10)
+│   │   ├── metrics.py          # Prometheus metric objects, multiprocess mode (5.10)
 │   │   ├── security.py         # JWT verify, JWKS cache, scopes
 │   │   ├── errors.py           # AppError hierarchy + error codes
 │   │   ├── ids.py              # UUIDv7, request/correlation id
@@ -53,7 +53,7 @@
 │   │   │   ├── problem_asgi.py      # Problem Details จาก ASGI middleware
 │   │   │   └── security_headers.py
 │   │   ├── error_handlers.py   # AppError / ValidationError → Problem Details
-│   │   ├── ops.py              # /health /ready /metrics
+│   │   ├── ops.py              # /health /ready /metrics (/ready, /metrics เฉพาะ network ภายใน — 5.10)
 │   │   └── v1/
 │   │       ├── router.py       # รวม router ทั้งหมดภายใต้ /v1
 │   │       ├── recommendations.py
@@ -63,7 +63,7 @@
 │   │       ├── trips.py        # E-14..E-18 (Step 5.8)
 │   │       ├── feedback.py     # E-19 (Step 5.8)
 │   │       ├── me.py
-│   │       ├── service_status.py
+│   │       ├── service_status.py  # E-23 (Step 5.10)
 │   │       └── admin/
 │   │           ├── jobs.py
 │   │           ├── reviews.py  # safety review queue (Step 5.8)
@@ -94,7 +94,7 @@
 │   │   ├── reaper_service.py          # job ค้าง + ลบบัญชีที่ค้าง + export ค้าง (Step 5.9a/b)
 │   │   ├── export_service.py          # data export (Step 5.9b)
 │   │   ├── purge_service.py           # retention + partition audit (Step 5.9b)
-│   │   ├── status_service.py
+│   │   ├── ops_service.py             # readiness + service status (Step 5.10)
 │   │   ├── agent_run_service.py       # ใช้ใน worker: call agent → safety gate → persist
 │   │   ├── recommendation_payload.py  # assess(): freshness → safety gate → payload ที่ sanitize แล้ว
 │   │   ├── progress.py                # stage → % และข้อความตามภาษา
@@ -113,6 +113,7 @@
 │   │   ├── freshness.py        # is_stale / valid_until (P-28)
 │   │   ├── sanitizer.py        # ตัด field ภายใน, ตรวจ URL, control chars
 │   │   ├── cache_policy.py     # cache key + เงื่อนไขห้าม cache
+│   │   ├── service_status.py   # สรุปสถานะ E-23 + กติกา readiness (Step 5.10)
 │   │   └── retention.py        # คำนวณ expires_at, เดือนของ partition audit
 │   │
 │   ├── infrastructure/         # ── Repository & Client layer
@@ -138,6 +139,7 @@
 │   │   │   ├── tickets.py
 │   │   │   ├── user_data.py    # ลบข้อมูล live ของ user (Step 5.9a)
 │   │   │   ├── cooldown.py     # claim ที่หมดอายุเอง: export วันละครั้ง, purge ทีละรอบ (5.9b)
+│   │   │   ├── service_status.py  # status:reports / status:service / ready:agent (5.10)
 │   │   │   └── cache.py
 │   │   ├── agent/
 │   │   │   ├── client.py       # AgentClient (httpx): timeout, retry, deadline, cancel, NDJSON
@@ -146,6 +148,7 @@
 │   │   │   ├── auth.py         # client credentials token
 │   │   │   └── factory.py      # build_agent_client (ใช้ทั้ง api และ worker)
 │   │   ├── queue.py            # CeleryJobQueue: ส่งงานจาก async code
+│   │   ├── health.py           # ping DB / Redis, ความยาว queue ของ Celery (5.10)
 │   │   ├── storage/
 │   │   │   └── object_store.py # MinioObjectStore: put / delete / signed URL (Step 5.9b)
 │   │   └── audit.py            # SqlAuditWriter (Step 5.8)
@@ -153,6 +156,7 @@
 │   └── workers/                # ── Celery
 │       ├── celery_app.py       # config, queues (สร้าง app ตอนใช้ครั้งแรก)
 │       ├── runtime.py          # asyncio.Runner + resources ต่อ process (D-50)
+│       ├── signals.py          # logging, tracing ต่อ process + /metrics ของ worker (5.10)
 │       ├── tasks/
 │       │   ├── recommendation.py   # run_recommendation(job_id)
 │       │   ├── trip_alerts.py      # scan_trip_alerts: คิวประเมิน trip ใหม่ (Step 5.8)
@@ -281,6 +285,9 @@ flowchart LR
 | `PSEUDONYM_SECRET`, `IP_HASH_SECRET`, `COLUMN_ENCRYPTION_KEY` | secret manager ใน prod |
 | `OBJECT_STORE_URL`, `OBJECT_STORE_BUCKET`, `OBJECT_STORE_ACCESS_KEY`, `OBJECT_STORE_SECRET_KEY` | data export |
 | `ENABLE_DOCS` | เปิด/ปิด `/docs` |
+| `OTEL_SERVICE_NAME` | ชื่อ service ใน trace (`travel-safety-api` / `travel-safety-worker`) |
+| `OPS_ALLOWED_NETWORKS` | CIDR ที่เรียก `/ready`, `/metrics` ได้ (D-90) |
+| `PROMETHEUS_MULTIPROC_DIR`, `WORKER_METRICS_PORT` | metrics หลาย process และ port `/metrics` ของ worker (D-91) |
 | P-xx config keys | ตาม spec §2 (ไม่ต้องใส่ถ้าใช้ค่า default) |
 
 > ⚠️ `.env.example` ที่ root มี `FEEDBACK_RETENTION_DAYS=90` (Module 08) แต่ P-23 เสนอ 180 วัน → ต้องตกลงให้ตรงกัน (Open Q1)
@@ -324,7 +331,7 @@ flowchart LR
 | `redis-cache` | `redis:7-alpine` | 6380 | — | `--maxmemory 128mb --maxmemory-policy allkeys-lru` |
 | `mock-agent` | build `mock_agent/` | 8010 | — | `MOCK_SCENARIO` env เลือก scenario |
 | `minio` | `quay.io/minio/minio` | 9000/9001 | — | เปิดตลอด (data export, D-84); api/worker รอให้ healthy |
-| `otel-collector` + `jaeger` | — | 16686 | — | profile `observability` |
+| `jaeger` | `jaegertracing/jaeger` (v2) | 16686 | — | profile `observability`; รับ OTLP เองจึงไม่มี collector แยก (D-89) |
 
 - Network เดียว `backend`; ทุก service มี `healthcheck`
 - Port ตรงกับ `.env.example` ที่ root (`api` 8000, agent 8010)
@@ -484,7 +491,7 @@ flowchart LR
 | D-65 | beat สั่ง `scan_trip_alerts` ทุก P-56 (queue `alerts`) → คิวประเมินแบบ async ตาม P-57/P-58/P-59; ข้าม user ที่ชน P-33; container `beat` ย้ายมาทำใน 5.8 | task แยกต่อ trip / ตั้ง ETA ต่อ trip | Accepted (Step 5.8) |
 | D-66 | alert แบบ in-app = ข้อความ assistant ใน conversation ของ trip เฉพาะเมื่อ risk level หรือ type เปลี่ยน; push ผ่าน WS รอ E-07 | ตาราง notifications | Accepted (Step 5.8) |
 | D-67 | รับ feedback เฉพาะ recommendation ที่จบแล้วและมีเนื้อหา; ส่งได้หลายครั้ง | หนึ่งครั้งต่อ recommendation | Accepted (Step 5.8) |
-| D-68 | "แจ้ง Ops" = log warning `safety_review_requested` + audit `feedback.report`; metric ทำใน 5.10 | ส่ง email / webhook | Accepted (Step 5.8) |
+| D-68 | "แจ้ง Ops" = log warning `safety_review_requested` + audit `feedback.report` + metric `safety_review_requested_total` (5.10); alert rule เป็นของ `08_monitoring` | ส่ง email / webhook | Accepted (Step 5.8) |
 | D-69 | review queue (`safety:review`) ทำใน 5.8; ค่า status เป็นตัวพิมพ์เล็ก; review ได้เฉพาะ `pending` (`409 REVIEW_NOT_PENDING`); approved → `usable_for_training` | รอ 5.11 | Accepted (Step 5.8) |
 | D-70 | `SqlAuditWriter` เขียนลง default partition; `actor_ref` = pseudonym (user) หรือ `sub` (staff); `ip_hash` = HMAC | เขียน audit ผ่าน log | Accepted (Step 5.8) |
 | D-71 | migration `0008`: index `recommendations (trip_id, created_at DESC) WHERE trip_id IS NOT NULL` | ไม่มี index | Accepted (Step 5.8) |
@@ -503,6 +510,11 @@ flowchart LR
 | D-84 | MinIO ใน compose (image `quay.io/minio/minio` เพราะ Docker Hub เลิกให้ดึง); ลิงก์ดาวน์โหลดเซ็นด้วย client ของ public URL; ไม่ตั้ง storage → `503`; ลบบัญชีแล้วลบไฟล์ export | เก็บไฟล์ใน Postgres | Accepted (Step 5.9b) |
 | D-85 | purge: beat cron P-50 ในเขตเวลา `PURGE_TIMEZONE` (timezone ของ Celery app); Redis claim `lock:purge`; ลบทีละ 1000; partition audit เดือนนี้ + 2 เดือนล่วงหน้า; drop partition เก่ากว่า P-24; audit `retention.purge` เก็บแค่จำนวน | pg_partman / cron ของ DB | Accepted (Step 5.9b) |
 | D-86 | `/v1/me/data-export` ใช้ scope `profile:read` และต้องมี `Idempotency-Key` | `profile:write` | Accepted (Step 5.9b) |
+| D-87 | `/ready` = 503 เฉพาะเมื่อ PostgreSQL หรือ redis-core ใช้ไม่ได้; `redis_cache` และ `agent` รายงานอย่างเดียว (ทุก replica ใช้ร่วมกัน ถอดทุก pod ไม่ช่วย); timeout 2 s ต่อ check; ไม่มี host / ข้อความ error ใน body | ให้ Agent ล่มแล้ว not ready | Accepted (Step 5.10) |
+| D-88 | E-23 ใช้สถานะที่ Agent รายงานในคำตอบล่าสุด (worker เขียน `status:reports`) + circuit breaker + Agent `/health`; ไม่มีรายงานภายใน P-64 → `unknown`; status รวมมีค่า `unknown` เพิ่ม; cache P-65 | backend เรียก provider เอง (ขัด D-03) / ขอ endpoint ใหม่จาก Agent | Accepted (Step 5.10) |
+| D-89 | Tracing: OTLP/HTTP (ไม่ใช้ gRPC เพื่อไม่ต้องลง grpcio); instrument FastAPI, httpx, SQLAlchemy, Celery, Redis; `ScrubbingExporter` ตัด query string, IP ของ client, ข้อความ exception และ status description ก่อนส่งออก; dev ใช้ Jaeger v2 รับ OTLP ตรง (profile `observability`) | OTel Collector ใน dev | Accepted (Step 5.10) |
+| D-90 | `/ready` และ `/metrics` ตอบเฉพาะ IP ใน `OPS_ALLOWED_NETWORKS` (default loopback + private) อื่น ๆ `404`; IP มาจาก uvicorn หลัง resolve proxy ที่เชื่อถือ | bearer token สำหรับ scrape | Accepted (Step 5.10) |
+| D-91 | Prometheus multiprocess mode เมื่อตั้ง `PROMETHEUS_MULTIPROC_DIR` (runtime image ตั้งไว้แล้ว); `app.serve` และ worker main process ล้าง directory ตอนเริ่ม; worker เปิด `/metrics` ของตัวเองที่ `WORKER_METRICS_PORT`; metric ที่อ่านตอน scrape (`celery_queue_depth`) ใช้ collector ชั่วคราว; `route` label เป็น template | push gateway | Accepted (Step 5.10) |
 | D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
 | D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
 | D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
@@ -528,7 +540,7 @@ flowchart LR
 | 5.8 | Trips + alerts, feedback + review queue (+ beat container, audit writer) | E-14..E-19 และ review queue — **done** |
 | 5.9a | Me: profile / consent / ลบบัญชี, reaper, `DELETE /v1/jobs/{id}` (E-05), `prediction_records` | E-05, E-20 — **done** |
 | 5.9b | Data export (E-21/E-22, MinIO), purge job (P-50), partition audit รายเดือน, column encryption (D-15) | E-21, E-22 — **done** |
-| 5.10 | Observability (OTel, metrics), `/ready`, service-status | |
+| 5.10 | Observability (OTel, metrics), `/ready`, service-status | E-23, E-26, E-27 + trace HTTP → Celery → Agent — **done** |
 | 5.11 | Admin endpoints | |
 | 5.12 | OpenAPI export, contract tests, CI | |
 
@@ -538,6 +550,7 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.12 | 2026-09-18 | Step 5.10: D-87..D-91, ไฟล์ ops_service / service_status / health / signals, service `jaeger` แทน otel-collector + jaeger |
 | 0.11 | 2026-09-18 | Step 5.9b: D-81..D-86, ไฟล์ encryption / types / exports / retention / cooldown / object store, service `minio` |
 | 0.10 | 2026-09-18 | Step 5.9a: D-72..D-80, ไฟล์ profile / prediction / me / account / reaper / maintenance, queue `maintenance`; แบ่ง 5.9 เป็น 5.9a / 5.9b |
 | 0.9 | 2026-09-17 | Step 5.8: D-59..D-71, ไฟล์ trips / feedback / audit / alert scan, container `beat` (ย้ายจาก 5.9), queue `alerts` |

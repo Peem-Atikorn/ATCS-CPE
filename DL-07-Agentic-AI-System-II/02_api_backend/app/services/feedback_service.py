@@ -14,6 +14,7 @@ from app.core.clock import Clock
 from app.core.config import Settings
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
+from app.core.metrics import SAFETY_REVIEWS
 from app.domain.enums import ActorType, AuditResult, RecommendationStatus, ReviewStatus
 from app.domain.errors import FieldIssue, InvalidInput
 from app.domain.feedback import (
@@ -93,6 +94,7 @@ class FeedbackService:
             return record
         assert feedback.report_type is not None
         # The comment may contain personal data; only ids and the report type are logged.
+        SAFETY_REVIEWS.labels(report_type=feedback.report_type.value).inc()
         log.warning(
             "safety_review_requested",
             feedback_id=str(record.id),

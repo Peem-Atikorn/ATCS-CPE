@@ -17,6 +17,7 @@ from app.core.config import Settings
 from app.core.errors import ERROR_SPECS, ErrorCode
 from app.core.ids import current_correlation_id, new_id
 from app.core.logging import get_logger
+from app.core.metrics import JOBS
 from app.domain.enums import JobStage, JobStatus
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import SlotLimiter
@@ -77,6 +78,8 @@ class ReaperService:
         )
         for job in reaped:
             await self._announce(job)
+        if reaped:
+            JOBS.labels(status=JobStatus.FAILED.value).inc(len(reaped))
 
         retry_after = timedelta(minutes=self._settings.maintenance.account_deletion_retry_minutes)
         pending = await self._users.pending_deletions(

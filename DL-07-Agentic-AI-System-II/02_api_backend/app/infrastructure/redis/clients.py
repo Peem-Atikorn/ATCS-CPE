@@ -1,4 +1,7 @@
-"""Redis connections: core (noeviction) and cache (allkeys-lru), see D-14."""
+"""Redis connections: core (noeviction) and cache (allkeys-lru), see D-14.
+
+`broker` is the Celery broker database; the API only reads queue lengths from it.
+"""
 
 from __future__ import annotations
 
@@ -13,10 +16,13 @@ from app.core.config import RedisSettings
 class RedisClients:
     core: Redis
     cache: Redis
+    broker: Redis | None = None
 
     async def aclose(self) -> None:
         await self.core.aclose()
         await self.cache.aclose()
+        if self.broker is not None:
+            await self.broker.aclose()
 
 
 def _client(url: str, settings: RedisSettings) -> Redis:
@@ -33,4 +39,5 @@ def create_redis_clients(settings: RedisSettings) -> RedisClients:
     return RedisClients(
         core=_client(settings.core_url(), settings),
         cache=_client(settings.cache_url(), settings),
+        broker=_client(settings.broker_url(), settings),
     )

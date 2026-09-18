@@ -11,6 +11,7 @@ from celery import shared_task
 
 from app.core.ids import accept_client_id, correlation_id_var, new_id
 from app.core.logging import get_logger
+from app.core.telemetry import tag_correlation
 from app.workers.celery_app import (
     BUILD_DATA_EXPORT,
     DELETE_ACCOUNT,
@@ -27,6 +28,7 @@ def _correlation(value: str) -> Iterator[None]:
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(correlation_id=value)
     token = correlation_id_var.set(value)
+    tag_correlation(value)
     try:
         yield
     finally:

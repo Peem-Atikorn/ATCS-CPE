@@ -158,3 +158,24 @@ def test_retention_and_storage_settings(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv("PURGE_TIMEZONE", "Mars/Base")
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_observability_settings_defaults_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    obs = Settings().observability
+    assert "10.0.0.0/8" in obs.ops_allowed_networks
+    assert (obs.service_status_window_minutes, obs.service_status_cache_seconds) == (15, 30)
+    assert (obs.ready_agent_cache_seconds, obs.worker_metrics_port) == (10, 0)
+
+    monkeypatch.setenv("OPS_ALLOWED_NETWORKS", " 10.1.0.0/16 , fd00::/8 ")
+    monkeypatch.setenv("SERVICE_STATUS_WINDOW_MINUTES", "5")
+
+    obs = Settings().observability
+    assert obs.ops_allowed_networks == ["10.1.0.0/16", "fd00::/8"]
+    assert obs.service_status_window_minutes == 5
+
+
+def test_bad_ops_network_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPS_ALLOWED_NETWORKS", "10.0.0.0/8,not-a-network")
+
+    with pytest.raises(ValidationError, match="not-a-network"):
+        Settings()

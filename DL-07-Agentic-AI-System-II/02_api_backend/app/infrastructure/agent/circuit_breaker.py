@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import Any, Protocol
 
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
@@ -71,6 +71,12 @@ return 1
 """
 
 
+class BreakerState(StrEnum):
+    CLOSED = "closed"
+    OPEN = "open"
+    HALF_OPEN = "half_open"
+
+
 class Permit(StrEnum):
     ALLOW = "allow"
     PROBE = "probe"
@@ -94,6 +100,8 @@ class CircuitBreaker(Protocol):
 
     async def record_failure(self) -> None: ...
 
+    async def state(self) -> BreakerState: ...
+
 
 class RedisCircuitBreaker:
     def __init__(
@@ -106,6 +114,7 @@ class RedisCircuitBreaker:
         reset_seconds: int,
         clock: Clock | None = None,
     ) -> None:
+        self._redis = redis
         self._keys = [name, f"{name}:failures"]
         self._threshold = failure_threshold
         self._window_ms = window_seconds * 1000
@@ -129,6 +138,24 @@ class RedisCircuitBreaker:
             return Admission(Permit.ALLOW)
         permit = Permit(permit.decode() if isinstance(permit, bytes) else permit)
         return Admission(permit, retry_after_seconds=max(-(-int(wait_ms) // 1000), 0))
+
+    async def state(self) -> BreakerState:
+        """Read-only view for /ready and E-23; an open circuit past its reset is half open."""
+        try:
+            raw: list[Any] = await self._redis.hmget(  # type: ignore[misc]
+                self._keys[0], ["state", "opened_at"]
+            )
+        except (RedisError, OSError) as exc:
+            log.warning("circuit_breaker_unavailable", error_type=type(exc).__name__)
+            return BreakerState.CLOSED
+        state, opened_at = (v.decode() if isinstance(v, bytes) else v for v in raw)
+        if state == BreakerState.OPEN:
+            if opened_at is not None and self._now_ms() >= int(opened_at) + self._reset_ms:
+                return BreakerState.HALF_OPEN
+            return BreakerState.OPEN
+        if state == BreakerState.HALF_OPEN:
+            return BreakerState.HALF_OPEN
+        return BreakerState.CLOSED
 
     async def record_success(self) -> None:
         try:

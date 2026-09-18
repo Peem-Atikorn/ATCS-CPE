@@ -21,6 +21,7 @@ from app.infrastructure.redis.idempotency_store import IdempotencyStore, RedisId
 from app.infrastructure.redis.job_state import RedisJobStateStore
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.rate_limiter import RateLimiter, RedisRateLimiter
+from app.infrastructure.redis.service_status import RedisServiceStatusStore
 from app.infrastructure.redis.slots import RedisSlotLimiter, SlotLimiter
 from app.infrastructure.redis.tickets import RedisTicketStore
 from app.infrastructure.redis.user_data import RedisUserData
@@ -58,6 +59,7 @@ class AppResources:
     cooldown: CooldownPort | None = None
     # None when object storage is not configured: data export answers 503.
     object_store: ObjectStorePort | None = None
+    service_status: RedisServiceStatusStore | None = None
 
     async def aclose(self) -> None:
         if self.http is not None:
@@ -94,6 +96,7 @@ def build_resources(settings: Settings) -> AppResources:
         user_data=RedisUserData(redis.core, keys),
         cooldown=RedisCooldown(redis.core, keys),
         object_store=MinioObjectStore(settings.storage) if settings.storage.enabled else None,
+        service_status=RedisServiceStatusStore(redis.cache, keys),
     )
 
 

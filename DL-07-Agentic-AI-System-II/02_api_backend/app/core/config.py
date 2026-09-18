@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from functools import lru_cache
+from ipaddress import ip_network
 from typing import Annotated
 from urllib.parse import urlsplit, urlunsplit
 
@@ -15,6 +16,15 @@ from pydantic import BaseModel, Field, SecretStr, field_validator, model_validat
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 _ENV_CONFIG = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+# Loopback and private ranges: probes and Prometheus reach the pod from inside.
+_PRIVATE_NETWORKS = (
+    "127.0.0.0/8",
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "::1/128",
+    "fc00::/7",
+)
 
 
 class AppEnv(StrEnum):
@@ -323,6 +333,30 @@ class ObservabilitySettings(BaseSettings):
     log_json: bool = True
     otel_exporter_otlp_endpoint: str | None = None
     otel_service_name: str = "travel-safety-api"
+    # /ready and /metrics answer only callers from these networks (D-90).
+    ops_allowed_networks: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: list(_PRIVATE_NETWORKS)
+    )
+    ready_timeout_seconds: float = Field(default=2.0, gt=0)
+    ready_agent_cache_seconds: int = Field(default=10, gt=0)  # P-66
+    service_status_cache_seconds: int = Field(default=30, gt=0)  # P-65
+    service_status_window_minutes: int = Field(default=15, gt=0)  # P-64
+    # Port of the worker's own /metrics server; 0 turns it off (D-91).
+    worker_metrics_port: int = Field(default=0, ge=0, le=65535)
+
+    @field_validator("ops_allowed_networks", mode="before")
+    @classmethod
+    def _split_networks(cls, value: object) -> object:
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        return value
+
+    @field_validator("ops_allowed_networks")
+    @classmethod
+    def _valid_networks(cls, value: list[str]) -> list[str]:
+        for item in value:
+            ip_network(item, strict=False)  # raises ValueError for a bad entry
+        return value
 
     @field_validator("log_level")
     @classmethod

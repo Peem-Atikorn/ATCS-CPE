@@ -10,12 +10,14 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from prometheus_client import REGISTRY
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.domain.enums import JobStage, JobStatus, RequestMode, RequestSource
+from app.domain.enums import JobStage, JobStatus, RequestMode, RequestSource, ServiceState
 from app.domain.normalization import NormalizationLimits, normalize_travel_request
 from app.infrastructure.db.models import AgentRunModel, RecommendationModel
+from app.infrastructure.redis.service_status import RedisServiceStatusStore
 from app.services.ports import NewRecommendation, UserRef
 from mock_agent.main import SCENARIOS
 from tests.integration.flow import Flow, travel_input, tune
@@ -229,9 +231,11 @@ async def test_contradicting_result_is_rejected_for_safety_review(
     flow.agent_state.scenario = "contradiction"
     user = await flow.user()
     job_id, rec_id = await flow.queued_job(new(user))
+    rejected = sample("safety_gate_rejections_total", rule="R-04")
 
     await flow.worker().run(job_id)
 
+    assert sample("safety_gate_rejections_total", rule="R-04") == rejected + 1
     row = await recommendation_row(session_factory, rec_id)
     assert (row.status, row.error_code) == ("failed", "AGENT_BAD_RESPONSE")
     lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
@@ -304,3 +308,61 @@ async def test_unexpected_error_still_ends_the_job(
     events = await flow.jobs.read(job_id, after="0-0", block_ms=None)
     assert events[-1].event == "failed"
     assert await flow.redis.zcard(flow.keys.active_jobs(user.id)) == 0
+
+
+def sample(name: str, **labels: str) -> float:
+    return REGISTRY.get_sample_value(name, labels) or 0.0
+
+
+async def test_reported_service_states_feed_the_status_page(flow: Flow) -> None:
+    flow.agent_state.scenario = "partial_disaster_down"
+    user = await flow.user()
+    job_id, _ = await flow.queued_job(new(user))
+
+    await flow.worker().run(job_id)
+
+    reports = await RedisServiceStatusStore(flow.redis, flow.keys).recent()
+    assert reports["disaster"].state is ServiceState.UNAVAILABLE
+    assert reports["weather"].state is ServiceState.OK
+    assert await flow.redis.ttl(flow.keys.service_reports()) > 0
+
+
+async def test_metrics_count_outcomes_and_safety_rules(
+    flow: Flow, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    flow.agent_state.scenario = "partial_disaster_down"
+    succeeded = sample("jobs_total", status="succeeded")
+    r02 = sample("safety_gate_overrides_total", rule="R-02")
+    r03 = sample("safety_gate_overrides_total", rule="R-03")
+    calls = sample("agent_request_duration_seconds_count", outcome="success")
+    user = await flow.user()
+    job_id, rec_id = await flow.queued_job(new(user))
+    partial = {"status": "partial_result", "recommendation_type": "none"}
+
+    stored_before = {
+        level: sample("recommendations_total", risk_level=level, **partial)
+        for level in ("LOW", "MEDIUM", "HIGH", "none")
+    }
+    await flow.worker().run(job_id)
+
+    row = await recommendation_row(session_factory, rec_id)
+    level = row.risk_level or "none"
+    assert sample("jobs_total", status="succeeded") == succeeded + 1
+    assert sample("recommendations_total", risk_level=level, **partial) == (
+        stored_before[level] + 1
+    )
+    assert sample("safety_gate_overrides_total", rule="R-02") == r02 + 1
+    assert sample("safety_gate_overrides_total", rule="R-03") == r03 + 1
+    assert sample("agent_request_duration_seconds_count", outcome="success") == calls + 1
+
+
+async def test_failed_jobs_are_counted_without_service_reports(flow: Flow) -> None:
+    flow.agent_state.scenario = "bad_schema"
+    failed = sample("jobs_total", status="failed")
+    user = await flow.user()
+    job_id, _ = await flow.queued_job(new(user))
+
+    await flow.worker().run(job_id)
+
+    assert sample("jobs_total", status="failed") == failed + 1
+    assert await flow.redis.exists(flow.keys.service_reports()) == 0

@@ -68,7 +68,9 @@ def create_celery(settings: Settings) -> Celery:
 @lru_cache
 def get_celery() -> Celery:
     celery = create_celery(get_settings())
-    # Registers the tasks on this app (they are declared with shared_task).
+    # Registers the tasks on this app (they are declared with shared_task) and the
+    # process signal handlers (logging, tracing, metrics).
+    from app.workers import signals  # noqa: F401
     from app.workers.tasks import maintenance, recommendation, trip_alerts  # noqa: F401
 
     return celery

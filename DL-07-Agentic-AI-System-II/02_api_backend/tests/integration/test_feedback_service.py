@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
+from prometheus_client import REGISTRY
 from sqlalchemy import select
 
 from app.core.errors import AppError, ErrorCode
@@ -79,10 +80,13 @@ async def test_unsafe_report_goes_to_the_queue(
     user = await flow.user()
     rec = await finished_recommendation(flow, user)
     capsys.readouterr()
+    labels = {"report_type": "UNSAFE_ADVICE"}
+    before = REGISTRY.get_sample_value("safety_review_requested_total", labels) or 0.0
 
     record = await submit(flow, user, rec, UNSAFE)
 
     assert record.review_status is ReviewStatus.PENDING
+    assert REGISTRY.get_sample_value("safety_review_requested_total", labels) == before + 1
     logs = capsys.readouterr().out
     assert "safety_review_requested" in logs
     assert "flood zone" not in logs

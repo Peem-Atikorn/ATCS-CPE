@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+from prometheus_client import REGISTRY
 
 from app.core.errors import AppError, ErrorCode
 from app.core.ids import new_id
@@ -208,14 +209,18 @@ async def test_queue_failure_marks_the_job_failed(flow: Flow) -> None:
 async def test_cached_result_is_reused_with_a_new_id(flow: Flow) -> None:
     user = await flow.user()
     service = flow.recommendations()
+    misses = REGISTRY.get_sample_value("cache_misses_total") or 0.0
     first = await service.create(user, command())
     assert isinstance(first, Finished)
     runs = len(flow.agent_state.runs)
+    hits = REGISTRY.get_sample_value("cache_hits_total") or 0.0
 
     second = await service.create(user, command())
 
     assert isinstance(second, Finished)
     assert len(flow.agent_state.runs) == runs
+    assert REGISTRY.get_sample_value("cache_misses_total") == misses + 1
+    assert REGISTRY.get_sample_value("cache_hits_total") == hits + 1
     assert second.record.id != first.record.id
     assert second.record.status is RecommendationStatus.COMPLETED
     assert first.record.payload is not None

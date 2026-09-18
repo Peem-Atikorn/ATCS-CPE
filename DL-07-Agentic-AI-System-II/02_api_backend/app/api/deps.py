@@ -17,11 +17,13 @@ from app.infrastructure.db.repositories.feedback import SqlFeedbackRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
 from app.infrastructure.db.repositories.users import SqlUserRepository
+from app.infrastructure.health import database_ok, redis_ok
 from app.services.conversation_service import ConversationService
 from app.services.export_service import ExportService
 from app.services.feedback_service import FeedbackService
 from app.services.job_service import JobService
 from app.services.me_service import MeService
+from app.services.ops_service import Check, OpsService
 from app.services.ports import UserRef
 from app.services.recommendation_service import RecommendationService
 from app.services.trip_service import TripService
@@ -142,5 +144,23 @@ def get_export_service(request: Request) -> ExportService:
         cooldown=_require(resources.cooldown, "cooldown"),
         queue=_require(resources.queue, "queue"),
         settings=resources.settings,
+        clock=_CLOCK,
+    )
+
+
+def get_ops_service(request: Request) -> OpsService:
+    """Works with whatever was created at startup; a missing dependency is reported as down."""
+    resources = get_resources(request)
+    checks: dict[str, Check] = {}
+    if (engine := resources.engine) is not None:
+        checks["database"] = lambda: database_ok(engine)
+    if (redis := resources.redis) is not None:
+        checks["redis"] = lambda: redis_ok(redis.core)
+        checks["redis_cache"] = lambda: redis_ok(redis.cache)
+    return OpsService(
+        checks=checks,
+        agent=resources.agent,
+        store=resources.service_status,
+        settings=resources.settings.observability,
         clock=_CLOCK,
     )

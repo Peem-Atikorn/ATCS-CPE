@@ -25,9 +25,10 @@ from app.core.config import AgentSettings
 from app.core.errors import AppError, ErrorCode
 from app.core.ids import current_correlation_id, current_request_id
 from app.core.logging import get_logger
+from app.core.metrics import AGENT_DURATION, AGENT_ERRORS
 from app.domain.enums import AgentRunStatus as RunRecordStatus
 from app.infrastructure.agent.auth import AgentTokenError, AgentTokenProvider
-from app.infrastructure.agent.circuit_breaker import CircuitBreaker
+from app.infrastructure.agent.circuit_breaker import BreakerState, CircuitBreaker
 from app.infrastructure.agent.contracts import (
     AgentRunRequest,
     AgentRunResponse,
@@ -48,6 +49,11 @@ _STREAM_LINES: TypeAdapter[ProgressLine | ResultLine | ErrorLine] = TypeAdapter(
 _TIMEOUT_CODES = frozenset({"TIMEOUT", "DEADLINE_EXCEEDED", "BUDGET_EXCEEDED"})
 
 ProgressCallback = Callable[[ProgressLine], Awaitable[None]]
+
+
+def _observe(attempt: AttemptRecord) -> None:
+    seconds = (attempt.finished_at - attempt.started_at).total_seconds()
+    AGENT_DURATION.labels(outcome=attempt.status.value).observe(max(seconds, 0.0))
 
 
 class AgentFailure(StrEnum):
@@ -177,12 +183,14 @@ class AgentClient:
         max_attempts = 1 + self._settings.agent_max_retries
         for number in range(1, max_attempts + 1):
             if self._remaining(deadline) <= 0:
+                AGENT_ERRORS.labels(code=AgentFailure.TIMEOUT.value).inc()
                 raise self._error_from_last(attempts, AgentFailure.TIMEOUT, "deadline passed")
 
             admission = await self._breaker.acquire()
             if not admission.allowed:
                 now = self._clock.now()
                 attempts.append(AttemptRecord(number, RunRecordStatus.CIRCUIT_OPEN, now, now))
+                AGENT_ERRORS.labels(code=AgentFailure.CIRCUIT_OPEN.value).inc()
                 raise AgentCallError(
                     AgentFailure.CIRCUIT_OPEN,
                     "circuit open",
@@ -204,6 +212,7 @@ class AgentClient:
                         error_code=failed.error_code or failed.failure.value,
                     )
                 )
+                _observe(attempts[-1])
                 if failed.unhealthy:
                     await self._breaker.record_failure()
                 elif failed.http_status is not None:
@@ -224,9 +233,11 @@ class AgentClient:
                     agent_status=failed.http_status,
                 )
                 if not failed.retryable or number == max_attempts:
+                    AGENT_ERRORS.labels(code=failed.failure.value).inc()
                     raise error from None
                 delay = self._backoff(number, failed.retry_after)
                 if delay >= self._remaining(deadline):
+                    AGENT_ERRORS.labels(code=failed.failure.value).inc()
                     raise error from None
                 await self._sleep(delay)
                 continue
@@ -234,6 +245,7 @@ class AgentClient:
                 attempts.append(
                     AttemptRecord(number, RunRecordStatus.CANCELLED, started, self._clock.now())
                 )
+                _observe(attempts[-1])
                 await self._cancel_after_interrupt(request.run_id)
                 raise
 
@@ -246,6 +258,7 @@ class AgentClient:
                     http_status=200,
                 )
             )
+            _observe(attempts[-1])
             await self._breaker.record_success()
             return AgentCallResult(response=response, attempts=tuple(attempts))
 
@@ -263,6 +276,9 @@ class AgentClient:
             log.warning("agent_cancel_failed", run_id=str(run_id), error_type=type(exc).__name__)
             return False
         return response.status_code < 400 or response.status_code == 404
+
+    async def breaker_state(self) -> BreakerState:
+        return await self._breaker.state()
 
     async def health(self) -> bool:
         try:

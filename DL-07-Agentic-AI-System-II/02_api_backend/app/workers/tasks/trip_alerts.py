@@ -6,6 +6,7 @@ import structlog
 from celery import shared_task
 
 from app.core.ids import correlation_id_var, new_id
+from app.core.telemetry import tag_correlation
 from app.workers.celery_app import SCAN_TRIP_ALERTS
 from app.workers.runtime import runtime
 
@@ -16,6 +17,7 @@ def scan_trip_alerts() -> dict[str, int]:
     structlog.contextvars.clear_contextvars()
     structlog.contextvars.bind_contextvars(correlation_id=correlation)
     token = correlation_id_var.set(correlation)
+    tag_correlation(correlation)
     try:
         return runtime.scan_trip_alerts()
     finally:

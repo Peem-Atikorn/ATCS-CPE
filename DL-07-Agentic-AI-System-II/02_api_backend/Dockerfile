@@ -32,6 +32,8 @@ CMD ["python", "-m", "app.serve", "--reload"]
 
 # ---------------------------------------------------------------- runtime
 FROM base AS runtime
+# Several uvicorn workers (and Celery pool processes) share their metrics here (D-91).
+ENV PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
 COPY --from=deps /opt/venv /opt/venv
 COPY --chown=app:app app ./app
 COPY --chown=app:app migrations ./migrations

@@ -512,8 +512,9 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | `cb:agent` | HASH `{state, failures, opened_at}` | ไม่มี | core | circuit breaker P-08 (ใช้ร่วมทุก worker) |
 | `reco:{cache_key}` | STRING (JSON ไม่มี PII) | min(P-26, valid_until) | cache | spec §11.2 |
 | `jwks:{issuer_hash}` | STRING | P-11 | cache | |
-| `status:service` | STRING | 30 s | cache | E-23 |
-| `ready:agent` | STRING | 10 s | cache | `/ready` |
+| `status:reports` | HASH `{service: "state\|reported_at_ms"}` | P-64 (ต่ออายุทุกครั้งที่เขียน) | cache | สถานะล่าสุดของ service ที่ Agent รายงาน (worker เขียน, E-23 อ่าน; ไม่เขียนค่า `not_used`) |
+| `status:service` | STRING (JSON สรุปสถานะ) | P-65 (30 s) | cache | E-23 |
+| `ready:agent` | STRING (`ok` / `unavailable`) | P-66 (10 s) | cache | `/ready` และ E-23 |
 | `lock:purge:{table}` | STRING (`SET NX PX`) | 10 min | core | กัน purge job ซ้อน |
 
 ### 5.3 กติกา
@@ -634,6 +635,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
+| 0.8 | 2026-09-18 | Step 5.10: ไม่เปลี่ยน schema; Redis key `status:reports` และรายละเอียด `status:service` / `ready:agent` (§5.2) |
 | 0.7 | 2026-09-18 | Step 5.9b: migration `0009` (column encryption), partition audit รายเดือนสร้างตอน runtime, รายละเอียด purge / export |
 | 0.6 | 2026-09-18 | Step 5.9a: ไม่เปลี่ยน schema; ใช้ `jobs.cancel_requested_at`, `users.deleted_at`, `users.consent_*`, `prediction_records`; รายละเอียดการลบบัญชีใน §6.2 |
 | 0.5 | 2026-09-17 | Step 5.8: index `recommendations (trip_id, created_at DESC)` (migration 0008); การประเมิน trip ใช้ `source = TRIP_ASSESSMENT` / `TRIP_ALERT` และ `jobs.type = TRIP_ASSESSMENT`; audit log ลง default partition จนกว่า 5.9 จะสร้าง partition รายเดือน |

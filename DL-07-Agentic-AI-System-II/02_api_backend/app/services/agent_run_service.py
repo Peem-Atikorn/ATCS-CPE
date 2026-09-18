@@ -18,6 +18,12 @@ from app.core.config import CacheSettings, Settings
 from app.core.errors import ERROR_SPECS, ErrorCode
 from app.core.ids import new_id
 from app.core.logging import get_logger
+from app.core.metrics import (
+    JOBS,
+    SAFETY_OVERRIDES,
+    SAFETY_REJECTIONS,
+    count_recommendation,
+)
 from app.domain.cache_policy import cache_ttl_seconds, result_is_cacheable
 from app.domain.enums import (
     AgentRunStatus,
@@ -52,6 +58,7 @@ from app.services.ports import (
     JobOutcome,
     JobStatePort,
     RecommendationRepository,
+    ServiceReportPort,
     StoredResult,
     WorkItem,
 )
@@ -143,9 +150,11 @@ class AgentRunService:
         keys: RedisKeys,
         settings: Settings,
         clock: Clock,
+        service_reports: ServiceReportPort | None = None,
     ) -> None:
         self._repo = repository
         self._agent = agent
+        self._reports = service_reports
         self._jobs = job_state
         self._slots = slots
         self._cache = cache
@@ -207,6 +216,7 @@ class AgentRunService:
             return await self._fail(item, exc.to_app_error().code, record)
 
         response = call.response
+        await self._record_services(response)
         try:
             assessment = assess(
                 response,
@@ -218,6 +228,7 @@ class AgentRunService:
                 api_version=self._settings.app.api_version,
             )
         except SafetyGateRejection as rejection:
+            SAFETY_REJECTIONS.labels(rule=rejection.rule).inc()
             if rejection.needs_safety_review:
                 log.warning(
                     "safety_review_required",
@@ -259,6 +270,12 @@ class AgentRunService:
         if not stored:
             # Cancelled or reaped while the Agent was working: nothing to announce (D-73).
             return JobStatus.CANCELLED
+        JOBS.labels(status=JobStatus.SUCCEEDED.value).inc()
+        count_recommendation(
+            assessment.status, assessment.risk_level, assessment.recommendation_type
+        )
+        for rule in assessment.applied_rules:
+            SAFETY_OVERRIDES.labels(rule=rule).inc()
         if item.cache_key is not None and result_is_cacheable(
             status=assessment.status,
             risk_level=assessment.risk_level,
@@ -300,7 +317,7 @@ class AgentRunService:
 
     async def _cancelled(self, item: WorkItem, run_id: UUID, started: datetime) -> JobStatus:
         now = self._clock.now()
-        await self._repo.finish_job(
+        stored = await self._repo.finish_job(
             item.job_id,
             JobOutcome(
                 status=JobStatus.CANCELLED,
@@ -322,8 +339,23 @@ class AgentRunService:
                 conversation_days=self._settings.retention.retention_conversation_days,
             ),
         )
+        if stored:
+            # Usually the API already counted it: E-05 cancels in the database first.
+            JOBS.labels(status=JobStatus.CANCELLED.value).inc()
         log.info("job_stopped_after_cancel", job_id=str(item.job_id))
         return JobStatus.CANCELLED
+
+    async def _record_services(self, response: AgentRunResponse) -> None:
+        """Note what the Agent said about its data services, for E-23 (best effort)."""
+        if self._reports is None or not response.service_status:
+            return
+        window = self._settings.observability.service_status_window_minutes
+        try:
+            await self._reports.record(
+                response.service_status, at=self._clock.now(), ttl_seconds=window * 60
+            )
+        except _REDIS_ERRORS as exc:
+            log.warning("service_status_unavailable", error_type=type(exc).__name__)
 
     async def _prediction(
         self, item: WorkItem, result: StoredResult, now: datetime
@@ -409,6 +441,7 @@ class AgentRunService:
         )
         if not stored:
             return JobStatus.CANCELLED
+        JOBS.labels(status=JobStatus.FAILED.value).inc()
         await self._finish_state(
             item,
             JobStatus.FAILED,

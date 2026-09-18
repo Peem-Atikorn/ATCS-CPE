@@ -52,3 +52,13 @@ class RedisKeys:
 
     def recommendation_cache(self, cache_key: str) -> str:
         return f"{self._prefix}reco:{cache_key}"
+
+    def service_reports(self) -> str:
+        """Latest state of each data service as reported by the Agent (E-23)."""
+        return f"{self._prefix}status:reports"
+
+    def service_status(self) -> str:
+        return f"{self._prefix}status:service"
+
+    def ready_agent(self) -> str:
+        return f"{self._prefix}ready:agent"

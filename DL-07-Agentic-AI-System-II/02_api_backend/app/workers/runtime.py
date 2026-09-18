@@ -33,6 +33,7 @@ from app.infrastructure.redis.clients import RedisClients, create_redis_clients
 from app.infrastructure.redis.cooldown import RedisCooldown
 from app.infrastructure.redis.job_state import RedisJobStateStore
 from app.infrastructure.redis.keys import RedisKeys
+from app.infrastructure.redis.service_status import RedisServiceStatusStore
 from app.infrastructure.redis.slots import RedisSlotLimiter
 from app.infrastructure.storage.object_store import MinioObjectStore
 from app.services.account_service import AccountService
@@ -86,6 +87,7 @@ def build_worker_resources(settings: Settings) -> WorkerResources:
         keys=keys,
         settings=settings,
         clock=clock,
+        service_reports=RedisServiceStatusStore(redis.cache, keys),
     )
     # Scheduled re-assessments are queued like API requests and run by run_recommendation.
     trips = SqlTripRepository(sessions)

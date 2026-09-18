@@ -101,6 +101,9 @@
 | P-61 | ลบบัญชีที่ค้างเกินนี้ → ส่งงานลบใหม่ | 10 min | `ACCOUNT_DELETION_RETRY_MINUTES` |
 | P-62 | อายุลิงก์ดาวน์โหลด data export (signed URL) | 15 min | `DATA_EXPORT_URL_SECONDS` |
 | P-63 | ขอ data export ได้หนึ่งครั้งต่อ | 24 h | `DATA_EXPORT_COOLDOWN_HOURS` |
+| P-64 | สถานะ service ที่ Agent รายงานใช้ได้นานเท่านี้ (เกินแล้วเป็น `unknown`) | 15 min | `SERVICE_STATUS_WINDOW_MINUTES` |
+| P-65 | Cache ของ `/v1/service-status` | 30 s | `SERVICE_STATUS_CACHE_SECONDS` |
+| P-66 | Cache ผลตรวจ Agent `/health` (ใช้ทั้ง `/ready` และ E-23) | 10 s | `READY_AGENT_CACHE_SECONDS` |
 
 ---
 
@@ -603,7 +606,7 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 - scope `travel:write`, rate limit P-30, ต้องมี `Idempotency-Key`; recommendation ของคนอื่นหรือไม่มีอยู่ → `404`
 - recommendation ที่ยัง `processing` → `422` (`recommendation_id`, `not_finished`); ต้องมีอย่างน้อยหนึ่งอย่างใน `rating`, `helpful`, `report_type`, `comment` หรือ `outcome` ที่ไม่ใช่ `UNKNOWN` ไม่งั้น `422` (`feedback`, `feedback_empty`); ส่งได้หลายครั้งต่อ recommendation — *D-67*
 - `comment` ตัด control chars; ว่าง → `null`; เกิน 1,000 → `422 too_long`; `outcome` default `UNKNOWN`
-- "แจ้ง Ops" = log event ระดับ warning `safety_review_requested` (มีแค่ feedback id, recommendation id, report type — ไม่มีข้อความ) + audit log `feedback.report`; metric / alert rule ทำใน Step 5.10 — *D-68*
+- "แจ้ง Ops" = log event ระดับ warning `safety_review_requested` (มีแค่ feedback id, recommendation id, report type — ไม่มีข้อความ) + audit log `feedback.report` + metric `safety_review_requested_total{report_type}` (Step 5.10); alert rule เป็นของทีม monitoring (`08_monitoring`) — *D-68*
 
 ### 7.4 Me (E-20 .. E-22)
 
@@ -634,7 +637,7 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 
 ## 8. Service Status & Admin
 
-### 8.1 E-23 `GET /v1/service-status` (public, cache 30 s)
+### 8.1 E-23 `GET /v1/service-status` (public, cache P-65)
 
 ```json
 {
@@ -643,13 +646,22 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
   "components": {
     "api": "ok", "agent": "ok",
     "weather": "ok", "transport": "degraded", "disaster": "ok",
-    "risk_model": "ok", "llm": "ok"
+    "risk_model": "ok", "rag": "unknown", "llm": "ok"
   },
-  "message": "ข้อมูลการขนส่งบางส่วนล่าช้า"
+  "message": "บางบริการทำงานไม่เต็มที่ คำแนะนำอาจมีข้อมูลไม่ครบ"
 }
 ```
 
 > ไม่เปิดเผยชื่อ provider, host, error ภายใน
+
+**รายละเอียด (ทำใน Step 5.10)** — *D-87, D-88*
+
+- ไม่ต้อง login; ใช้ IP rate limit (P-31); `Cache-Control: public, max-age=P-65`, `Vary: Accept-Language`; `message` เป็นภาษาไทยหรืออังกฤษตาม `Accept-Language`
+- ค่าของแต่ละ component: `ok` / `degraded` / `unavailable` / `unknown`
+- `agent`: circuit breaker เปิด → `unavailable`; Agent `/health` ไม่ตอบ (cache P-66) → `unavailable`; ครึ่งเปิด → `degraded`
+- `weather`, `transport`, `disaster`, `risk_model`, `rag`, `llm`: backend ไม่เรียก provider เอง (D-03) จึงใช้สถานะล่าสุดที่ Agent รายงานใน `service_status` ของคำตอบ (worker บันทึกทุกครั้งที่ได้คำตอบ); ไม่มีรายงานภายใน P-64 หรือรายงานเป็น `not_used` → `unknown` (ไม่แสดงว่า `ok`)
+- `status` รวม: agent `unavailable` → `unavailable`; มี component `degraded`/`unavailable` → `degraded`; มี `unknown` → `unknown`; นอกนั้น `ok`
+- Redis cache ใช้ไม่ได้ → ยังตอบได้ แต่ข้อมูลบริการทั้งหมดเป็น `unknown`
 
 ### 8.2 Admin (Could — ทำหลัง core flow)
 
@@ -764,10 +776,27 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 | Endpoint | Response | ตรวจอะไร |
 |---|---|---|
 | `GET /health` | `200 {"status":"ok"}` | process ยังทำงาน (ไม่เช็ค dependency) |
-| `GET /ready` | `200` / `503` + `{"status":"ready","checks":{"database":"ok","redis":"ok","agent":"ok"}}` | DB ping, Redis ping, Agent `/health` (cache 10 s) |
+| `GET /ready` | `200` / `503` + `{"status":"ready","checks":{"database":"ok","redis":"ok","redis_cache":"ok","agent":"ok"}}` | DB `SELECT 1`, Redis core/cache `PING`, Agent `/health` (cache P-66); timeout 2 s ต่อ check |
 | `GET /metrics` | Prometheus text | เปิดเฉพาะ network ภายใน |
 
-**Metrics หลัก:** `http_requests_total{route,method,status}`, `http_request_duration_seconds`, `agent_request_duration_seconds`, `agent_errors_total{code}`, `celery_queue_depth`, `jobs_total{status}`, `recommendations_total{status,risk_level,recommendation_type}`, `cache_hits_total` / `cache_misses_total`, `rate_limit_hits_total{scope}`, `safety_gate_overrides_total{rule}`
+**รายละเอียด (ทำใน Step 5.10)**
+
+- `/ready` เป็น `503` (`status: not_ready`) เมื่อ `database` หรือ `redis` (core) ใช้ไม่ได้เท่านั้น; `redis_cache` และ `agent` รายงานอย่างเดียว เพราะทุก replica ใช้ร่วมกัน ถอดทุก pod ออกจาก load balancer ไม่ช่วยอะไร — *D-87*
+- ค่าใน `checks` มีแค่ `ok` / `unavailable` (ไม่มี host หรือข้อความ error); ไม่ได้ตั้ง Agent → ไม่มี key `agent`
+- `/ready` และ `/metrics` ตอบเฉพาะ client ที่ IP อยู่ใน `OPS_ALLOWED_NETWORKS` (default: loopback + private ranges) นอกนั้นได้ `404` — IP คือค่าที่ uvicorn resolve จาก proxy ที่เชื่อถือ (`FORWARDED_ALLOW_IPS`) ดังนั้น request จาก internet ที่ผ่าน ingress จะถูกปฏิเสธ — *D-90*
+- Worker มี `/metrics` ของตัวเองที่ port `WORKER_METRICS_PORT` (compose: 9101 ไม่ publish ออก host) — *D-91*
+
+**Metrics หลัก:** `http_requests_total{route,method,status}`, `http_request_duration_seconds{route,method}`, `agent_request_duration_seconds{outcome}`, `agent_errors_total{code}`, `celery_queue_depth{queue}`, `jobs_total{status}`, `recommendations_total{status,risk_level,recommendation_type}`, `cache_hits_total` / `cache_misses_total`, `rate_limit_hits_total{scope}`, `safety_gate_overrides_total{rule}`, `safety_gate_rejections_total{rule}`, `safety_review_requested_total{report_type}` (D-68)
+
+- `route` เป็น template (`/v1/jobs/{job_id}`) ไม่ใช่ path จริง; ไม่ match route ใด → `unmatched`; method นอกมาตรฐาน → `OTHER`
+- label มีแต่ค่าจากชุดจำกัด (enum, rule id) ไม่มี id, ข้อความ หรือพิกัด
+- ฝั่ง API: HTTP, rate limit, cache, `jobs_total{status="cancelled"}` (E-05), `safety_review_requested_total`, `celery_queue_depth` (อ่าน `LLEN` ตอน scrape); ฝั่ง worker: Agent, Safety Gate, `recommendations_total`, `jobs_total` ของ job ที่ worker จบ (รวม reaper)
+
+**Tracing (OpenTelemetry)** — *D-89*
+
+- เปิดเมื่อตั้ง `OTEL_EXPORTER_OTLP_ENDPOINT` (OTLP/HTTP); trace เดียวต่อ request: FastAPI → Celery (context ไปกับ task header) → httpx ไป Agent (`traceparent`) พร้อม SQL และ Redis
+- span ของ server มี `app.correlation_id`; log ทุกบรรทัดที่อยู่ใน span มี `trace_id`, `span_id`
+- ก่อนส่งออก span ถูกกรอง: ตัด query string, IP ของ client, ข้อความใน exception และ status description (เหลือแค่ชนิดของ exception); Redis เก็บแค่ชื่อคำสั่ง; ไม่ trace `/health`, `/ready`, `/metrics`
 
 ---
 
@@ -916,6 +945,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.12 | 2026-09-18 | Step 5.10: P-64..P-66, รายละเอียด E-23 (§8.1), `/ready`, `/metrics`, metrics และ tracing (§10) |
 | 0.11 | 2026-09-18 | Step 5.9b: P-62, P-63, รายละเอียด data export (§7.4) |
 | 0.10 | 2026-09-18 | Step 5.9a: P-60, P-61, รายละเอียด §6.2 (cancel, reaper) และ §7.4 (profile, consent, ลบบัญชี) |
 | 0.9 | 2026-09-17 | Step 5.8: P-55..P-59, error `REVIEW_NOT_PENDING`, รายละเอียด §7.2 (trips, live alert), §7.3 (feedback), §8.2 (review queue: ค่า `status` เป็นตัวพิมพ์เล็ก) |

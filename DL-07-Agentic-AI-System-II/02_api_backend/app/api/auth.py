@@ -11,6 +11,7 @@ from app.api.resources import AppResources, get_resources
 from app.core.crypto import keyed_hash
 from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
+from app.core.metrics import RATE_LIMIT_HITS
 from app.core.security import Principal, Scope
 from app.infrastructure.redis.rate_limiter import RateLimitDecision
 
@@ -52,6 +53,7 @@ async def enforce_rate_limit(
             return None
         raise AppError(ErrorCode.DEPENDENCY_UNAVAILABLE, retry_after=5) from exc
     if not decision.allowed:
+        RATE_LIMIT_HITS.labels(scope=scope).inc()
         raise AppError(
             ErrorCode.RATE_LIMITED,
             retry_after=decision.reset_seconds,

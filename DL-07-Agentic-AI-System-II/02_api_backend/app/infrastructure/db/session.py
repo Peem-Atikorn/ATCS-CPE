@@ -12,10 +12,11 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import DatabaseSettings
+from app.core.telemetry import instrument_engine
 
 
 def create_engine(settings: DatabaseSettings) -> AsyncEngine:
-    return create_async_engine(
+    engine = create_async_engine(
         settings.database_url.get_secret_value(),
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
@@ -25,6 +26,8 @@ def create_engine(settings: DatabaseSettings) -> AsyncEngine:
         # Every timestamp is stored and compared in UTC.
         connect_args={"server_settings": {"timezone": "UTC", "application_name": "tsa-api"}},
     )
+    instrument_engine(engine)  # no-op unless tracing is on
+    return engine
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

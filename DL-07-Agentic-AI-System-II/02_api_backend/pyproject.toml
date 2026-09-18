@@ -21,6 +21,14 @@ dependencies = [
     "celery[redis]>=5.4",
     "cryptography>=44",
     "minio>=7.2",
+    "prometheus-client>=0.21",
+    "opentelemetry-sdk>=1.30",
+    "opentelemetry-exporter-otlp-proto-http>=1.30",
+    "opentelemetry-instrumentation-fastapi>=0.65b0",
+    "opentelemetry-instrumentation-httpx>=0.65b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.65b0",
+    "opentelemetry-instrumentation-celery>=0.65b0",
+    "opentelemetry-instrumentation-redis>=0.65b0",
 ]
 
 [dependency-groups]

@@ -6,7 +6,7 @@ Services depend on these Protocols and records only; infrastructure implements t
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol
@@ -29,6 +29,7 @@ from app.domain.enums import (
     RequestSource,
     ReviewStatus,
     RiskLevel,
+    ServiceState,
     TripStatus,
 )
 from app.domain.feedback import FeedbackInput, ReviewDecision
@@ -544,6 +545,14 @@ class ObjectStorePort(Protocol):
     async def delete(self, key: str) -> None: ...
 
     async def download_url(self, key: str, *, expires_seconds: int) -> str: ...
+
+
+class ServiceReportPort(Protocol):
+    """Where workers note the service states the Agent reported (E-23)."""
+
+    async def record(
+        self, states: Mapping[str, ServiceState], *, at: datetime, ttl_seconds: int
+    ) -> None: ...
 
 
 class CooldownPort(Protocol):

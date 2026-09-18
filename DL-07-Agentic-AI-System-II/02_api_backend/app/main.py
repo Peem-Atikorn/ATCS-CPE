@@ -24,6 +24,7 @@ from app.api.resources import AppResources, build_resources
 from app.api.v1.router import router as v1_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, get_logger
+from app.core.telemetry import instrument_app, setup_tracing
 
 API_TITLE = "Travel Safety & Advisory API"
 
@@ -35,6 +36,7 @@ def create_app(settings: Settings | None = None, resources: AppResources | None 
         level=settings.observability.log_level,
         json_output=settings.observability.log_json,
     )
+    setup_tracing(settings.observability)
     log = get_logger(__name__)
 
     @asynccontextmanager
@@ -106,4 +108,5 @@ def create_app(settings: Settings | None = None, resources: AppResources | None 
 
     app.include_router(ops.router)
     app.include_router(v1_router)
+    instrument_app(app)  # outermost, so the server span covers every middleware
     return app

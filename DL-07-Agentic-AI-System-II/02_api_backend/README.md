@@ -23,7 +23,8 @@ Design documents:
 | 5.8 | Trips, assessments and live alerts (`/v1/trips`, Celery beat), feedback and the safety review queue | done |
 | 5.9a | Profile and consents (`/v1/me`), account deletion, job cancel (`DELETE /v1/jobs/{id}`), stuck-job reaper, anonymized prediction records | done |
 | 5.9b | Data export on MinIO (`/v1/me/data-export`), nightly purge, monthly audit partitions, column encryption of messages and feedback comments | done |
-| 5.10–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
+| 5.10 | `/ready`, `/metrics` (API and worker), public `/v1/service-status`, OpenTelemetry tracing from HTTP through Celery to the Agent | done |
+| 5.11–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
 
 ## Requirements
 
@@ -216,6 +217,38 @@ A nightly job (03:00 Asia/Bangkok) deletes expired data and keeps monthly `audit
 partitions. Message texts and feedback comments are encrypted in the database; set
 `COLUMN_ENCRYPTION_KEYS` outside development (see `.env.example`).
 
+## Health, metrics and tracing
+
+| Endpoint | Who can call it | What it says |
+|---|---|---|
+| `GET /health` | anyone | the process is alive |
+| `GET /ready` | internal networks only | `503` when PostgreSQL or redis-core is down; also reports redis-cache and the Agent |
+| `GET /metrics` | internal networks only | Prometheus text for the API |
+| `GET /v1/service-status` | anyone | `ok` / `degraded` / `unavailable` / `unknown` per service |
+
+"Internal" means a client address inside `OPS_ALLOWED_NETWORKS` (private ranges by
+default); requests from the internet get `404`. The worker serves its own metrics on
+port 9101 inside the compose network:
+
+```bash
+curl -s http://localhost:8000/ready
+docker compose exec worker python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:9101/metrics').read().decode())"
+```
+
+The service status of weather, transport, disaster and the models comes from what the
+Agent reported in recent answers (15 minutes). With no recent report a service shows
+`unknown`, never `ok`.
+
+To see traces, start Jaeger and point the backend at it, then open <http://localhost:16686>:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318 docker compose --profile observability up -d --wait
+```
+
+Each request is one trace (API, Celery task, Agent call, SQL and Redis), tagged with
+`app.correlation_id`; log lines inside it carry `trace_id`. Query strings, client
+addresses and exception messages are removed before spans leave the process.
+
 ## Mock Travel AI Agent
 
 Until Module 03 is ready, the `mock-agent` service (port 8010) implements the Agent
@@ -289,20 +322,22 @@ The app refuses to start when a value is missing or invalid.
 app/
   main.py              application factory
   serve.py             entrypoint: validates config, then starts uvicorn
-  core/                config, logging, errors, ids, geo
+  core/                config, logging, errors, ids, geo, encryption, metrics, telemetry
   api/                 routers (/v1), deps, auth dependencies, idempotency, middleware, error handlers
   schemas/v1/          request and response contracts
   services/            use cases: recommendations, conversations, trips, alert scan, feedback,
-                       jobs, users, worker run, payload (assess)
+                       jobs, users, worker run, payload (assess), me, exports, purge, ops
   domain/              enums, normalization, follow-up, trips, feedback, freshness, safety gate,
-                       sanitizer, cache policy
+                       sanitizer, cache policy, profile, retention, service status
   infrastructure/db/   SQLAlchemy models, session, reference data, repositories
   infrastructure/audit.py audit log writer
-  infrastructure/redis/ rate limiter, idempotency, job state, slots, tickets, cache, key names
+  infrastructure/redis/ rate limiter, idempotency, job state, slots, tickets, cache, key names,
+                       service status
+  infrastructure/health.py dependency checks and Celery queue depth
   infrastructure/agent/ Agent contract, client, circuit breaker, service auth, factory
-  workers/             Celery app, beat schedule, per-process runtime, tasks
+  workers/             Celery app, beat schedule, per-process runtime, signals, tasks
 mock_agent/            Mock Travel AI Agent (dev and contract tests)
-migrations/            Alembic revisions 0001-0008
+migrations/            Alembic revisions 0001-0009
 scripts/               seed_reference_data, dev_token
 tests/
   unit/                pure tests, no I/O

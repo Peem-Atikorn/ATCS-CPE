@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
+from prometheus_client import REGISTRY
 from sqlalchemy import select
 
 from app.core.errors import AppError, ErrorCode
@@ -64,12 +65,15 @@ async def test_cancel_a_running_job(flow: Flow) -> None:
     job_id, rec_id = await flow.queued_job(new(user))
     worker = asyncio.create_task(flow.worker().run(job_id))
     await wait_until_running(flow, job_id)
+    counted = REGISTRY.get_sample_value("jobs_total", {"status": "cancelled"}) or 0.0
 
     cancelled = await flow.jobs_service().cancel(user.id, job_id)
     status = await asyncio.wait_for(worker, timeout=5)
 
     assert cancelled.status is JobStatus.CANCELLED
     assert status is JobStatus.CANCELLED
+    # Counted once, by the API; the worker only records its stopped Agent run.
+    assert REGISTRY.get_sample_value("jobs_total", {"status": "cancelled"}) == counted + 1
     run_id = flow.agent_state.runs[-1]["run_id"]
     assert run_id in flow.agent_state.cancelled
     async with flow.repo.sessions() as session:

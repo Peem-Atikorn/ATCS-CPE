@@ -6,7 +6,7 @@ import pytest
 from fakeredis import FakeAsyncRedis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from app.infrastructure.agent.circuit_breaker import Permit, RedisCircuitBreaker
+from app.infrastructure.agent.circuit_breaker import BreakerState, Permit, RedisCircuitBreaker
 from tests.support.clock import FakeClock
 
 
@@ -162,3 +162,34 @@ async def test_redis_outage_allows_calls(clock: FakeClock) -> None:
     await breaker.record_success()
 
     assert (await breaker.acquire()).allowed
+
+
+async def test_state_follows_the_breaker(breaker: RedisCircuitBreaker, clock: FakeClock) -> None:
+    assert await breaker.state() is BreakerState.CLOSED
+
+    await _fail(breaker, 3)
+    assert await breaker.state() is BreakerState.OPEN
+
+    clock.advance(30)
+    assert await breaker.state() is BreakerState.HALF_OPEN  # a probe would be let through
+
+    await breaker.acquire()
+    await breaker.record_success()
+    assert await breaker.state() is BreakerState.CLOSED
+
+
+async def test_state_reads_closed_when_redis_is_down(clock: FakeClock) -> None:
+    class Down(FakeAsyncRedis):
+        async def hmget(self, *args: Any, **kwargs: Any) -> Any:
+            raise RedisConnectionError("down")
+
+    breaker = RedisCircuitBreaker(
+        Down(),
+        name="tsa:test:cb:agent",
+        failure_threshold=3,
+        window_seconds=30,
+        reset_seconds=30,
+        clock=clock,
+    )
+
+    assert await breaker.state() is BreakerState.CLOSED

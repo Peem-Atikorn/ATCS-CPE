@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 import httpx
 import pytest
 from fastapi import FastAPI
+from prometheus_client import REGISTRY
 
 from app.api.resources import AppResources
 from app.core.config import Settings
@@ -166,6 +167,7 @@ async def test_ip_limit_returns_429_with_retry_after(
 ) -> None:
     monkeypatch.setenv("RATE_LIMIT_IP", "2")
     settings = Settings()
+    refused = REGISTRY.get_sample_value("rate_limit_hits_total", {"scope": "ip"}) or 0.0
     async with asgi_client(create_app(settings, resources_for(settings))) as client:
         codes = [(await client.get("/nope")).status_code for _ in range(3)]
         blocked = await client.get("/docs", headers={"X-Request-ID": "r-429"})
@@ -176,6 +178,7 @@ async def test_ip_limit_returns_429_with_retry_after(
         )
 
     assert codes == [404, 404, 429]
+    assert REGISTRY.get_sample_value("rate_limit_hits_total", {"scope": "ip"}) == refused + 2
     assert blocked.status_code == 429
     assert blocked.json()["code"] == "RATE_LIMITED"
     assert blocked.json()["request_id"] == "r-429"
