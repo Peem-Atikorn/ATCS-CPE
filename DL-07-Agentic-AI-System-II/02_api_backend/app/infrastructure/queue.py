@@ -8,6 +8,7 @@ from uuid import UUID
 from celery import Celery
 
 from app.workers.celery_app import (
+    BUILD_DATA_EXPORT,
     DELETE_ACCOUNT,
     MAINTENANCE_QUEUE,
     RECOMMENDATION_QUEUE,
@@ -39,6 +40,17 @@ class CeleryJobQueue:
             self._celery.send_task,
             DELETE_ACCOUNT,
             kwargs={"user_id": str(user_id), "correlation_id": correlation_id},
+            queue=MAINTENANCE_QUEUE,
+            retry=True,
+            retry_policy=_RETRY_POLICY,
+        )
+        return str(result.id)
+
+    async def enqueue_data_export(self, export_id: UUID, *, correlation_id: str) -> str:
+        result = await asyncio.to_thread(
+            self._celery.send_task,
+            BUILD_DATA_EXPORT,
+            kwargs={"export_id": str(export_id), "correlation_id": correlation_id},
             queue=MAINTENANCE_QUEUE,
             retry=True,
             retry_policy=_RETRY_POLICY,

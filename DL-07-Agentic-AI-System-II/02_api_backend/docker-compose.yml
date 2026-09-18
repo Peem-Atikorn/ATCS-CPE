@@ -18,6 +18,12 @@ x-api-env: &api-env
   DEV_JWT_SIGNING_KEY: ${DEV_JWT_SIGNING_KEY:-dev-only-signing-key-change-me-0123456789}
   PSEUDONYM_SECRET: ${PSEUDONYM_SECRET:-}
   IP_HASH_SECRET: ${IP_HASH_SECRET:-}
+  # Empty = the built-in dev key (refused in prod); see .env.example (D-81).
+  COLUMN_ENCRYPTION_KEYS: ${COLUMN_ENCRYPTION_KEYS:-}
+  OBJECT_STORAGE_ENDPOINT: minio:9000
+  OBJECT_STORAGE_PUBLIC_URL: ${OBJECT_STORAGE_PUBLIC_URL:-http://localhost:9000}
+  OBJECT_STORAGE_ACCESS_KEY: ${MINIO_ROOT_USER:-tsa-dev}
+  OBJECT_STORAGE_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-tsa-dev-secret}
   AGENT_SERVICE_TOKEN: ${AGENT_SERVICE_TOKEN:-dev-agent-token}
 
 services:
@@ -41,6 +47,8 @@ services:
       redis-core:
         condition: service_healthy
       redis-cache:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     healthcheck:
       test:
@@ -75,6 +83,8 @@ services:
       redis-core:
         condition: service_healthy
       redis-cache:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "celery -A app.workers.celery_app:celery_app inspect ping --timeout 5 -d celery@$$HOSTNAME"]
@@ -201,9 +211,30 @@ services:
       retries: 20
     networks: [backend]
 
+  # S3-compatible storage for data exports (D-84); console on MINIO_CONSOLE_HOST_PORT.
+  minio:
+    # Docker Hub no longer serves minio/minio; the project publishes on quay.io.
+    image: quay.io/minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-tsa-dev}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-tsa-dev-secret}
+    ports:
+      - "${MINIO_HOST_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [backend]
+
 volumes:
   pgdata:
   redis-core-data:
+  minio-data:
 
 networks:
   backend:

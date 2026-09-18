@@ -31,6 +31,7 @@ from app.infrastructure.db.base import (
     check_in,
     tz_datetime,
 )
+from app.infrastructure.db.types import EncryptedText
 
 
 class PredictionRecordModel(UUIDPrimaryKey, CreatedAt, Base):
@@ -93,7 +94,8 @@ class FeedbackModel(UUIDPrimaryKey, CreatedAt, Base):
     helpful: Mapped[bool | None]
     outcome: Mapped[str] = mapped_column(String(16), server_default=text("'UNKNOWN'"))
     report_type: Mapped[str | None] = mapped_column(String(24))
-    comment: Mapped[str | None] = mapped_column(String(1000))
+    # Encrypted (D-81); the 1,000-character limit is enforced by the application.
+    comment: Mapped[str | None] = mapped_column(EncryptedText("feedback.comment"))
     review_status: Mapped[str] = mapped_column(String(16), server_default=text("'not_required'"))
     reviewed_by: Mapped[str | None] = mapped_column(Text)
     reviewed_at: Mapped[datetime | None] = mapped_column(tz_datetime())

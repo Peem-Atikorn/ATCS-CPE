@@ -22,11 +22,14 @@ from app.infrastructure.agent.circuit_breaker import RedisCircuitBreaker
 from app.infrastructure.agent.client import AgentClient
 from app.infrastructure.audit import SqlAuditWriter
 from app.infrastructure.db.repositories.conversations import SqlConversationRepository
+from app.infrastructure.db.repositories.exports import SqlExportRepository
 from app.infrastructure.db.repositories.feedback import SqlFeedbackRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
+from app.infrastructure.db.repositories.retention import PURGE_ORDER, SqlRetentionRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
 from app.infrastructure.db.repositories.users import SqlUserRepository
 from app.infrastructure.redis.cache import RedisRecommendationCache
+from app.infrastructure.redis.cooldown import RedisCooldown
 from app.infrastructure.redis.job_state import JobSnapshot, RedisJobStateStore
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import RedisSlotLimiter
@@ -35,15 +38,18 @@ from app.infrastructure.redis.user_data import RedisUserData
 from app.services.account_service import AccountService
 from app.services.agent_run_service import AgentRunService
 from app.services.conversation_service import ConversationService
+from app.services.export_service import ExportService
 from app.services.feedback_service import FeedbackService
 from app.services.job_service import JobService
 from app.services.me_service import MeService
 from app.services.ports import NewRecommendation, UserRef
+from app.services.purge_service import PurgeService
 from app.services.reaper_service import ReaperService
 from app.services.recommendation_service import RecommendationService
 from app.services.trip_alert_service import TripAlertService
 from app.services.trip_service import TripService
 from mock_agent.main import MockState, create_app
+from tests.support.storage import MemoryObjectStore
 
 AGENT_URL = "http://mock-agent"
 
@@ -79,6 +85,7 @@ class InlineQueue:
         self.fail = False
         self.failed: list[tuple[UUID, str]] = []
         self.deletions: list[tuple[UUID, str]] = []
+        self.exports: list[tuple[UUID, str]] = []
 
     async def enqueue_recommendation(self, job_id: UUID, *, correlation_id: str) -> str:
         if self.fail:
@@ -92,6 +99,10 @@ class InlineQueue:
     async def enqueue_account_deletion(self, user_id: UUID, *, correlation_id: str) -> str:
         self.deletions.append((user_id, correlation_id))
         return f"delete-{len(self.deletions)}"
+
+    async def enqueue_data_export(self, export_id: UUID, *, correlation_id: str) -> str:
+        self.exports.append((export_id, correlation_id))
+        return f"export-{len(self.exports)}"
 
     async def drain(self) -> None:
         await asyncio.gather(*self.tasks)
@@ -110,6 +121,7 @@ class Flow:
     agent_state: MockState
     agent: AgentClient
     queue: InlineQueue = field(default_factory=InlineQueue)
+    store: MemoryObjectStore = field(default_factory=MemoryObjectStore)
 
     def worker(self, settings: Settings | None = None) -> AgentRunService:
         return AgentRunService(
@@ -192,6 +204,29 @@ class Flow:
         return AccountService(
             users=SqlUserRepository(self.repo.sessions),
             audit=SqlAuditWriter(self.repo.sessions),
+            exports=SqlExportRepository(self.repo.sessions),
+            store=self.store,
+        )
+
+    def exports(self, settings: Settings | None = None) -> ExportService:
+        return ExportService(
+            exports=SqlExportRepository(self.repo.sessions),
+            store=self.store,
+            cooldown=RedisCooldown(self.redis, self.keys),
+            queue=self.queue,
+            settings=settings or self.settings,
+            clock=SystemClock(),
+        )
+
+    def purge(self) -> PurgeService:
+        return PurgeService(
+            retention=SqlRetentionRepository(self.repo.sessions),
+            tables=PURGE_ORDER,
+            store=self.store,
+            audit=SqlAuditWriter(self.repo.sessions),
+            lock=RedisCooldown(self.redis, self.keys),
+            settings=self.settings,
+            clock=SystemClock(),
         )
 
     def reaper(self, settings: Settings | None = None) -> ReaperService:

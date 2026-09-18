@@ -22,7 +22,8 @@ Design documents:
 | 5.7 | Conversations and follow-up questions (`/v1/conversations`), recommendation history with cursor pagination | done |
 | 5.8 | Trips, assessments and live alerts (`/v1/trips`, Celery beat), feedback and the safety review queue | done |
 | 5.9a | Profile and consents (`/v1/me`), account deletion, job cancel (`DELETE /v1/jobs/{id}`), stuck-job reaper, anonymized prediction records | done |
-| 5.9b–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
+| 5.9b | Data export on MinIO (`/v1/me/data-export`), nightly purge, monthly audit partitions, column encryption of messages and feedback comments | done |
+| 5.10–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
 
 ## Requirements
 
@@ -40,7 +41,7 @@ uv run pytest
 Integration tests start a PostGIS container with Testcontainers, so Docker must be running.
 Use `uv run pytest -m "not integration"` for a quick run without Docker.
 
-Run the full stack (API, Celery worker and beat, mock Agent, PostGIS, Redis core, Redis cache). The
+Run the full stack (API, Celery worker and beat, mock Agent, PostGIS, Redis core, Redis cache, MinIO). The
 `migrate` service applies migrations and seeds reference data before the API starts:
 
 ```bash
@@ -198,6 +199,22 @@ The worker stops the Agent run; the event stream ends with `cancelled`.
 
 On Windows, `curl.exe` may replace Thai text in `-d '...'` with `?` before sending it.
 Put the body in a UTF-8 file and send it with `--data-binary @body.json` instead.
+
+## Data export, retention and encryption
+
+`POST /v1/me/data-export` (scope `profile:read`, once a day) builds a zip of everything
+stored about the user; `GET /v1/me/data-export/{id}` returns a download link valid for
+15 minutes. Files are kept in MinIO (console: <http://localhost:9001>) for 7 days.
+
+```bash
+curl -s -X POST http://localhost:8000/v1/me/data-export \
+  -H "Authorization: Bearer $ME" -H "Idempotency-Key: export-$(date +%s)"
+curl -s -H "Authorization: Bearer $ME" http://localhost:8000/v1/me/data-export/<export_id>
+```
+
+A nightly job (03:00 Asia/Bangkok) deletes expired data and keeps monthly `audit_logs`
+partitions. Message texts and feedback comments are encrypted in the database; set
+`COLUMN_ENCRYPTION_KEYS` outside development (see `.env.example`).
 
 ## Mock Travel AI Agent
 

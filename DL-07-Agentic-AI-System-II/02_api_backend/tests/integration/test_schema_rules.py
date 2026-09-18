@@ -197,7 +197,7 @@ async def test_job_progress_range(
     await _expect_violation(session, "ck_jobs_progress_range", row)
 
 
-async def test_message_role_and_length(session: AsyncSession, owner: UserModel) -> None:
+async def test_message_role(session: AsyncSession, owner: UserModel) -> None:
     conv = f.conversation(owner)
     session.add(conv)
     await session.flush()
@@ -207,11 +207,8 @@ async def test_message_role_and_length(session: AsyncSession, owner: UserModel) 
         "ck_messages_role",
         MessageModel(conversation_id=conv.id, role="system", content="hi"),
     )
-    await _expect_violation(
-        session,
-        "ck_messages_content_length",
-        MessageModel(conversation_id=conv.id, role="user", content="x" * 4001),
-    )
+    # The content is encrypted, so its 4,000-character limit is checked by the
+    # application (MESSAGE_MAX_CHARS), not by the database (D-81).
 
 
 @pytest.mark.parametrize(

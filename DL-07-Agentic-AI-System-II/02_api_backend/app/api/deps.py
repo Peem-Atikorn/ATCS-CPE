@@ -12,11 +12,13 @@ from app.core.logging import get_logger
 from app.core.security import Principal
 from app.infrastructure.audit import SqlAuditWriter
 from app.infrastructure.db.repositories.conversations import SqlConversationRepository
+from app.infrastructure.db.repositories.exports import SqlExportRepository
 from app.infrastructure.db.repositories.feedback import SqlFeedbackRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
 from app.infrastructure.db.repositories.users import SqlUserRepository
 from app.services.conversation_service import ConversationService
+from app.services.export_service import ExportService
 from app.services.feedback_service import FeedbackService
 from app.services.job_service import JobService
 from app.services.me_service import MeService
@@ -126,6 +128,18 @@ def get_me_service(request: Request) -> MeService:
         jobs=get_job_service(request),
         user_data=_require(resources.user_data, "user_data"),
         audit=SqlAuditWriter(sessions),
+        queue=_require(resources.queue, "queue"),
+        settings=resources.settings,
+        clock=_CLOCK,
+    )
+
+
+def get_export_service(request: Request) -> ExportService:
+    resources = get_resources(request)
+    return ExportService(
+        exports=SqlExportRepository(_require(resources.sessions, "sessions")),
+        store=_require(resources.object_store, "object_store"),
+        cooldown=_require(resources.cooldown, "cooldown"),
         queue=_require(resources.queue, "queue"),
         settings=resources.settings,
         clock=_CLOCK,

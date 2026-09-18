@@ -21,6 +21,7 @@ from app.domain.enums import JobStage, JobStatus
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import SlotLimiter
 from app.services.ports import (
+    ExportRepository,
     JobQueue,
     JobRecord,
     JobStatePort,
@@ -31,6 +32,8 @@ from app.services.ports import (
 log = get_logger(__name__)
 
 BATCH_SIZE = 100
+# Building an export takes seconds; one still waiting after this is lost.
+EXPORT_STUCK_AFTER = timedelta(minutes=30)
 _REDIS_ERRORS = (RedisError, OSError)
 _CODE = ErrorCode.AGENT_TIMEOUT
 
@@ -39,6 +42,7 @@ _CODE = ErrorCode.AGENT_TIMEOUT
 class ReapResult:
     reaped: int
     deletions_requeued: int
+    exports_failed: int = 0
 
 
 class ReaperService:
@@ -53,7 +57,9 @@ class ReaperService:
         keys: RedisKeys,
         settings: Settings,
         clock: Clock,
+        exports: ExportRepository | None = None,
     ) -> None:
+        self._exports = exports
         self._repo = recommendations
         self._users = users
         self._jobs = job_state
@@ -80,8 +86,20 @@ class ReaperService:
             await self._queue.enqueue_account_deletion(
                 user_id, correlation_id=current_correlation_id() or str(new_id())
             )
-        log.info("reaper_run", reaped=len(reaped), deletions_requeued=len(pending))
-        return ReapResult(reaped=len(reaped), deletions_requeued=len(pending))
+        exports_failed = 0
+        if self._exports is not None:
+            exports_failed = await self._exports.fail_stuck(
+                older_than=now - EXPORT_STUCK_AFTER, now=now
+            )
+        log.info(
+            "reaper_run",
+            reaped=len(reaped),
+            deletions_requeued=len(pending),
+            exports_failed=exports_failed,
+        )
+        return ReapResult(
+            reaped=len(reaped), deletions_requeued=len(pending), exports_failed=exports_failed
+        )
 
     async def _announce(self, job: JobRecord) -> None:
         log.warning("job_reaped", job_id=str(job.id))

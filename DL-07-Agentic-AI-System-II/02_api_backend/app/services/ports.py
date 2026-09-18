@@ -16,6 +16,7 @@ from app.domain.enums import (
     ActorType,
     AgentRunStatus,
     AuditResult,
+    ExportStatus,
     FeedbackOutcome,
     JobStage,
     JobStatus,
@@ -238,6 +239,17 @@ class TripRecord:
 class DueTrip:
     trip_id: UUID
     user_id: UUID
+
+
+@dataclass(frozen=True, slots=True)
+class ExportRecord:
+    id: UUID
+    user_id: UUID
+    status: ExportStatus
+    object_key: str | None
+    created_at: datetime
+    completed_at: datetime | None
+    expires_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -506,6 +518,42 @@ class FeedbackRepository(Protocol):
     ) -> FeedbackRecord | Literal["not_pending"] | None: ...
 
 
+class ExportRepository(Protocol):
+    async def create(self, user_id: UUID, *, now: datetime) -> ExportRecord: ...
+
+    async def get(self, user_id: UUID, export_id: UUID) -> ExportRecord | None: ...
+
+    async def start(self, export_id: UUID) -> UUID | None: ...
+
+    async def collect(self, user_id: UUID) -> dict[str, Any]: ...
+
+    async def finish(
+        self, export_id: UUID, *, object_key: str, now: datetime, expires_at: datetime
+    ) -> None: ...
+
+    async def fail(self, export_id: UUID, *, now: datetime) -> None: ...
+
+    async def object_keys(self, user_id: UUID) -> list[str]: ...
+
+    async def fail_stuck(self, *, older_than: datetime, now: datetime) -> int: ...
+
+
+class ObjectStorePort(Protocol):
+    async def put(self, key: str, data: bytes, *, content_type: str) -> None: ...
+
+    async def delete(self, key: str) -> None: ...
+
+    async def download_url(self, key: str, *, expires_seconds: int) -> str: ...
+
+
+class CooldownPort(Protocol):
+    async def claim(self, key: str, *, seconds: int) -> int | None:
+        """None when claimed; otherwise the seconds left on the existing claim."""
+        ...
+
+    async def release(self, key: str) -> None: ...
+
+
 class AuditPort(Protocol):
     async def write(self, entry: AuditEntry) -> None: ...
 
@@ -564,3 +612,5 @@ class JobQueue(Protocol):
     async def enqueue_recommendation(self, job_id: UUID, *, correlation_id: str) -> str: ...
 
     async def enqueue_account_deletion(self, user_id: UUID, *, correlation_id: str) -> str: ...
+
+    async def enqueue_data_export(self, export_id: UUID, *, correlation_id: str) -> str: ...

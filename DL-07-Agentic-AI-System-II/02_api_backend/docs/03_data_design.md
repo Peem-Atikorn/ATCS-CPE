@@ -209,6 +209,7 @@ erDiagram
 
 - **Index:** `(conversation_id, created_at DESC, id DESC)`
 - `user` content ≤ `P-41`; `assistant` content คือ `summary` ของ recommendation (ยาวกว่าได้ จึงจำกัดที่ 4000)
+- `content` เข้ารหัส (D-81) จึงเป็น `text` และความยาว 4000 ตรวจใน application (migration `0009` ลบ CHECK)
 - ไม่มี `expires_at` แยก — ลบตาม conversation
 
 ### 3.4 `trips`
@@ -392,7 +393,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | `helpful` | `boolean` | N |
 | `outcome` | `varchar(16)` | CHECK in (`FOLLOWED`, `IGNORED`, `CHANGED_PLAN`, `UNKNOWN`) |
 | `report_type` | `varchar(24)` | N, CHECK in (`UNSAFE_ADVICE`, `INCORRECT_INFO`, `OUTDATED_INFO`, `OTHER`) |
-| `comment` | `varchar(1000)` | N 🔒 |
+| `comment` | `text` (เข้ารหัส, ≤ 1000 ตัวอักษรตรวจใน application — migration `0009`) | N 🔒 |
 | `review_status` | `varchar(16)` | CHECK in (`not_required`, `pending`, `approved`, `rejected`) |
 | `reviewed_by` | `text` | N — `sub` ของ reviewer |
 | `reviewed_at` | `timestamptz` | N |
@@ -414,6 +415,8 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | `status` | `varchar(16)` | CHECK in (`queued`, `running`, `ready`, `failed`, `expired`) |
 | `object_key` | `text` | N — ที่อยู่ไฟล์ใน object storage |
 | `expires_at` | `timestamptz` | N = `completed_at + P-49` |
+
+- Step 5.9b: ไม่สร้างแถว `jobs` สำหรับ export — `data_exports.status` คือสถานะของงาน; ไฟล์อยู่ที่ `exports/{export_id}.zip`; หมดอายุ → ลบไฟล์, `object_key = NULL`, `status = expired`; ค้างเกิน 30 นาที → reaper ตั้ง `failed` (D-82)
 | `created_at`, `completed_at` | `timestamptz` | |
 
 ### 3.12 `audit_logs` (append-only)
@@ -541,6 +544,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 - ลบทีละ batch 1,000 แถว (`DELETE ... WHERE id IN (SELECT id ... WHERE expires_at < now() LIMIT 1000)`) จนหมด เพื่อไม่ล็อกตารางนาน
 - ลำดับ: `recommendations` → `travel_requests` → `conversations` → `trips` → `feedback` → `prediction_records` → `data_exports` → partition `audit_logs`
 - บันทึกจำนวนที่ลบใน `audit_logs` (`actor_type=system`)
+- Step 5.9b (D-85): beat ใช้ cron P-50 ในเขตเวลา `PURGE_TIMEZONE`; กันรันซ้อนด้วย Redis `lock:purge` (10 นาที); ลำดับจริง `recommendations` → `travel_requests` → `jobs` → `conversations` → `trips` → `feedback` → `prediction_records` → ไฟล์ export ที่หมดอายุ → partition audit; สร้าง partition `audit_logs_yYYYYmMM` ของเดือนนี้และอีก 2 เดือนล่วงหน้า (ย้ายแถวของเดือนนั้นออกจาก default partition ก่อน attach), drop partition ที่จบก่อน `now - P-24` และลบแถวเก่าใน default partition; audit `retention.purge` เก็บแค่จำนวน
 
 ### 6.2 Account Deletion (`DELETE /v1/me`)
 
@@ -557,6 +561,8 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 
 รวม `users`, `conversations` + `messages`, `trips`, `recommendations` (payload), `feedback` ของ `pseudonymous_id` → JSON zip → object storage → signed URL
 
+ทำจริงใน Step 5.9b: MinIO ใน docker compose (S3 API, image จาก quay.io); ลิงก์เซ็นด้วย client ที่ตั้งเป็น public URL เพราะ signature ผูกกับ host; ลบบัญชีแล้วลบไฟล์ export ด้วย (D-84)
+
 ---
 
 ## 7. Security ระดับ Database
@@ -566,6 +572,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | DB roles | `tsa_migrator` (DDL), `tsa_app` (DML ยกเว้น UPDATE/DELETE บน audit_logs), `tsa_purge` (DELETE), `tsa_readonly` (analytics — เห็นแค่ `prediction_records` + `feedback` ที่ `usable_for_training`) |
 | Connection | TLS บังคับ (`sslmode=verify-full` ใน prod) |
 | Encryption at rest | ระดับ disk/volume ของ provider; column encryption สำหรับ `messages.content`, `feedback.comment` — *D-15* |
+| Column encryption (ทำใน 5.9b) | AES-256-GCM ใน application: `enc:v1:<key id>:<base64(nonce + ciphertext)>`, ชื่อ column เป็น associated data; key จาก `COLUMN_ENCRYPTION_KEYS` (key แรก = active, ที่เหลืออ่านได้อย่างเดียวเพื่อหมุน key); ค่าที่ไม่มี prefix = ข้อความเดิมก่อนเข้ารหัส; prod ต้องตั้ง key — *D-81* |
 | Secrets | `PSEUDONYM_SECRET`, `IP_HASH_SECRET` อยู่ใน secret manager; เปลี่ยน secret = pseudonym เปลี่ยน (ต้องมีแผน rotate) |
 | Row ownership | บังคับใน repository layer ทุก query (`user_id = :current_user`) — Row Level Security เป็นทางเลือกในอนาคต |
 | Backup | daily snapshot + PITR 7 วัน; backup ลบตามอายุเอง (ข้อมูลที่ user ลบจะหายจาก backup ภายใน 7 วัน) |
@@ -585,6 +592,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
   6. `0006_audit_logs_partitioned`
   7. `0007_reference_tables`
   8. `0008_recommendation_trip_index` (Step 5.8)
+  9. `0009_encrypt_free_text` (Step 5.9b: เข้ารหัสแถวเดิม; โหมด offline SQL ข้ามขั้นนี้)
 - กติกา: migration ต้อง backward compatible อย่างน้อย 1 version (expand → migrate → contract); สร้าง index ใหญ่ด้วย `CONCURRENTLY`
 - Seed: `coverage_areas` (TH) และ `emergency_defaults` (TH/th, TH/en) ผ่าน data migration หรือ script แยก
 
@@ -598,7 +606,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | D-12 | Idempotency อยู่ใน Redis อย่างเดียว | เก็บใน DB ด้วย (ทนต่อ Redis ล่ม) | Proposed |
 | D-13 | `prediction_records` เขียนเฉพาะผู้ใช้ที่ยินยอม analytics | เขียนทุกคน (ข้อมูล anonymized แล้ว) | Proposed |
 | D-14 | Redis แยก 2 instance (core / cache) | instance เดียว | Proposed |
-| D-15 | Column encryption สำหรับ message/comment | disk encryption อย่างเดียว | Proposed |
+| D-15 | Column encryption สำหรับ message/comment | disk encryption อย่างเดียว | Accepted (Step 5.9b, ดู D-81) |
 | D-16 | เก็บ response เป็น `jsonb` ทั้งก้อน ไม่แยกตาราง hazards/routes | normalize เป็นตาราง (query เชิงพื้นที่ได้) | Proposed |
 | D-17 | Hard delete เมื่อหมดอายุ | soft delete + archive | Proposed |
 
@@ -626,6 +634,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
+| 0.7 | 2026-09-18 | Step 5.9b: migration `0009` (column encryption), partition audit รายเดือนสร้างตอน runtime, รายละเอียด purge / export |
 | 0.6 | 2026-09-18 | Step 5.9a: ไม่เปลี่ยน schema; ใช้ `jobs.cancel_requested_at`, `users.deleted_at`, `users.consent_*`, `prediction_records`; รายละเอียดการลบบัญชีใน §6.2 |
 | 0.5 | 2026-09-17 | Step 5.8: index `recommendations (trip_id, created_at DESC)` (migration 0008); การประเมิน trip ใช้ `source = TRIP_ASSESSMENT` / `TRIP_ALERT` และ `jobs.type = TRIP_ASSESSMENT`; audit log ลง default partition จนกว่า 5.9 จะสร้าง partition รายเดือน |
 | 0.4 | 2026-09-17 | Step 5.7: ไม่เปลี่ยน schema; follow-up ใช้ `travel_requests.source = MESSAGE` และ `jobs.type = MESSAGE` |

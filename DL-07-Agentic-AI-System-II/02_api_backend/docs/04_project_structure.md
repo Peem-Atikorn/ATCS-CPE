@@ -35,7 +35,8 @@
 │   │   ├── security.py         # JWT verify, JWKS cache, scopes
 │   │   ├── errors.py           # AppError hierarchy + error codes
 │   │   ├── ids.py              # UUIDv7, request/correlation id
-│   │   ├── crypto.py           # HMAC pseudonym/ip hash, column encryption
+│   │   ├── crypto.py           # HMAC pseudonym/ip hash
+│   │   ├── encryption.py       # column encryption AES-GCM + key rotation (Step 5.9b)
 │   │   ├── geo.py              # geohash, coordinate rounding
 │   │   └── clock.py            # Clock abstraction (ทดสอบเวลาได้)
 │   │
@@ -90,7 +91,9 @@
 │   │   ├── user_service.py            # JIT provisioning; ปฏิเสธบัญชีที่กำลังถูกลบ
 │   │   ├── me_service.py              # profile, consent, ขอลบบัญชี (Step 5.9a)
 │   │   ├── account_service.py         # ลบบัญชีจริง (task delete_account)
-│   │   ├── reaper_service.py          # job ค้าง + ลบบัญชีที่ค้าง (Step 5.9a)
+│   │   ├── reaper_service.py          # job ค้าง + ลบบัญชีที่ค้าง + export ค้าง (Step 5.9a/b)
+│   │   ├── export_service.py          # data export (Step 5.9b)
+│   │   ├── purge_service.py           # retention + partition audit (Step 5.9b)
 │   │   ├── status_service.py
 │   │   ├── agent_run_service.py       # ใช้ใน worker: call agent → safety gate → persist
 │   │   ├── recommendation_payload.py  # assess(): freshness → safety gate → payload ที่ sanitize แล้ว
@@ -110,13 +113,13 @@
 │   │   ├── freshness.py        # is_stale / valid_until (P-28)
 │   │   ├── sanitizer.py        # ตัด field ภายใน, ตรวจ URL, control chars
 │   │   ├── cache_policy.py     # cache key + เงื่อนไขห้าม cache
-│   │   └── retention.py        # คำนวณ expires_at
+│   │   └── retention.py        # คำนวณ expires_at, เดือนของ partition audit
 │   │
 │   ├── infrastructure/         # ── Repository & Client layer
 │   │   ├── db/
 │   │   │   ├── base.py         # DeclarativeBase + naming convention
 │   │   │   ├── session.py      # async engine, session factory
-│   │   │   ├── types.py        # EncryptedText (Step 5.9) — Geography/JSON_DOC อยู่ใน base.py
+│   │   │   ├── types.py        # EncryptedText (Step 5.9b) — Geography/JSON_DOC อยู่ใน base.py
 │   │   │   ├── models/         # ORM: user.py, conversation.py (+messages), trip.py, request.py,
 │   │   │   │                   #      recommendation.py, job.py (+agent_runs, data_exports),
 │   │   │   │                   #      mlops.py (prediction_records, feedback), audit.py, reference.py
@@ -134,6 +137,7 @@
 │   │   │   ├── slots.py        # จำกัดงานค้าง / stream ต่อ user (ZSET)
 │   │   │   ├── tickets.py
 │   │   │   ├── user_data.py    # ลบข้อมูล live ของ user (Step 5.9a)
+│   │   │   ├── cooldown.py     # claim ที่หมดอายุเอง: export วันละครั้ง, purge ทีละรอบ (5.9b)
 │   │   │   └── cache.py
 │   │   ├── agent/
 │   │   │   ├── client.py       # AgentClient (httpx): timeout, retry, deadline, cancel, NDJSON
@@ -143,7 +147,7 @@
 │   │   │   └── factory.py      # build_agent_client (ใช้ทั้ง api และ worker)
 │   │   ├── queue.py            # CeleryJobQueue: ส่งงานจาก async code
 │   │   ├── storage/
-│   │   │   └── object_store.py # data export (MinIO/S3)
+│   │   │   └── object_store.py # MinioObjectStore: put / delete / signed URL (Step 5.9b)
 │   │   └── audit.py            # SqlAuditWriter (Step 5.8)
 │   │
 │   └── workers/                # ── Celery
@@ -152,8 +156,8 @@
 │       ├── tasks/
 │       │   ├── recommendation.py   # run_recommendation(job_id)
 │       │   ├── trip_alerts.py      # scan_trip_alerts: คิวประเมิน trip ใหม่ (Step 5.8)
-│       │   ├── maintenance.py      # reap_stuck_jobs, delete_account (Step 5.9a)
-│       │   └── purge.py            # retention (data design §6.1) — 5.9b
+│       │   ├── maintenance.py      # reap_stuck_jobs, delete_account, build_data_export,
+│       │   │                       #   purge_expired (Step 5.9a/b)
 │       └── schedule.py         # beat schedule (P-56; P-50 เพิ่มใน 5.9)
 │
 ├── migrations/                 # Alembic
@@ -233,7 +237,7 @@ flowchart LR
 | 7. progress | `infrastructure/redis/job_state.py` → `api/v1/jobs.py` (SSE) |
 | 8. validate / sanitize | `infrastructure/agent/contracts.py`, `domain/safety_gate.py`, `domain/sanitizer.py` |
 | 9. return + freshness | `domain/freshness.py`, `schemas/v1/travel.py` |
-| 10. retention | `domain/retention.py`, `workers/tasks/purge.py` |
+| 10. retention | `domain/retention.py`, `services/purge_service.py`, `infrastructure/db/repositories/retention.py` |
 | 11. follow-up | `services/conversation_service.py` |
 | error mapping | `core/errors.py`, `api/error_handlers.py` |
 
@@ -319,7 +323,7 @@ flowchart LR
 | `redis-core` | `redis:7-alpine` | 6379 | — | `--appendonly yes --maxmemory-policy noeviction` |
 | `redis-cache` | `redis:7-alpine` | 6380 | — | `--maxmemory 128mb --maxmemory-policy allkeys-lru` |
 | `mock-agent` | build `mock_agent/` | 8010 | — | `MOCK_SCENARIO` env เลือก scenario |
-| `minio` | `minio/minio` | 9000/9001 | — | profile `export` (เปิดเมื่อต้องการ) |
+| `minio` | `quay.io/minio/minio` | 9000/9001 | — | เปิดตลอด (data export, D-84); api/worker รอให้ healthy |
 | `otel-collector` + `jaeger` | — | 16686 | — | profile `observability` |
 
 - Network เดียว `backend`; ทุก service มี `healthcheck`
@@ -335,7 +339,7 @@ flowchart LR
 |---|---|---|
 | `recommendations` | `run_recommendation` | 4 (prefork; งานส่วนใหญ่คือรอ Agent) |
 | `alerts` | `scan_trip_alerts` (งานประเมินไปเข้า `recommendations`) | 2 — ตอนนี้ worker ตัวเดียวฟังทั้งสอง queue |
-| `maintenance` | `reap_stuck_jobs`, `delete_account` (5.9a); `purge_expired`, `build_data_export` (5.9b) | 1 — ตอนนี้ worker ตัวเดียวฟังทุก queue |
+| `maintenance` | `reap_stuck_jobs`, `delete_account`, `build_data_export`, `purge_expired` | 1 — ตอนนี้ worker ตัวเดียวฟังทุก queue |
 
 - `task_acks_late=True`, `worker_prefetch_multiplier=1`, `task_reject_on_worker_lost=True`
 - Task รับแค่ `job_id` (ไม่ส่ง payload/PII ผ่าน broker) → โหลดจาก DB
@@ -493,6 +497,12 @@ flowchart LR
 | D-78 | `DELETE /v1/me` ทำสองจังหวะ: API mark + หยุด job + ลบ Redis + audit + queue; ระหว่างรอ → 403; reaper ส่งใหม่หลัง P-61 | ลบทันทีใน request | Accepted (Step 5.9a) |
 | D-79 | `delete_account`: anonymize feedback แล้ว `DELETE users` (cascade); audit `user.delete` actor `system`; รันซ้ำได้ | soft delete | Accepted (Step 5.9a) |
 | D-80 | `/v1/me` ใช้ scope `profile:*`; `email_masked` มาจาก token ไม่เก็บ | เก็บ email | Accepted (Step 5.9a) |
+| D-81 | column encryption AES-256-GCM ใน application (`enc:v1:<kid>:...`, AAD = ชื่อ column); `COLUMN_ENCRYPTION_KEYS` key แรก active; dev มี key ในตัวแต่ prod ต้องตั้ง; ความยาวตรวจใน app; migration `0009` เข้ารหัสแถวเดิม | pgcrypto ใน DB / disk encryption อย่างเดียว | Accepted (Step 5.9b) |
+| D-82 | data export ไม่มีแถว `jobs` — `data_exports.status` คือสถานะ; zip ของ JSON ที่ `exports/{export_id}.zip`; หมดอายุ P-49 แล้ว purge ลบไฟล์; export ค้างเกิน 30 นาที reaper ตั้ง `failed` | สร้าง job `DATA_EXPORT` + SSE | Accepted (Step 5.9b) |
+| D-83 | ขอ export ได้หนึ่งครั้งต่อ P-63 (Redis claim `lock:export:{user_id}`) → `429` + `Retry-After`; ถ้าส่งเข้า queue ไม่ได้ คืน claim | rate limiter ทั่วไป | Accepted (Step 5.9b) |
+| D-84 | MinIO ใน compose (image `quay.io/minio/minio` เพราะ Docker Hub เลิกให้ดึง); ลิงก์ดาวน์โหลดเซ็นด้วย client ของ public URL; ไม่ตั้ง storage → `503`; ลบบัญชีแล้วลบไฟล์ export | เก็บไฟล์ใน Postgres | Accepted (Step 5.9b) |
+| D-85 | purge: beat cron P-50 ในเขตเวลา `PURGE_TIMEZONE` (timezone ของ Celery app); Redis claim `lock:purge`; ลบทีละ 1000; partition audit เดือนนี้ + 2 เดือนล่วงหน้า; drop partition เก่ากว่า P-24; audit `retention.purge` เก็บแค่จำนวน | pg_partman / cron ของ DB | Accepted (Step 5.9b) |
+| D-86 | `/v1/me/data-export` ใช้ scope `profile:read` และต้องมี `Idempotency-Key` | `profile:write` | Accepted (Step 5.9b) |
 | D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
 | D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
 | D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
@@ -517,7 +527,7 @@ flowchart LR
 | 5.7 | Conversations + follow-up, `GET /v1/travel/recommendations` (E-02, cursor) | ครบ E-02, E-08..E-13 — **done** |
 | 5.8 | Trips + alerts, feedback + review queue (+ beat container, audit writer) | E-14..E-19 และ review queue — **done** |
 | 5.9a | Me: profile / consent / ลบบัญชี, reaper, `DELETE /v1/jobs/{id}` (E-05), `prediction_records` | E-05, E-20 — **done** |
-| 5.9b | Data export (E-21/E-22, MinIO), purge job (P-50), partition audit รายเดือน, column encryption (D-15) | |
+| 5.9b | Data export (E-21/E-22, MinIO), purge job (P-50), partition audit รายเดือน, column encryption (D-15) | E-21, E-22 — **done** |
 | 5.10 | Observability (OTel, metrics), `/ready`, service-status | |
 | 5.11 | Admin endpoints | |
 | 5.12 | OpenAPI export, contract tests, CI | |
@@ -528,6 +538,7 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.11 | 2026-09-18 | Step 5.9b: D-81..D-86, ไฟล์ encryption / types / exports / retention / cooldown / object store, service `minio` |
 | 0.10 | 2026-09-18 | Step 5.9a: D-72..D-80, ไฟล์ profile / prediction / me / account / reaper / maintenance, queue `maintenance`; แบ่ง 5.9 เป็น 5.9a / 5.9b |
 | 0.9 | 2026-09-17 | Step 5.8: D-59..D-71, ไฟล์ trips / feedback / audit / alert scan, container `beat` (ย้ายจาก 5.9), queue `alerts` |
 | 0.8 | 2026-09-17 | Step 5.7: D-52..D-58, ไฟล์ `follow_up.py`, `pagination.py`, `conversation_service.py`, repositories ใหม่ |

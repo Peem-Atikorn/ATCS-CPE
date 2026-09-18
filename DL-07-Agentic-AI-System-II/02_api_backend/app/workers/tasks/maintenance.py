@@ -1,4 +1,4 @@
-"""Queue `maintenance`: stuck-job reaper (D-74) and account deletion (D-79)."""
+"""Queue `maintenance`: reaper (D-74), account deletion (D-79), exports (D-82), purge (D-85)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,12 @@ from celery import shared_task
 
 from app.core.ids import accept_client_id, correlation_id_var, new_id
 from app.core.logging import get_logger
-from app.workers.celery_app import DELETE_ACCOUNT, REAP_STUCK_JOBS
+from app.workers.celery_app import (
+    BUILD_DATA_EXPORT,
+    DELETE_ACCOUNT,
+    PURGE_EXPIRED,
+    REAP_STUCK_JOBS,
+)
 from app.workers.runtime import runtime
 
 log = get_logger(__name__)
@@ -44,3 +49,20 @@ def delete_account(user_id: str, correlation_id: str | None = None) -> bool:
             log.warning("invalid_user_id")
             return False
         return runtime.delete_account(parsed)
+
+
+@shared_task(name=BUILD_DATA_EXPORT, ignore_result=True)
+def build_data_export(export_id: str, correlation_id: str | None = None) -> bool:
+    with _correlation(accept_client_id(correlation_id) or str(new_id())):
+        try:
+            parsed = UUID(export_id)
+        except ValueError:
+            log.warning("invalid_export_id")
+            return False
+        return runtime.build_data_export(parsed)
+
+
+@shared_task(name=PURGE_EXPIRED, ignore_result=True)
+def purge_expired() -> dict[str, int]:
+    with _correlation(str(new_id())):
+        return runtime.purge_expired()

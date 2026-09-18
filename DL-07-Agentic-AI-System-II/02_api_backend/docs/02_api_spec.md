@@ -99,6 +99,8 @@
 | P-59 | จำนวน trip สูงสุดต่อการ scan หนึ่งรอบ | 100 | `TRIP_ALERT_BATCH_SIZE` |
 | P-60 | รอบของ reaper (job ค้าง + ลบบัญชีที่ค้าง) | 5 min | `REAPER_INTERVAL_MINUTES` |
 | P-61 | ลบบัญชีที่ค้างเกินนี้ → ส่งงานลบใหม่ | 10 min | `ACCOUNT_DELETION_RETRY_MINUTES` |
+| P-62 | อายุลิงก์ดาวน์โหลด data export (signed URL) | 15 min | `DATA_EXPORT_URL_SECONDS` |
+| P-63 | ขอ data export ได้หนึ่งครั้งต่อ | 24 h | `DATA_EXPORT_COOLDOWN_HOURS` |
 
 ---
 
@@ -621,6 +623,13 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 - `DELETE /v1/me` → `202 {"status": "deleting"}`: ตั้ง `deleted_at`, ยกเลิก job ที่ค้าง, ลบข้อมูลของ user ใน Redis (job, stream, คำตอบ idempotency ที่เก็บไว้), audit `user.delete_requested`, ส่งงาน `delete_account` เข้า queue `maintenance`; ระหว่างรอลบ ทุก request ของ user นี้ได้ `403 FORBIDDEN` ("This account is being deleted."); ถ้ายังไม่ลบภายใน P-61 reaper ส่งงานใหม่ — *D-78*
 - หลังลบเสร็จ การ login ด้วย `sub` เดิมจะได้บัญชีใหม่ที่ว่างเปล่า
 
+**Data export (Step 5.9b):**
+
+- `POST /v1/me/data-export` (`profile:read`, ต้องมี `Idempotency-Key`) → `202 {export_id, status}` + `Location`; ขอได้ครั้งเดียวต่อ P-63 ไม่งั้น `429 RATE_LIMITED` + `Retry-After` — *D-83*
+- `GET /v1/me/data-export/{id}` → `{export_id, status, created_at, completed_at, expires_at, download_url}`; `status` = `queued` / `running` / `ready` / `failed` / `expired`; `download_url` เป็น signed URL อายุ P-62 มีเฉพาะตอน `ready` และยังไม่หมดอายุ; export ของคนอื่น → `404` — *D-82*
+- ไฟล์เป็น zip ที่มี `travel-safety-data.json` (profile, conversations + messages, trips, recommendations พร้อม request, feedback); เก็บ P-49 แล้ว purge ลบไฟล์และตั้ง `expired`
+- ถ้าระบบไม่ได้ตั้ง object storage → `503 DEPENDENCY_UNAVAILABLE` — *D-84*
+
 ---
 
 ## 8. Service Status & Admin
@@ -907,6 +916,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.11 | 2026-09-18 | Step 5.9b: P-62, P-63, รายละเอียด data export (§7.4) |
 | 0.10 | 2026-09-18 | Step 5.9a: P-60, P-61, รายละเอียด §6.2 (cancel, reaper) และ §7.4 (profile, consent, ลบบัญชี) |
 | 0.9 | 2026-09-17 | Step 5.8: P-55..P-59, error `REVIEW_NOT_PENDING`, รายละเอียด §7.2 (trips, live alert), §7.3 (feedback), §8.2 (review queue: ค่า `status` เป็นตัวพิมพ์เล็ก) |
 | 0.8 | 2026-09-17 | Step 5.7: รายละเอียด §5.5 (history) และ §7.1 (conversations, follow-up, overrides) |

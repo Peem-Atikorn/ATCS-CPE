@@ -23,6 +23,8 @@ RUN_RECOMMENDATION = "app.workers.tasks.recommendation.run_recommendation"
 SCAN_TRIP_ALERTS = "app.workers.tasks.trip_alerts.scan_trip_alerts"
 REAP_STUCK_JOBS = "app.workers.tasks.maintenance.reap_stuck_jobs"
 DELETE_ACCOUNT = "app.workers.tasks.maintenance.delete_account"
+BUILD_DATA_EXPORT = "app.workers.tasks.maintenance.build_data_export"
+PURGE_EXPIRED = "app.workers.tasks.maintenance.purge_expired"
 
 
 def create_celery(settings: Settings) -> Celery:
@@ -47,9 +49,13 @@ def create_celery(settings: Settings) -> Celery:
             SCAN_TRIP_ALERTS: {"queue": ALERT_QUEUE},
             REAP_STUCK_JOBS: {"queue": MAINTENANCE_QUEUE},
             DELETE_ACCOUNT: {"queue": MAINTENANCE_QUEUE},
+            BUILD_DATA_EXPORT: {"queue": MAINTENANCE_QUEUE},
+            PURGE_EXPIRED: {"queue": MAINTENANCE_QUEUE},
         },
         beat_schedule=beat_schedule(settings),
-        timezone="UTC",
+        # Beat reads cron entries in this zone (P-50); times on the wire stay UTC.
+        timezone=settings.retention.purge_timezone,
+        enable_utc=True,
         broker_connection_retry_on_startup=True,
         worker_hijack_root_logger=False,
         # structlog writes JSON to stdout; Celery's stdout proxy would loop it back into logging.

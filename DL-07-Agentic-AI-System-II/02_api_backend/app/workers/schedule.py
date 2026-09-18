@@ -9,6 +9,8 @@ from __future__ import annotations
 from datetime import timedelta
 from typing import Any
 
+from celery.schedules import crontab
+
 from app.core.config import Settings
 
 
@@ -16,6 +18,7 @@ def beat_schedule(settings: Settings) -> dict[str, dict[str, Any]]:
     from app.workers.celery_app import (
         ALERT_QUEUE,
         MAINTENANCE_QUEUE,
+        PURGE_EXPIRED,
         REAP_STUCK_JOBS,
         SCAN_TRIP_ALERTS,
     )
@@ -31,7 +34,24 @@ def beat_schedule(settings: Settings) -> dict[str, dict[str, Any]]:
             MAINTENANCE_QUEUE,
             settings.maintenance.reaper_interval_minutes,  # P-60
         ),
+        # Cron in PURGE_TIMEZONE (the Celery app timezone), P-50.
+        "purge-expired": {
+            "task": PURGE_EXPIRED,
+            "schedule": cron(settings.retention.purge_cron),
+            "options": {"queue": MAINTENANCE_QUEUE, "expires": 3600},
+        },
     }
+
+
+def cron(expression: str) -> crontab:
+    minute, hour, day_of_month, month_of_year, day_of_week = expression.split()
+    return crontab(
+        minute=minute,
+        hour=hour,
+        day_of_month=day_of_month,
+        month_of_year=month_of_year,
+        day_of_week=day_of_week,
+    )
 
 
 def _every(task: str, queue: str, minutes: int) -> dict[str, Any]:

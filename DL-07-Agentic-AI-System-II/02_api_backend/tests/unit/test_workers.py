@@ -14,8 +14,10 @@ from app.infrastructure.queue import CeleryJobQueue
 from app.workers import celery_app as celery_module
 from app.workers.celery_app import (
     ALERT_QUEUE,
+    BUILD_DATA_EXPORT,
     DELETE_ACCOUNT,
     MAINTENANCE_QUEUE,
+    PURGE_EXPIRED,
     REAP_STUCK_JOBS,
     RECOMMENDATION_QUEUE,
     RUN_RECOMMENDATION,
@@ -46,6 +48,10 @@ def test_celery_configuration(settings: Settings) -> None:
     assert "app.workers.tasks.maintenance" in conf.include
     assert conf.task_routes[REAP_STUCK_JOBS] == {"queue": MAINTENANCE_QUEUE}
     assert conf.task_routes[DELETE_ACCOUNT] == {"queue": MAINTENANCE_QUEUE}
+    assert conf.task_routes[BUILD_DATA_EXPORT] == {"queue": MAINTENANCE_QUEUE}
+    assert conf.task_routes[PURGE_EXPIRED] == {"queue": MAINTENANCE_QUEUE}
+    assert str(conf.timezone) == "Asia/Bangkok"
+    assert conf.enable_utc is True
     assert conf.beat_schedule == beat_schedule(settings)
     # Our JSON logs go to the real stdout; the redirect proxy would swallow them.
     assert conf.worker_redirect_stdouts is False
@@ -290,3 +296,55 @@ def test_runtime_runs_maintenance_in_the_callers_context(monkeypatch: pytest.Mon
         runtime.close()
 
     assert seen == ["maint-1", "maint-1"]
+
+
+def test_purge_runs_on_the_configured_cron(settings: Settings) -> None:
+    retention = settings.retention.model_copy(update={"purge_cron": "30 2 * * 1"})
+    changed = settings.model_copy(update={"retention": retention})
+
+    entry = beat_schedule(changed)["purge-expired"]
+
+    assert entry["task"] == PURGE_EXPIRED
+    assert entry["options"]["queue"] == MAINTENANCE_QUEUE
+    schedule = entry["schedule"]
+    assert schedule.minute == {30}
+    assert schedule.hour == {2}
+    assert schedule.day_of_week == {1}
+
+
+class FakeExportRuntime:
+    def __init__(self) -> None:
+        self.built: list[tuple[UUID, str | None]] = []
+
+    def build_data_export(self, export_id: UUID) -> bool:
+        self.built.append((export_id, correlation_id_var.get()))
+        return True
+
+    def purge_expired(self) -> dict[str, int]:
+        return {"deleted": 3}
+
+
+def test_export_and_purge_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeExportRuntime()
+    monkeypatch.setattr(maintenance_module, "runtime", runtime)
+    export_id = new_id()
+
+    assert maintenance_module.build_data_export(str(export_id), correlation_id="corr-9") is True
+    assert maintenance_module.build_data_export("nope") is False
+    assert maintenance_module.purge_expired() == {"deleted": 3}
+
+    assert runtime.built == [(export_id, "corr-9")]
+
+
+async def test_queue_sends_exports_to_maintenance() -> None:
+    celery = FakeCelery()
+    export_id = new_id()
+
+    await CeleryJobQueue(celery).enqueue_data_export(  # type: ignore[arg-type]
+        export_id, correlation_id="corr-3"
+    )
+
+    name, options = celery.sent[0]
+    assert name == BUILD_DATA_EXPORT
+    assert options["kwargs"] == {"export_id": str(export_id), "correlation_id": "corr-3"}
+    assert options["queue"] == MAINTENANCE_QUEUE

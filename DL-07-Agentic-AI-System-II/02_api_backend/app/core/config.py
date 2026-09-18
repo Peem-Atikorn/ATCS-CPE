@@ -254,6 +254,59 @@ class RetentionSettings(BaseSettings):
     data_export_ttl_days: int = Field(default=7, gt=0)  # P-49
     purge_cron: str = "0 3 * * *"  # P-50
     purge_timezone: str = "Asia/Bangkok"  # P-50
+    data_export_url_seconds: int = Field(default=900, gt=0)  # P-62
+    data_export_cooldown_hours: int = Field(default=24, gt=0)  # P-63
+
+    @field_validator("purge_cron")
+    @classmethod
+    def _five_fields(cls, value: str) -> str:
+        if len(value.split()) != 5:
+            raise ValueError("use a five-field cron expression such as '0 3 * * *'")
+        return value
+
+    @field_validator("purge_timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        from zoneinfo import available_timezones
+
+        if value not in available_timezones():
+            raise ValueError("use an IANA timezone name")
+        return value
+
+
+class ObjectStorageSettings(BaseSettings):
+    """S3-compatible storage for data exports (MinIO in development, D-84)."""
+
+    model_config = _ENV_CONFIG
+
+    # host:port the services use; empty disables data export (503).
+    object_storage_endpoint: str | None = None
+    # Base URL the user's browser uses for download links, e.g. http://localhost:9000.
+    object_storage_public_url: str | None = None
+    object_storage_access_key: str | None = None
+    object_storage_secret_key: SecretStr | None = None
+    object_storage_bucket: str = "tsa-exports"
+    object_storage_secure: bool = False
+    object_storage_region: str = "us-east-1"
+
+    @field_validator(
+        "object_storage_endpoint",
+        "object_storage_public_url",
+        "object_storage_access_key",
+        "object_storage_secret_key",
+        mode="before",
+    )
+    @classmethod
+    def _empty_to_none(cls, value: object) -> object:
+        return value or None
+
+    @property
+    def enabled(self) -> bool:
+        return bool(
+            self.object_storage_endpoint
+            and self.object_storage_access_key
+            and self.object_storage_secret_key
+        )
 
 
 class PrivacySettings(BaseSettings):
@@ -296,11 +349,22 @@ class SecretSettings(BaseSettings):
 
     pseudonym_secret: SecretStr | None = None
     ip_hash_secret: SecretStr | None = None
+    # key-id:base64(32 bytes) pairs, active key first (D-81).
+    column_encryption_keys: SecretStr | None = None
 
-    @field_validator("pseudonym_secret", "ip_hash_secret", mode="before")
+    @field_validator("pseudonym_secret", "ip_hash_secret", "column_encryption_keys", mode="before")
     @classmethod
     def _empty_to_none(cls, value: object) -> object:
         return value or None
+
+    @field_validator("column_encryption_keys")
+    @classmethod
+    def _valid_keys(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is not None:
+            from app.core.encryption import parse_keys
+
+            parse_keys(value.get_secret_value())
+        return value
 
 
 class Settings(BaseModel):
@@ -315,6 +379,7 @@ class Settings(BaseModel):
     trips: TripSettings = Field(default_factory=TripSettings)
     maintenance: MaintenanceSettings = Field(default_factory=MaintenanceSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
+    storage: ObjectStorageSettings = Field(default_factory=ObjectStorageSettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     safety: SafetySettings = Field(default_factory=SafetySettings)
@@ -327,7 +392,7 @@ class Settings(BaseModel):
         if self.app.is_production:
             missing = [
                 name.upper()
-                for name in ("pseudonym_secret", "ip_hash_secret")
+                for name in ("pseudonym_secret", "ip_hash_secret", "column_encryption_keys")
                 if getattr(self.secrets, name) is None
             ]
             if missing:

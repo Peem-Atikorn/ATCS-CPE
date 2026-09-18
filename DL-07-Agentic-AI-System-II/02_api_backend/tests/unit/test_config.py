@@ -138,3 +138,23 @@ def test_maintenance_settings_defaults_and_override(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("ACCOUNT_DELETION_RETRY_MINUTES", "0")
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_retention_and_storage_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings()
+    assert settings.retention.data_export_url_seconds == 900  # P-62
+    assert settings.retention.data_export_cooldown_hours == 24  # P-63
+    assert settings.storage.enabled is False
+
+    monkeypatch.setenv("OBJECT_STORAGE_ENDPOINT", "minio:9000")
+    monkeypatch.setenv("OBJECT_STORAGE_ACCESS_KEY", "tsa")
+    monkeypatch.setenv("OBJECT_STORAGE_SECRET_KEY", "secret-secret")
+    assert Settings().storage.enabled is True
+
+    monkeypatch.setenv("PURGE_CRON", "every night")
+    with pytest.raises(ValidationError):
+        Settings()
+    monkeypatch.setenv("PURGE_CRON", "0 3 * * *")
+    monkeypatch.setenv("PURGE_TIMEZONE", "Mars/Base")
+    with pytest.raises(ValidationError):
+        Settings()

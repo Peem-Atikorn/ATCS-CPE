@@ -150,6 +150,7 @@ async def test_hsts_is_sent_in_production(
     monkeypatch.setenv("APP_ENV", "prod")
     monkeypatch.setenv("PSEUDONYM_SECRET", "p" * 32)
     monkeypatch.setenv("IP_HASH_SECRET", "i" * 32)
+    monkeypatch.setenv("COLUMN_ENCRYPTION_KEYS", "k1:" + "a" * 43 + "=")
     settings = Settings()
     async with asgi_client(create_app(settings, resources_for(settings))) as client:
         response = await client.get("/health")

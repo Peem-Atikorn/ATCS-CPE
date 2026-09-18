@@ -46,5 +46,9 @@ class RedisKeys:
         # The ticket is a bearer secret, so only its hash appears in the key (D-40).
         return f"{self._prefix}sse:ticket:{sha256_hex(ticket.encode())}"
 
+    def cooldown(self, name: str) -> str:
+        """One-at-a-time claims: `export:{user_id}` (P-63), `purge` (data design 5.2)."""
+        return f"{self._prefix}lock:{name}"
+
     def recommendation_cache(self, cache_key: str) -> str:
         return f"{self._prefix}reco:{cache_key}"

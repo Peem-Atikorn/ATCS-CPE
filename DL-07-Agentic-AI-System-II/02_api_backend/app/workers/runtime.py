@@ -21,18 +21,24 @@ from app.core.config import Settings, get_settings
 from app.core.ids import correlation_id_var, new_id
 from app.infrastructure.agent.factory import build_agent_client
 from app.infrastructure.audit import SqlAuditWriter
+from app.infrastructure.db.repositories.exports import SqlExportRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
+from app.infrastructure.db.repositories.retention import PURGE_ORDER, SqlRetentionRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
 from app.infrastructure.db.repositories.users import SqlUserRepository
 from app.infrastructure.db.session import create_engine, create_session_factory
 from app.infrastructure.queue import CeleryJobQueue
 from app.infrastructure.redis.cache import RedisRecommendationCache
 from app.infrastructure.redis.clients import RedisClients, create_redis_clients
+from app.infrastructure.redis.cooldown import RedisCooldown
 from app.infrastructure.redis.job_state import RedisJobStateStore
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import RedisSlotLimiter
+from app.infrastructure.storage.object_store import MinioObjectStore
 from app.services.account_service import AccountService
 from app.services.agent_run_service import AgentRunService
+from app.services.export_service import ExportService
+from app.services.purge_service import PurgeService
 from app.services.reaper_service import ReaperService
 from app.services.recommendation_service import RecommendationService
 from app.services.trip_alert_service import TripAlertService
@@ -49,6 +55,8 @@ class WorkerResources:
     alerts: TripAlertService
     reaper: ReaperService
     accounts: AccountService
+    exports: ExportService | None
+    purge: PurgeService
 
     async def aclose(self) -> None:
         await self.http.aclose()
@@ -101,6 +109,10 @@ def build_worker_resources(settings: Settings) -> WorkerResources:
         clock=clock,
     )
     users = SqlUserRepository(sessions)
+    export_rows = SqlExportRepository(sessions)
+    store = MinioObjectStore(settings.storage) if settings.storage.enabled else None
+    cooldown = RedisCooldown(redis.core, keys)
+    audit = SqlAuditWriter(sessions)
     reaper = ReaperService(
         recommendations=repository,
         users=users,
@@ -110,9 +122,29 @@ def build_worker_resources(settings: Settings) -> WorkerResources:
         keys=keys,
         settings=settings,
         clock=clock,
+        exports=export_rows,
     )
-    accounts = AccountService(users=users, audit=SqlAuditWriter(sessions))
-    return WorkerResources(engine, redis, http, service, alerts, reaper, accounts)
+    accounts = AccountService(users=users, audit=audit, exports=export_rows, store=store)
+    exports = None
+    if store is not None:
+        exports = ExportService(
+            exports=export_rows,
+            store=store,
+            cooldown=cooldown,
+            queue=queue,
+            settings=settings,
+            clock=clock,
+        )
+    purge = PurgeService(
+        retention=SqlRetentionRepository(sessions),
+        tables=PURGE_ORDER,
+        store=store,
+        audit=audit,
+        lock=cooldown,
+        settings=settings,
+        clock=clock,
+    )
+    return WorkerResources(engine, redis, http, service, alerts, reaper, accounts, exports, purge)
 
 
 class WorkerRuntime:
@@ -139,6 +171,12 @@ class WorkerRuntime:
     def delete_account(self, user_id: UUID) -> bool:
         return self._call(self._delete(user_id))
 
+    def build_data_export(self, export_id: UUID) -> bool:
+        return self._call(self._export(export_id))
+
+    def purge_expired(self) -> dict[str, int]:
+        return self._call(self._purge())
+
     def _get_resources(self) -> WorkerResources:
         if self._resources is None:
             self._resources = build_worker_resources(get_settings())
@@ -159,6 +197,22 @@ class WorkerRuntime:
     async def _delete(self, user_id: UUID) -> bool:
         correlation = correlation_id_var.get() or str(new_id())
         return await self._get_resources().accounts.delete(user_id, correlation_id=correlation)
+
+    async def _export(self, export_id: UUID) -> bool:
+        exports = self._get_resources().exports
+        if exports is None:
+            # Configuration error: object storage is missing in the worker.
+            return False
+        return await exports.build(export_id)
+
+    async def _purge(self) -> dict[str, int]:
+        result = await self._get_resources().purge.run()
+        return {
+            "deleted": sum(result.deleted.values()),
+            "exports_expired": result.exports_expired,
+            "partitions_created": result.partitions_created,
+            "partitions_dropped": result.partitions_dropped,
+        }
 
     def close(self) -> None:
         if self._runner is None:

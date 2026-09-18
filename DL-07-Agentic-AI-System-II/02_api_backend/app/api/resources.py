@@ -16,6 +16,7 @@ from app.infrastructure.db.session import create_engine, create_session_factory
 from app.infrastructure.queue import CeleryJobQueue
 from app.infrastructure.redis.cache import RedisRecommendationCache
 from app.infrastructure.redis.clients import RedisClients, create_redis_clients
+from app.infrastructure.redis.cooldown import RedisCooldown
 from app.infrastructure.redis.idempotency_store import IdempotencyStore, RedisIdempotencyStore
 from app.infrastructure.redis.job_state import RedisJobStateStore
 from app.infrastructure.redis.keys import RedisKeys
@@ -23,7 +24,16 @@ from app.infrastructure.redis.rate_limiter import RateLimiter, RedisRateLimiter
 from app.infrastructure.redis.slots import RedisSlotLimiter, SlotLimiter
 from app.infrastructure.redis.tickets import RedisTicketStore
 from app.infrastructure.redis.user_data import RedisUserData
-from app.services.ports import CachePort, JobQueue, JobStatePort, TicketPort, UserDataPort
+from app.infrastructure.storage.object_store import MinioObjectStore
+from app.services.ports import (
+    CachePort,
+    CooldownPort,
+    JobQueue,
+    JobStatePort,
+    ObjectStorePort,
+    TicketPort,
+    UserDataPort,
+)
 from app.workers.celery_app import create_celery
 
 
@@ -45,6 +55,9 @@ class AppResources:
     cache: CachePort | None = None
     queue: JobQueue | None = None
     user_data: UserDataPort | None = None
+    cooldown: CooldownPort | None = None
+    # None when object storage is not configured: data export answers 503.
+    object_store: ObjectStorePort | None = None
 
     async def aclose(self) -> None:
         if self.http is not None:
@@ -79,6 +92,8 @@ def build_resources(settings: Settings) -> AppResources:
         cache=RedisRecommendationCache(redis.cache, keys),
         queue=CeleryJobQueue(create_celery(settings)),
         user_data=RedisUserData(redis.core, keys),
+        cooldown=RedisCooldown(redis.core, keys),
+        object_store=MinioObjectStore(settings.storage) if settings.storage.enabled else None,
     )
 
 
