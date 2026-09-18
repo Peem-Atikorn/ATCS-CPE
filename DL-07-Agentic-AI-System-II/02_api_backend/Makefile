@@ -2,7 +2,7 @@ UV ?= uv
 COMPOSE ?= docker compose
 
 .PHONY: install up down logs ps migrate downgrade revision seed token scenario test test-unit test-api \
-	test-integration test-e2e test-fast cov lint format typecheck check
+	test-integration test-e2e test-fast cov lint format typecheck check openapi
 
 install:
 	$(UV) sync
@@ -68,5 +68,8 @@ format:
 
 typecheck:
 	$(UV) run mypy app tests migrations scripts
+
+openapi:
+	$(UV) run python -m scripts.export_openapi
 
 check: lint typecheck test

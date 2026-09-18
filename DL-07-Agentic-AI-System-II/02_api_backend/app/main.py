@@ -20,6 +20,7 @@ from app.api.middleware.request_context import (
     RequestContextMiddleware,
 )
 from app.api.middleware.security_headers import SecurityHeadersMiddleware
+from app.api.openapi import use_custom_openapi
 from app.api.resources import AppResources, build_resources
 from app.api.v1.router import router as v1_router
 from app.core.config import Settings, get_settings
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None, resources: AppResources | None 
     )
     app.state.settings = settings
     app.state.resources = resources
+    use_custom_openapi(app)
 
     type_base_url = settings.app.error_type_base_url
     register_error_handlers(app, type_base_url=type_base_url)

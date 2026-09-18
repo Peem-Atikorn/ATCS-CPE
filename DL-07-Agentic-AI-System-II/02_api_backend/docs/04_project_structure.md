@@ -528,12 +528,16 @@ flowchart LR
 | D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
 | D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
 | D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
+| D-96 | FastAPI เอกสาร `422` เป็น `HTTPValidationError` ของตัวเองเสมอ แต่ app ตอบ Problem Details จริง (`app/api/error_handlers.py`) — `app/api/openapi.py` ห่อ `app.openapi()` แก้ทุก response `422` ให้ชี้ `ProblemResponse` (schema ใหม่ใน `app/schemas/v1/common.py`) แทน ครั้งเดียวทั้งสคีมา | ใส่ `responses={422: ...}` ทีละ route (~30 จุด) | Accepted (Step 5.12) |
+| D-97 | `openapi.json` commit ไว้ที่ root ของโมดูล สร้างด้วย `make openapi` (`scripts/export_openapi.py`, ไม่ต้องมี DB/Redis จริง); contract test ตรวจว่าตรงกับ schema ของแอปที่รันอยู่ (`tests/contract/test_openapi_schema.py`) | สร้างใน CI แล้วไม่ commit | Accepted (Step 5.12) |
+| D-98 | schemathesis สองชั้น: (1) contract — โหลด schema ที่ export แล้วตรวจโครงสร้างล้วน (`schema.validate()`, ไม่ยิง request จริง) รันทุก push ไม่ต้องมี stack; (2) e2e (`tests/e2e/test_openapi_contract_fuzz.py`) — ยิง fuzz จริงเฉพาะ `GET` ต่อ compose stack จริง เช็คแค่ "ไม่ 5xx" (`not_a_server_error`); ไม่ fuzz POST/PATCH/DELETE เพราะจะไปรบกวนสถานะที่ e2e ไฟล์อื่นใช้ร่วมกัน (เช่นลบบัญชีของ test อื่น) และไปกิน rate limit ต่อ IP (P-31) ของทั้ง suite — งานนี้เคลียร์ key `tsa:*:rl:ip:*` ใน redis-core ทิ้งหลังรันเสมอ | fuzz ทุก method ด้วย mock ทั้งชุด | Accepted (Step 5.12) |
+| D-99 | CI เป็น `.github/workflows/api-backend-ci.yml` ที่ root repo (git root คือ monorepo ไม่ใช่โมดูลนี้) กรองด้วย `paths:` ให้ทำงานเฉพาะไฟล์ในโมดูลนี้; job: `lint` (ruff+mypy), `test` (unit+api+integration+contract, Testcontainers ใช้ Docker ของ runner ตรงๆ), `build` (docker build target `runtime` + Trivy scan), `openapi-diff` (oasdiff เทียบ `openapi.json` กับ base branch, เฉพาะ PR, fail เมื่อ breaking), `e2e` (เฉพาะ PR เข้า `develop`) | รอให้ทีมตัดสิน workflow กลางก่อน (item 3 ด้านล่าง) | Accepted (Step 5.12) — ชื่อไฟล์ตั้งใจไม่ชนกับโมดูลอื่น ถ้าทีมมี CI กลางทีหลังค่อยรวม |
 
 ## 13. Open Questions (Phase 4)
 
 1. `FEEDBACK_RETENTION_DAYS` ของ Module 08 = 90 วัน vs P-23 = 180 วัน — ใช้ค่าไหน
 2. ทีมจะมี root `docker-compose.yml` ไฟล์เดียวหรือให้แต่ละโมดูลมีของตัวเอง (D-19)
-3. CI ใช้ GitHub Actions ได้ไหม (repo มี 8 โมดูล ใครดูแล workflow กลาง)
+3. ~~CI ใช้ GitHub Actions ได้ไหม~~ — ใช้แล้ว (D-99, `.github/workflows/api-backend-ci.yml`, กรองด้วย `paths:`); ที่ยังไม่ตอบคือใครดูแล workflow กลางถ้าทีมอยากรวมของ 8 โมดูลเข้าด้วยกันทีหลัง
 4. `08_monitoring` (Prometheus/Grafana) ใครเป็นเจ้าของ — backend ต้องส่ง scrape config ให้หรือไม่
 
 ## 14. Phase 5 — ลำดับการ Implement ที่เสนอ
@@ -552,12 +556,13 @@ flowchart LR
 | 5.9b | Data export (E-21/E-22, MinIO), purge job (P-50), partition audit รายเดือน, column encryption (D-15) | E-21, E-22 — **done** |
 | 5.10 | Observability (OTel, metrics), `/ready`, service-status | E-23, E-26, E-27 + trace HTTP → Celery → Agent — **done** |
 | 5.11 | Admin endpoints | E-24 ครบ (jobs, recommendation, audit log, training export) — **done** |
-| 5.12 | OpenAPI export, contract tests, CI | |
+| 5.12 | OpenAPI export, contract tests, CI | openapi.json + snapshot/structural/live-fuzz contract tests + GitHub Actions — **done** |
 
 ## 15. Change Log
 
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
+| 0.14 | 2026-09-18 | Step 5.12: D-96..D-99, `app/api/openapi.py` + `app/schemas/v1/common.py` (ProblemResponse แทน HTTPValidationError), `scripts/export_openapi.py` + `openapi.json`, `make openapi`, `tests/contract/test_openapi_schema.py`, `tests/e2e/test_openapi_contract_fuzz.py`, `.github/workflows/api-backend-ci.yml` (repo root) |
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
 | 0.13 | 2026-09-18 | Step 5.11: D-92..D-95, ไฟล์ admin (access / jobs / recommendations / audit / exports), admin_service, training_export_service, migration `0010` |

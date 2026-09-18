@@ -42,6 +42,7 @@ dev = [
     "fakeredis[lua]>=2.26",
     "respx>=0.21",
     "celery-types>=0.26.0",
+    "schemathesis>=3.39",
 ]
 
 [tool.uv]

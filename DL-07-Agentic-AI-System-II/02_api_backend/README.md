@@ -25,7 +25,7 @@ Design documents:
 | 5.9b | Data export on MinIO (`/v1/me/data-export`), nightly purge, monthly audit partitions, column encryption of messages and feedback comments | done |
 | 5.10 | `/ready`, `/metrics` (API and worker), public `/v1/service-status`, OpenTelemetry tracing from HTTP through Celery to the Agent | done |
 | 5.11 | Admin tools: job list, recommendation diagnostics, audit log, anonymized training data export (`/v1/admin/...`) | done |
-| 5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
+| 5.12 | OpenAPI export (`openapi.json`), snapshot/structural/live-fuzz contract tests, GitHub Actions CI | done |
 
 ## Requirements
 
@@ -295,6 +295,28 @@ To use the real Agent, set `AGENT_SERVICE_URL` and its credentials
 (`AGENT_TOKEN_URL` + `AGENT_CLIENT_ID` + `AGENT_CLIENT_SECRET`, or `AGENT_SERVICE_TOKEN`).
 `tests/contract/` holds the contract tests both teams can run.
 
+## OpenAPI contract and CI
+
+`openapi.json` at the repo root of this module is the contract for the Web App team.
+Regenerate it after changing a route or schema:
+
+```bash
+make openapi   # or: uv run python -m scripts.export_openapi
+```
+
+`tests/contract/test_openapi_schema.py` fails the build if `openapi.json` drifts from
+the running app, so `make openapi` and committing the result is part of the change, not
+optional cleanup. It also pins that every `422` response documents the Problem Details
+shape the API actually sends (`app/api/openapi.py`) — FastAPI's own default would show
+its `HTTPValidationError` instead, which nothing in this app ever returns.
+`tests/e2e/test_openapi_contract_fuzz.py` runs schemathesis against every `GET`
+operation of the live compose stack; it only asserts "no 5xx", so it stays outside the
+API-level tests' job of checking exact bodies.
+
+`.github/workflows/api-backend-ci.yml` (at the repo root, scoped to this module with a
+`paths:` filter) runs `lint`, `test`, `build` (+ Trivy), `openapi-diff` (breaking-change
+check against the PR's base branch, via `oasdiff`) and `e2e` (PR into `develop` only).
+
 ## Commands
 
 `make` targets are listed below. On Windows without `make`, run the command on the right.
@@ -319,6 +341,7 @@ To use the real Agent, set `AGENT_SERVICE_URL` and its credentials
 | `make lint` | `uv run ruff format --check .` and `uv run ruff check .` |
 | `make format` | `uv run ruff format .` and `uv run ruff check --fix .` |
 | `make typecheck` | `uv run mypy app tests migrations scripts` |
+| `make openapi` | `uv run python -m scripts.export_openapi` (writes `openapi.json` for the Web App team) |
 | `make check` | lint + typecheck + test |
 
 ## Configuration
@@ -344,7 +367,8 @@ app/
   main.py              application factory
   serve.py             entrypoint: validates config, then starts uvicorn
   core/                config, logging, errors, ids, geo, encryption, metrics, telemetry
-  api/                 routers (/v1), deps, auth dependencies, idempotency, middleware, error handlers
+  api/                 routers (/v1), deps, auth dependencies, idempotency, middleware, error handlers,
+                       openapi.py (fixes the 422 schema FastAPI infers by default)
   schemas/v1/          request and response contracts
   services/            use cases: recommendations, conversations, trips, alert scan, feedback,
                        jobs, users, worker run, payload (assess), me, exports, purge, ops
@@ -359,11 +383,12 @@ app/
   workers/             Celery app, beat schedule, per-process runtime, signals, tasks
 mock_agent/            Mock Travel AI Agent (dev and contract tests)
 migrations/            Alembic revisions 0001-0009
-scripts/               seed_reference_data, dev_token
+scripts/               seed_reference_data, dev_token, export_openapi (writes openapi.json)
 tests/
   unit/                pure tests, no I/O
   api/                 HTTP tests through httpx ASGITransport
-  contract/            AgentClient against the mock agent (the Agent contract)
+  contract/            AgentClient against the mock agent, and the exported openapi.json
+                       (snapshot + structural validation)
   integration/         PostGIS and Redis (Testcontainers), whole flow with the mock Agent
   e2e/                 against the running compose stack (skipped unless E2E_BASE_URL is set)
 ```
