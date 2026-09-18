@@ -30,6 +30,15 @@ _PARTITION = re.compile(r"^audit_logs_y(\d{4})m(\d{2})$")
 DEFAULT_PARTITION = "audit_logs_default"
 
 
+# Tables that hold files in object storage (user data exports, training exports).
+EXPORT_TABLES = ("data_exports", "training_exports")
+
+
+def _check_export_table(table: str) -> None:
+    if table not in EXPORT_TABLES:
+        raise ValueError(f"not an export table: {table}")
+
+
 class SqlRetentionRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
@@ -50,24 +59,30 @@ class SqlRetentionRepository:
             if deleted < batch:
                 return total
 
-    async def expired_exports(self, *, now: datetime, limit: int) -> list[tuple[UUID, str | None]]:
+    async def expired_exports(
+        self, *, now: datetime, limit: int, table: str = "data_exports"
+    ) -> list[tuple[UUID, str | None]]:
+        _check_export_table(table)
         async with self._sessions() as session:
             rows = await session.execute(
                 text(
-                    "SELECT id, object_key FROM data_exports "
+                    f"SELECT id, object_key FROM {table} "  # noqa: S608 - whitelisted name
                     "WHERE status = 'ready' AND expires_at < :now ORDER BY expires_at LIMIT :limit"
                 ),
                 {"now": now, "limit": limit},
             )
             return [(row[0], row[1]) for row in rows]
 
-    async def mark_exports_expired(self, export_ids: list[UUID]) -> None:
+    async def mark_exports_expired(
+        self, export_ids: list[UUID], *, table: str = "data_exports"
+    ) -> None:
+        _check_export_table(table)
         if not export_ids:
             return
         async with self._sessions() as session, session.begin():
             await session.execute(
                 text(
-                    "UPDATE data_exports SET status = 'expired', object_key = NULL "
+                    f"UPDATE {table} SET status = 'expired', object_key = NULL "  # noqa: S608
                     "WHERE id = ANY(:ids)"
                 ),
                 {"ids": export_ids},

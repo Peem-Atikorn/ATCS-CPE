@@ -24,7 +24,8 @@ Design documents:
 | 5.9a | Profile and consents (`/v1/me`), account deletion, job cancel (`DELETE /v1/jobs/{id}`), stuck-job reaper, anonymized prediction records | done |
 | 5.9b | Data export on MinIO (`/v1/me/data-export`), nightly purge, monthly audit partitions, column encryption of messages and feedback comments | done |
 | 5.10 | `/ready`, `/metrics` (API and worker), public `/v1/service-status`, OpenTelemetry tracing from HTTP through Celery to the Agent | done |
-| 5.11–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
+| 5.11 | Admin tools: job list, recommendation diagnostics, audit log, anonymized training data export (`/v1/admin/...`) | done |
+| 5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
 
 ## Requirements
 
@@ -216,6 +217,26 @@ curl -s -H "Authorization: Bearer $ME" http://localhost:8000/v1/me/data-export/<
 A nightly job (03:00 Asia/Bangkok) deletes expired data and keeps monthly `audit_logs`
 partitions. Message texts and feedback comments are encrypted in the database; set
 `COLUMN_ENCRYPTION_KEYS` outside development (see `.env.example`).
+
+## Admin tools
+
+Admin routes need an admin scope and are written to the audit log, including refused
+calls (a token without the scope gets `403` and a `denied` audit row). Admins see
+diagnostics only: no user ids, places, questions or answers.
+
+| Endpoint | Scope | What it returns |
+|---|---|---|
+| `GET /v1/admin/jobs?status=&type=&from=&to=` | `admin:read` | jobs in a time range (default: last 24 h, at most 31 days) |
+| `GET /v1/admin/recommendations/{id}` | `admin:read` | status, safety rules applied, versions, Agent runs with trace ids |
+| `GET /v1/admin/audit-logs?action=&result=&from=&to=` | `admin:read` | audit rows, newest first |
+| `POST /v1/admin/exports/training-data` | `admin:write` | starts an export of anonymized prediction records and reviewer-approved feedback |
+| `GET /v1/admin/exports/training-data/{id}` | `admin:write` | status and a 15-minute download link (gzip JSON Lines, kept 7 days) |
+
+```bash
+ADMIN=$(docker compose exec -T api python -m scripts.dev_token --sub admin-1 \n  --scope admin:read --scope admin:write)
+curl -s -H "Authorization: Bearer $ADMIN" "http://localhost:8000/v1/admin/jobs?limit=5"
+curl -s -X POST -H "Authorization: Bearer $ADMIN" -H "Idempotency-Key: train-$(date +%s)"   -H "content-type: application/json" -d '{}' http://localhost:8000/v1/admin/exports/training-data
+```
 
 ## Health, metrics and tracing
 

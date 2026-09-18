@@ -25,6 +25,7 @@ REAP_STUCK_JOBS = "app.workers.tasks.maintenance.reap_stuck_jobs"
 DELETE_ACCOUNT = "app.workers.tasks.maintenance.delete_account"
 BUILD_DATA_EXPORT = "app.workers.tasks.maintenance.build_data_export"
 PURGE_EXPIRED = "app.workers.tasks.maintenance.purge_expired"
+BUILD_TRAINING_EXPORT = "app.workers.tasks.maintenance.build_training_export"
 
 
 def create_celery(settings: Settings) -> Celery:
@@ -51,6 +52,7 @@ def create_celery(settings: Settings) -> Celery:
             DELETE_ACCOUNT: {"queue": MAINTENANCE_QUEUE},
             BUILD_DATA_EXPORT: {"queue": MAINTENANCE_QUEUE},
             PURGE_EXPIRED: {"queue": MAINTENANCE_QUEUE},
+            BUILD_TRAINING_EXPORT: {"queue": MAINTENANCE_QUEUE},
         },
         beat_schedule=beat_schedule(settings),
         # Beat reads cron entries in this zone (P-50); times on the wire stay UTC.

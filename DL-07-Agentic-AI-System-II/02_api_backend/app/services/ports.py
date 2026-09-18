@@ -6,12 +6,13 @@ Services depend on these Protocols and records only; infrastructure implements t
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol
 from uuid import UUID
 
+from app.domain.admin import AuditFilter, TimeRange
 from app.domain.enums import (
     ActorType,
     AgentRunStatus,
@@ -623,3 +624,147 @@ class JobQueue(Protocol):
     async def enqueue_account_deletion(self, user_id: UUID, *, correlation_id: str) -> str: ...
 
     async def enqueue_data_export(self, export_id: UUID, *, correlation_id: str) -> str: ...
+
+
+# ---------------------------------------------------------------- admin (Step 5.11)
+
+
+@dataclass(frozen=True, slots=True)
+class AdminJobRecord:
+    """A job as admins see it: no user id, request or result (D-94)."""
+
+    id: UUID
+    type: JobType
+    status: JobStatus
+    stage: JobStage
+    attempts: int
+    error_code: str | None
+    recommendation_id: UUID | None
+    cancel_requested: bool
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class AgentRunView:
+    run_id: UUID
+    attempt: int
+    status: AgentRunStatus
+    http_status: int | None
+    error_code: str | None
+    duration_ms: int | None
+    tool_calls: int | None
+    agent_version: str | None
+    trace_id: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class AdminRecommendationRecord:
+    """Diagnostics of one recommendation: no place names, coordinates or text (D-94)."""
+
+    id: UUID
+    source: RequestSource
+    status: RecommendationStatus
+    risk_level: RiskLevel | None
+    risk_score: float | None
+    risk_confidence: float | None
+    recommendation_type: RecommendationType | None
+    warning_codes: tuple[str, ...]
+    safety_gate_rules: tuple[str, ...]
+    overall_is_stale: bool | None
+    error_code: str | None
+    versions: dict[str, str | None]
+    data_freshness: list[dict[str, Any]]
+    service_status: dict[str, Any]
+    created_at: datetime
+    completed_at: datetime | None
+    valid_until: datetime | None
+    job: AdminJobRecord | None
+    agent_runs: tuple[AgentRunView, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AuditLogRecord:
+    id: int
+    occurred_at: datetime
+    actor_type: ActorType
+    actor_ref: str
+    action: str
+    target_type: str | None
+    target_id: str | None
+    result: AuditResult
+    correlation_id: str
+    metadata: dict[str, Any]
+
+
+class AdminRepository(Protocol):
+    async def jobs(
+        self,
+        *,
+        period: TimeRange,
+        status: JobStatus | None,
+        job_type: JobType | None,
+        limit: int,
+        cursor: Cursor | None,
+    ) -> list[AdminJobRecord]: ...
+
+    async def recommendation(self, recommendation_id: UUID) -> AdminRecommendationRecord | None: ...
+
+    async def audit_logs(
+        self, *, period: TimeRange, where: AuditFilter, limit: int, cursor: Cursor | None
+    ) -> list[AuditLogRecord]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class TrainingExportRecord:
+    id: UUID
+    requested_by: str
+    status: ExportStatus
+    range_from: datetime
+    range_to: datetime
+    row_count: int | None
+    object_key: str | None
+    created_at: datetime
+    completed_at: datetime | None
+    expires_at: datetime | None
+
+
+class TrainingExportRepository(Protocol):
+    async def create(
+        self, requested_by: str, *, period: TimeRange, now: datetime
+    ) -> TrainingExportRecord: ...
+
+    async def get(self, export_id: UUID) -> TrainingExportRecord | None: ...
+
+    async def start(self, export_id: UUID) -> TimeRange | None: ...
+
+    def rows(self, period: TimeRange, *, batch: int) -> AsyncIterator[dict[str, Any]]: ...
+
+    async def finish(
+        self,
+        export_id: UUID,
+        *,
+        object_key: str,
+        row_count: int,
+        now: datetime,
+        expires_at: datetime,
+    ) -> None: ...
+
+    async def fail(self, export_id: UUID, *, now: datetime) -> None: ...
+
+    async def fail_stuck(self, *, older_than: datetime, now: datetime) -> int: ...
+
+
+class FileStorePort(Protocol):
+    """Object storage for files written to disk first (large exports)."""
+
+    async def put_file(self, key: str, path: str, *, content_type: str) -> None: ...
+
+    async def download_url(self, key: str, *, expires_seconds: int) -> str: ...
+
+
+class TrainingExportQueue(Protocol):
+    async def enqueue_training_export(self, export_id: UUID, *, correlation_id: str) -> str: ...

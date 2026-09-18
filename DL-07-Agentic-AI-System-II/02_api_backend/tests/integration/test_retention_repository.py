@@ -167,3 +167,10 @@ async def test_old_partitions_and_default_rows_are_dropped(
             select(func.count()).where(AuditLogModel.occurred_at < datetime(2020, 1, 1, tzinfo=UTC))
         )
     assert leftover == 0
+
+
+async def test_only_export_tables_can_be_expired(retention: SqlRetentionRepository) -> None:
+    with pytest.raises(ValueError, match="not an export table"):
+        await retention.expired_exports(now=NOW, limit=1, table="users")
+    with pytest.raises(ValueError, match="not an export table"):
+        await retention.mark_exports_expired([new_id()], table="users; DROP TABLE users")

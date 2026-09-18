@@ -78,6 +78,7 @@ extend-immutable-calls = [
     "fastapi.Query",
     "fastapi.Header",
     "app.api.auth.require_scopes",
+    "app.api.v1.admin.access.admin_actor",
 ]
 
 [tool.ruff.lint.per-file-ignores]

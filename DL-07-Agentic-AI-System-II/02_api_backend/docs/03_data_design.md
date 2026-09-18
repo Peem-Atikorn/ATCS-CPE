@@ -438,6 +438,25 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 - **Partition:** `RANGE (occurred_at)` รายเดือน — ลบทีละ partition ตาม `P-24`
 - สิทธิ์ DB: app role มีแค่ `INSERT`, `SELECT` (ไม่มี `UPDATE`/`DELETE`); purge ใช้ role แยก
 
+### 3.14 `training_exports` (MLOps, Step 5.11)
+
+ไฟล์ข้อมูลสำหรับ retraining ที่ admin สั่ง — **ไม่ผูกกับผู้ใช้** — *D-92*
+
+| Column | Type | Constraint |
+|---|---|---|
+| `id` | `uuid` | PK |
+| `requested_by` | `text` | not null — `sub` ของ admin |
+| `status` | `varchar(16)` | CHECK in (`queued`, `running`, `ready`, `failed`, `expired`) |
+| `range_from`, `range_to` | `timestamptz` | not null, CHECK `range_from < range_to` — ช่วง `prediction_records.created_at` |
+| `row_count` | `integer` | N |
+| `object_key` | `text` | N — `training/{id}.jsonl.gz` |
+| `created_at`, `completed_at` | `timestamptz` | |
+| `expires_at` | `timestamptz` | N = `completed_at + P-68` (อายุไฟล์) |
+
+- **Index:** `(created_at)`, `(expires_at)`
+- ไฟล์ = gzip JSON Lines หนึ่งบรรทัดต่อ `prediction_records` ในช่วงนั้น + feedback ที่ `usable_for_training` (rating, helpful, outcome, report_type) — ไม่มี `recommendation_id`, `pseudonymous_id`, comment
+- purge ลบไฟล์เมื่อหมดอายุแล้วตั้ง `expired` (แถวเก็บไว้เป็นประวัติ ไม่มีข้อมูลผู้ใช้); ค้างเกิน 30 นาที → reaper ตั้ง `failed`
+
 ### 3.13 Reference Tables
 
 **`coverage_areas`** — ใช้ตรวจ `UNSUPPORTED_REGION`
@@ -473,6 +492,8 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Trip alert scheduler | trips ที่เปิด alert และใกล้ออกเดินทาง | partial index 3.4 |
 | Trip assessments (E-18), assessment ที่ยังค้าง | `WHERE trip_id = :tid ORDER BY created_at DESC` | `recommendations (trip_id, created_at DESC)` |
 | Safety review queue | `WHERE review_status = 'pending' ORDER BY created_at, id` | partial index 3.10 |
+| Admin: jobs ตามช่วงเวลา (Step 5.11) | `WHERE created_at >= :from AND created_at < :to [AND status/type] ORDER BY created_at DESC, id DESC` | `jobs (created_at DESC, id DESC)` (migration `0010`, D-93) |
+| Admin: audit log | `WHERE occurred_at` ในช่วง (ตัด partition) + filter `ORDER BY occurred_at DESC, id DESC` | `(occurred_at)` ของแต่ละ partition |
 | Stuck job reaper | `status IN ('queued','running') AND created_at < now() - P-04*2` | partial index 3.7 |
 | Retention purge | `WHERE expires_at < now() LIMIT 1000` (วนเป็น batch) | `(expires_at)` ทุกตาราง |
 | Safety review queue | `review_status = 'pending' ORDER BY created_at` | partial index 3.10 |
@@ -594,6 +615,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
   7. `0007_reference_tables`
   8. `0008_recommendation_trip_index` (Step 5.8)
   9. `0009_encrypt_free_text` (Step 5.9b: เข้ารหัสแถวเดิม; โหมด offline SQL ข้ามขั้นนี้)
+  10. `0010_admin_training_exports` (Step 5.11: ตาราง `training_exports` + index `ix_jobs_recent`)
 - กติกา: migration ต้อง backward compatible อย่างน้อย 1 version (expand → migrate → contract); สร้าง index ใหญ่ด้วย `CONCURRENTLY`
 - Seed: `coverage_areas` (TH) และ `emergency_defaults` (TH/th, TH/en) ผ่าน data migration หรือ script แยก
 
@@ -635,6 +657,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
+| 0.9 | 2026-09-18 | Step 5.11: ตาราง `training_exports` (§3.14), index `jobs (created_at DESC, id DESC)`, migration `0010`, query ของ admin (§4) |
 | 0.8 | 2026-09-18 | Step 5.10: ไม่เปลี่ยน schema; Redis key `status:reports` และรายละเอียด `status:service` / `ready:agent` (§5.2) |
 | 0.7 | 2026-09-18 | Step 5.9b: migration `0009` (column encryption), partition audit รายเดือนสร้างตอน runtime, รายละเอียด purge / export |
 | 0.6 | 2026-09-18 | Step 5.9a: ไม่เปลี่ยน schema; ใช้ `jobs.cancel_requested_at`, `users.deleted_at`, `users.consent_*`, `prediction_records`; รายละเอียดการลบบัญชีใน §6.2 |

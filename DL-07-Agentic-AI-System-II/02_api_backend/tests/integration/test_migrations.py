@@ -62,7 +62,7 @@ def test_revisions_form_a_single_linear_chain() -> None:
     script = ScriptDirectory.from_config(alembic_config("postgresql+asyncpg://unused"))
     revisions = [rev.revision for rev in script.walk_revisions("base", "heads")]
 
-    assert script.get_heads() == ["0009"]
+    assert script.get_heads() == ["0010"]
     assert sorted(revisions) == [
         "0001",
         "0002",
@@ -73,6 +73,7 @@ def test_revisions_form_a_single_linear_chain() -> None:
         "0007",
         "0008",
         "0009",
+        "0010",
     ]
 
 
@@ -82,7 +83,7 @@ def test_upgrade_head_creates_every_model_table(empty_db_url: str) -> None:
     tables = _run(empty_db_url, _public_tables)
     assert tables >= APP_TABLES
     assert "audit_logs_default" in tables
-    assert _run(empty_db_url, _current_revision) == "0009"
+    assert _run(empty_db_url, _current_revision) == "0010"
 
 
 def test_models_match_migrations(empty_db_url: str) -> None:
@@ -164,7 +165,7 @@ def test_each_revision_can_be_rolled_back(empty_db_url: str) -> None:
         command.downgrade(config, "-1")
         command.upgrade(config, revision)
 
-    assert _run(empty_db_url, _current_revision) == "0009"
+    assert _run(empty_db_url, _current_revision) == "0010"
 
 
 def test_offline_sql_can_be_generated(capsys: pytest.CaptureFixture[str]) -> None:

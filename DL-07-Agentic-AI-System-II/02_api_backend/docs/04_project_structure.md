@@ -65,9 +65,12 @@
 │   │       ├── me.py
 │   │       ├── service_status.py  # E-23 (Step 5.10)
 │   │       └── admin/
-│   │           ├── jobs.py
+│   │           ├── access.py   # scope check + audit เมื่อถูกปฏิเสธ (Step 5.11)
+│   │           ├── jobs.py     # GET /v1/admin/jobs (Step 5.11)
+│   │           ├── recommendations.py  # diagnostics + agent runs (Step 5.11)
 │   │           ├── reviews.py  # safety review queue (Step 5.8)
-│   │           └── audit.py
+│   │           ├── exports.py  # training data export (Step 5.11)
+│   │           └── audit.py    # GET /v1/admin/audit-logs (Step 5.11)
 │   │
 │   ├── schemas/                # ── API contract (Pydantic v2) — versioned
 │   │   └── v1/
@@ -95,6 +98,8 @@
 │   │   ├── export_service.py          # data export (Step 5.9b)
 │   │   ├── purge_service.py           # retention + partition audit (Step 5.9b)
 │   │   ├── ops_service.py             # readiness + service status (Step 5.10)
+│   │   ├── admin_service.py           # admin: jobs, recommendation, audit log (Step 5.11)
+│   │   ├── training_export_service.py # training data export (Step 5.11)
 │   │   ├── agent_run_service.py       # ใช้ใน worker: call agent → safety gate → persist
 │   │   ├── recommendation_payload.py  # assess(): freshness → safety gate → payload ที่ sanitize แล้ว
 │   │   ├── progress.py                # stage → % และข้อความตามภาษา
@@ -123,11 +128,12 @@
 │   │   │   ├── types.py        # EncryptedText (Step 5.9b) — Geography/JSON_DOC อยู่ใน base.py
 │   │   │   ├── models/         # ORM: user.py, conversation.py (+messages), trip.py, request.py,
 │   │   │   │                   #      recommendation.py, job.py (+agent_runs, data_exports),
-│   │   │   │                   #      mlops.py (prediction_records, feedback), audit.py, reference.py
+│   │   │   │                   #      mlops.py (prediction_records, feedback, training_exports),
+│   │   │   │                   #      audit.py, reference.py
 │   │   │   ├── migration_filters.py  # autogenerate filter (ใช้ร่วมกับ drift test)
 │   │   │   ├── reference_data.py     # seed coverage_areas / emergency_defaults
 │   │   │   └── repositories/   # recommendations.py, conversations.py, requests.py, trips.py, feedback.py,
-│   │   │                       #   users.py;
+│   │   │                       #   users.py, exports.py, retention.py, admin.py, training_exports.py;
 │   │   │                       #   ทุก read ของผู้ใช้รับ user_id (กัน IDOR)
 │   │   ├── redis/
 │   │   │   ├── clients.py      # core / cache connections
@@ -346,7 +352,7 @@ flowchart LR
 |---|---|---|
 | `recommendations` | `run_recommendation` | 4 (prefork; งานส่วนใหญ่คือรอ Agent) |
 | `alerts` | `scan_trip_alerts` (งานประเมินไปเข้า `recommendations`) | 2 — ตอนนี้ worker ตัวเดียวฟังทั้งสอง queue |
-| `maintenance` | `reap_stuck_jobs`, `delete_account`, `build_data_export`, `purge_expired` | 1 — ตอนนี้ worker ตัวเดียวฟังทุก queue |
+| `maintenance` | `reap_stuck_jobs`, `delete_account`, `build_data_export`, `build_training_export`, `purge_expired` | 1 — ตอนนี้ worker ตัวเดียวฟังทุก queue |
 
 - `task_acks_late=True`, `worker_prefetch_multiplier=1`, `task_reject_on_worker_lost=True`
 - Task รับแค่ `job_id` (ไม่ส่ง payload/PII ผ่าน broker) → โหลดจาก DB
@@ -514,6 +520,10 @@ flowchart LR
 | D-88 | E-23 ใช้สถานะที่ Agent รายงานในคำตอบล่าสุด (worker เขียน `status:reports`) + circuit breaker + Agent `/health`; ไม่มีรายงานภายใน P-64 → `unknown`; status รวมมีค่า `unknown` เพิ่ม; cache P-65 | backend เรียก provider เอง (ขัด D-03) / ขอ endpoint ใหม่จาก Agent | Accepted (Step 5.10) |
 | D-89 | Tracing: OTLP/HTTP (ไม่ใช้ gRPC เพื่อไม่ต้องลง grpcio); instrument FastAPI, httpx, SQLAlchemy, Celery, Redis; `ScrubbingExporter` ตัด query string, IP ของ client, ข้อความ exception และ status description ก่อนส่งออก; dev ใช้ Jaeger v2 รับ OTLP ตรง (profile `observability`) | OTel Collector ใน dev | Accepted (Step 5.10) |
 | D-90 | `/ready` และ `/metrics` ตอบเฉพาะ IP ใน `OPS_ALLOWED_NETWORKS` (default loopback + private) อื่น ๆ `404`; IP มาจาก uvicorn หลัง resolve proxy ที่เชื่อถือ | bearer token สำหรับ scrape | Accepted (Step 5.10) |
+| D-92 | Training export: ตาราง `training_exports` (ไม่ผูกผู้ใช้); งาน `build_training_export` บน queue `maintenance` เขียน gzip JSON Lines ลงไฟล์ชั่วคราวแล้ว upload (`fput_object`) ไม่ถือไว้ใน memory; ข้อมูล = `prediction_records` + feedback ที่ `usable_for_training` เท่านั้น (ไม่มี comment, `recommendation_id`, `pseudonymous_id`); ไฟล์อายุ P-68; purge / reaper ดูแลเหมือน data export; GET ใช้ scope `admin:write` เหมือน POST | ตอบไฟล์แบบ sync / ใช้ `data_exports` ร่วม | Accepted (Step 5.11) |
+| D-93 | query ของ admin ต้องอยู่ในช่วงเวลา (default 24 ชม., สูงสุด P-67) และใช้ keyset cursor; index ใหม่ `jobs (created_at DESC, id DESC)` (migration `0010`) | ไม่จำกัดช่วง | Accepted (Step 5.11) |
+| D-94 | admin เห็นแค่ diagnostics: ไม่มี `user_id`, ชื่อสถานที่, พิกัด, คำถาม, payload; audit log ไม่แสดง `ip_hash` | แสดง `user_id` เพื่อ support | Accepted (Step 5.11) |
+| D-95 | ทุก admin endpoint (รวม review queue) ใช้ `admin_actor(scope, action)`: token ถูกแต่ขาด scope → `403` + audit `denied` (`required_scope`); ไม่มี DB → ยังตอบ `403` แต่ไม่บันทึก; ไม่มี token → `401` ไม่บันทึก | บันทึกเฉพาะที่ผ่านสิทธิ์ | Accepted (Step 5.11) |
 | D-91 | Prometheus multiprocess mode เมื่อตั้ง `PROMETHEUS_MULTIPROC_DIR` (runtime image ตั้งไว้แล้ว); `app.serve` และ worker main process ล้าง directory ตอนเริ่ม; worker เปิด `/metrics` ของตัวเองที่ `WORKER_METRICS_PORT`; metric ที่อ่านตอน scrape (`celery_queue_depth`) ใช้ collector ชั่วคราว; `route` label เป็น template | push gateway | Accepted (Step 5.10) |
 | D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
 | D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
@@ -541,7 +551,7 @@ flowchart LR
 | 5.9a | Me: profile / consent / ลบบัญชี, reaper, `DELETE /v1/jobs/{id}` (E-05), `prediction_records` | E-05, E-20 — **done** |
 | 5.9b | Data export (E-21/E-22, MinIO), purge job (P-50), partition audit รายเดือน, column encryption (D-15) | E-21, E-22 — **done** |
 | 5.10 | Observability (OTel, metrics), `/ready`, service-status | E-23, E-26, E-27 + trace HTTP → Celery → Agent — **done** |
-| 5.11 | Admin endpoints | |
+| 5.11 | Admin endpoints | E-24 ครบ (jobs, recommendation, audit log, training export) — **done** |
 | 5.12 | OpenAPI export, contract tests, CI | |
 
 ## 15. Change Log
@@ -550,6 +560,7 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.13 | 2026-09-18 | Step 5.11: D-92..D-95, ไฟล์ admin (access / jobs / recommendations / audit / exports), admin_service, training_export_service, migration `0010` |
 | 0.12 | 2026-09-18 | Step 5.10: D-87..D-91, ไฟล์ ops_service / service_status / health / signals, service `jaeger` แทน otel-collector + jaeger |
 | 0.11 | 2026-09-18 | Step 5.9b: D-81..D-86, ไฟล์ encryption / types / exports / retention / cooldown / object store, service `minio` |
 | 0.10 | 2026-09-18 | Step 5.9a: D-72..D-80, ไฟล์ profile / prediction / me / account / reaper / maintenance, queue `maintenance`; แบ่ง 5.9 เป็น 5.9a / 5.9b |

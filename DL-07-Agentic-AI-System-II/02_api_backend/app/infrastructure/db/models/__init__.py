@@ -4,7 +4,11 @@ from app.infrastructure.db.base import Base
 from app.infrastructure.db.models.audit import AuditLogModel
 from app.infrastructure.db.models.conversation import ConversationModel, MessageModel
 from app.infrastructure.db.models.job import AgentRunModel, DataExportModel, JobModel
-from app.infrastructure.db.models.mlops import FeedbackModel, PredictionRecordModel
+from app.infrastructure.db.models.mlops import (
+    FeedbackModel,
+    PredictionRecordModel,
+    TrainingExportModel,
+)
 from app.infrastructure.db.models.recommendation import RecommendationModel
 from app.infrastructure.db.models.reference import CoverageAreaModel, EmergencyDefaultModel
 from app.infrastructure.db.models.request import TravelRequestModel
@@ -24,6 +28,7 @@ __all__ = [
     "MessageModel",
     "PredictionRecordModel",
     "RecommendationModel",
+    "TrainingExportModel",
     "TravelRequestModel",
     "TripModel",
     "UserModel",

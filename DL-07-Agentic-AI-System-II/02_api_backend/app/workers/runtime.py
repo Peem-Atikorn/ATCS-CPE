@@ -23,7 +23,12 @@ from app.infrastructure.agent.factory import build_agent_client
 from app.infrastructure.audit import SqlAuditWriter
 from app.infrastructure.db.repositories.exports import SqlExportRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
-from app.infrastructure.db.repositories.retention import PURGE_ORDER, SqlRetentionRepository
+from app.infrastructure.db.repositories.retention import (
+    EXPORT_TABLES,
+    PURGE_ORDER,
+    SqlRetentionRepository,
+)
+from app.infrastructure.db.repositories.training_exports import SqlTrainingExportRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
 from app.infrastructure.db.repositories.users import SqlUserRepository
 from app.infrastructure.db.session import create_engine, create_session_factory
@@ -42,6 +47,7 @@ from app.services.export_service import ExportService
 from app.services.purge_service import PurgeService
 from app.services.reaper_service import ReaperService
 from app.services.recommendation_service import RecommendationService
+from app.services.training_export_service import TrainingExportService
 from app.services.trip_alert_service import TripAlertService
 from app.services.trip_service import TripService
 from app.workers.celery_app import get_celery
@@ -58,6 +64,7 @@ class WorkerResources:
     accounts: AccountService
     exports: ExportService | None
     purge: PurgeService
+    training: TrainingExportService | None
 
     async def aclose(self) -> None:
         await self.http.aclose()
@@ -112,6 +119,7 @@ def build_worker_resources(settings: Settings) -> WorkerResources:
     )
     users = SqlUserRepository(sessions)
     export_rows = SqlExportRepository(sessions)
+    training_rows = SqlTrainingExportRepository(sessions)
     store = MinioObjectStore(settings.storage) if settings.storage.enabled else None
     cooldown = RedisCooldown(redis.core, keys)
     audit = SqlAuditWriter(sessions)
@@ -125,6 +133,7 @@ def build_worker_resources(settings: Settings) -> WorkerResources:
         settings=settings,
         clock=clock,
         exports=export_rows,
+        training_exports=training_rows,
     )
     accounts = AccountService(users=users, audit=audit, exports=export_rows, store=store)
     exports = None
@@ -141,12 +150,25 @@ def build_worker_resources(settings: Settings) -> WorkerResources:
         retention=SqlRetentionRepository(sessions),
         tables=PURGE_ORDER,
         store=store,
+        export_tables=EXPORT_TABLES,
         audit=audit,
         lock=cooldown,
         settings=settings,
         clock=clock,
     )
-    return WorkerResources(engine, redis, http, service, alerts, reaper, accounts, exports, purge)
+    training = None
+    if store is not None:
+        training = TrainingExportService(
+            exports=training_rows,
+            store=store,
+            queue=queue,
+            audit=audit,
+            settings=settings,
+            clock=clock,
+        )
+    return WorkerResources(
+        engine, redis, http, service, alerts, reaper, accounts, exports, purge, training
+    )
 
 
 class WorkerRuntime:
@@ -179,6 +201,9 @@ class WorkerRuntime:
     def purge_expired(self) -> dict[str, int]:
         return self._call(self._purge())
 
+    def build_training_export(self, export_id: UUID) -> bool:
+        return self._call(self._training(export_id))
+
     def _get_resources(self) -> WorkerResources:
         if self._resources is None:
             self._resources = build_worker_resources(get_settings())
@@ -206,6 +231,13 @@ class WorkerRuntime:
             # Configuration error: object storage is missing in the worker.
             return False
         return await exports.build(export_id)
+
+    async def _training(self, export_id: UUID) -> bool:
+        training = self._get_resources().training
+        if training is None:
+            # Configuration error: object storage is missing in the worker.
+            return False
+        return await training.build(export_id)
 
     async def _purge(self) -> dict[str, int]:
         result = await self._get_resources().purge.run()

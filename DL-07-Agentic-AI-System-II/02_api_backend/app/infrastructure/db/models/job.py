@@ -51,6 +51,8 @@ class JobModel(UUIDPrimaryKey, CreatedAt, Base):
         CheckConstraint("progress BETWEEN 0 AND 100", name="progress_range"),
         CheckConstraint("num_nonnulls(recommendation_id, export_id) = 1", name="single_target"),
         Index("ix_jobs_user_recent", "user_id", text("created_at DESC")),
+        # Admin listing by time (D-93).
+        Index("ix_jobs_recent", text("created_at DESC"), text("id DESC")),
         Index(
             "ix_jobs_active",
             "created_at",

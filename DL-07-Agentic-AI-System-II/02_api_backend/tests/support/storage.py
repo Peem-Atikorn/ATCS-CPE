@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -14,6 +16,10 @@ class MemoryObjectStore:
         if self.fail_on_put:
             raise ConnectionError("storage down")
         self.objects[key] = (data, content_type)
+
+    async def put_file(self, key: str, path: str, *, content_type: str) -> None:
+        data = await asyncio.to_thread(Path(path).read_bytes)
+        await self.put(key, data, content_type=content_type)
 
     async def delete(self, key: str) -> None:
         self.objects.pop(key, None)

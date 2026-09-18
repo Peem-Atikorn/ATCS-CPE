@@ -11,21 +11,25 @@ from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
 from app.core.security import Principal
 from app.infrastructure.audit import SqlAuditWriter
+from app.infrastructure.db.repositories.admin import SqlAdminRepository
 from app.infrastructure.db.repositories.conversations import SqlConversationRepository
 from app.infrastructure.db.repositories.exports import SqlExportRepository
 from app.infrastructure.db.repositories.feedback import SqlFeedbackRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
+from app.infrastructure.db.repositories.training_exports import SqlTrainingExportRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
 from app.infrastructure.db.repositories.users import SqlUserRepository
 from app.infrastructure.health import database_ok, redis_ok
+from app.services.admin_service import AdminService
 from app.services.conversation_service import ConversationService
 from app.services.export_service import ExportService
 from app.services.feedback_service import FeedbackService
 from app.services.job_service import JobService
 from app.services.me_service import MeService
 from app.services.ops_service import Check, OpsService
-from app.services.ports import UserRef
+from app.services.ports import AuditPort, UserRef
 from app.services.recommendation_service import RecommendationService
+from app.services.training_export_service import TrainingExportService
 from app.services.trip_service import TripService
 from app.services.user_service import UserService
 
@@ -162,5 +166,35 @@ def get_ops_service(request: Request) -> OpsService:
         agent=resources.agent,
         store=resources.service_status,
         settings=resources.settings.observability,
+        clock=_CLOCK,
+    )
+
+
+def get_audit(request: Request) -> AuditPort | None:
+    """None without a database: a refusal is still a 403, it just goes unrecorded."""
+    sessions = get_resources(request).sessions
+    return SqlAuditWriter(sessions) if sessions is not None else None
+
+
+def get_admin_service(request: Request) -> AdminService:
+    resources = get_resources(request)
+    sessions = _require(resources.sessions, "sessions")
+    return AdminService(
+        repository=SqlAdminRepository(sessions),
+        audit=SqlAuditWriter(sessions),
+        settings=resources.settings,
+        clock=_CLOCK,
+    )
+
+
+def get_training_export_service(request: Request) -> TrainingExportService:
+    resources = get_resources(request)
+    sessions = _require(resources.sessions, "sessions")
+    return TrainingExportService(
+        exports=SqlTrainingExportRepository(sessions),
+        store=_require(resources.file_store, "file_store"),
+        queue=_require(resources.training_queue, "training_queue"),
+        audit=SqlAuditWriter(sessions),
+        settings=resources.settings,
         clock=_CLOCK,
     )

@@ -29,10 +29,12 @@ from app.infrastructure.storage.object_store import MinioObjectStore
 from app.services.ports import (
     CachePort,
     CooldownPort,
+    FileStorePort,
     JobQueue,
     JobStatePort,
     ObjectStorePort,
     TicketPort,
+    TrainingExportQueue,
     UserDataPort,
 )
 from app.workers.celery_app import create_celery
@@ -60,6 +62,9 @@ class AppResources:
     # None when object storage is not configured: data export answers 503.
     object_store: ObjectStorePort | None = None
     service_status: RedisServiceStatusStore | None = None
+    # The same queue and storage, seen through the ports admin exports need (D-92).
+    training_queue: TrainingExportQueue | None = None
+    file_store: FileStorePort | None = None
 
     async def aclose(self) -> None:
         if self.http is not None:
@@ -75,6 +80,8 @@ def build_resources(settings: Settings) -> AppResources:
     redis = create_redis_clients(settings.redis)
     keys = RedisKeys(settings.app.app_env.value)
     engine = create_engine(settings.db)
+    queue = CeleryJobQueue(create_celery(settings))
+    store = MinioObjectStore(settings.storage) if settings.storage.enabled else None
     return AppResources(
         settings=settings,
         keys=keys,
@@ -92,11 +99,13 @@ def build_resources(settings: Settings) -> AppResources:
         slots=RedisSlotLimiter(redis.core),
         tickets=RedisTicketStore(redis.core, keys),
         cache=RedisRecommendationCache(redis.cache, keys),
-        queue=CeleryJobQueue(create_celery(settings)),
+        queue=queue,
         user_data=RedisUserData(redis.core, keys),
         cooldown=RedisCooldown(redis.core, keys),
-        object_store=MinioObjectStore(settings.storage) if settings.storage.enabled else None,
+        object_store=store,
         service_status=RedisServiceStatusStore(redis.cache, keys),
+        training_queue=queue,
+        file_store=store,
     )
 
 

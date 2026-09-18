@@ -1,4 +1,4 @@
-"""prediction_records and feedback (docs/03_data_design.md sections 3.9-3.10).
+"""prediction_records, feedback and training_exports (docs/03_data_design.md 3.9-3.10, 3.14).
 
 Neither table links to users or has a foreign key to recommendations, so the rows can
 outlive the personal data they were derived from.
@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.domain.enums import (
+    ExportStatus,
     FeedbackOutcome,
     RecommendationStatus,
     RecommendationType,
@@ -102,3 +103,24 @@ class FeedbackModel(UUIDPrimaryKey, CreatedAt, Base):
     review_note: Mapped[str | None] = mapped_column(String(1000))
     usable_for_training: Mapped[bool] = mapped_column(server_default=text("false"))
     expires_at: Mapped[datetime] = mapped_column(tz_datetime())
+
+
+class TrainingExportModel(UUIDPrimaryKey, CreatedAt, Base):
+    """An anonymized training data file requested by an admin (D-92). No user link."""
+
+    __tablename__ = "training_exports"
+    __table_args__ = (
+        check_in("status", "status", ExportStatus),
+        CheckConstraint("range_from < range_to", name="range_order"),
+        Index("ix_training_exports_created_at", "created_at"),
+        Index("ix_training_exports_expires_at", "expires_at"),
+    )
+
+    requested_by: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), server_default=text("'queued'"))
+    range_from: Mapped[datetime] = mapped_column(tz_datetime())
+    range_to: Mapped[datetime] = mapped_column(tz_datetime())
+    row_count: Mapped[int | None] = mapped_column(Integer)
+    object_key: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(tz_datetime())
+    expires_at: Mapped[datetime | None] = mapped_column(tz_datetime())

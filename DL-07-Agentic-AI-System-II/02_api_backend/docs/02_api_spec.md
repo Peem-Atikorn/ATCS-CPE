@@ -104,6 +104,9 @@
 | P-64 | สถานะ service ที่ Agent รายงานใช้ได้นานเท่านี้ (เกินแล้วเป็น `unknown`) | 15 min | `SERVICE_STATUS_WINDOW_MINUTES` |
 | P-65 | Cache ของ `/v1/service-status` | 30 s | `SERVICE_STATUS_CACHE_SECONDS` |
 | P-66 | Cache ผลตรวจ Agent `/health` (ใช้ทั้ง `/ready` และ E-23) | 10 s | `READY_AGENT_CACHE_SECONDS` |
+| P-67 | ช่วงเวลาสูงสุดของ query admin (jobs, audit log) | 31 วัน | `ADMIN_MAX_RANGE_DAYS` |
+| P-68 | อายุไฟล์ training export | 7 วัน | `TRAINING_EXPORT_TTL_DAYS` |
+| P-69 | ช่วงเวลาสูงสุดของ training export | 366 วัน | `TRAINING_EXPORT_MAX_RANGE_DAYS` |
 
 ---
 
@@ -667,14 +670,26 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 
 | Method | Path | Scope |
 |---|---|---|
-| GET | `/v1/admin/jobs?status=&from=&to=` | `admin:read` |
+| GET | `/v1/admin/jobs?status=&type=&from=&to=&limit=&cursor=` | `admin:read` |
 | GET | `/v1/admin/recommendations/{id}` (มี versions + trace id) | `admin:read` |
 | GET | `/v1/admin/feedback/reviews?status=pending` | `safety:review` |
 | PATCH | `/v1/admin/feedback/reviews/{feedback_id}` `{ status: approved\|rejected, note }` | `safety:review` |
-| GET | `/v1/admin/audit-logs` | `admin:read` |
-| POST | `/v1/admin/exports/training-data` | `admin:write` |
+| GET | `/v1/admin/audit-logs?action=&actor_type=&result=&target_type=&target_id=&from=&to=` | `admin:read` |
+| POST | `/v1/admin/exports/training-data` `{from?, to?}` (ต้องมี `Idempotency-Key`) | `admin:write` |
+| GET | `/v1/admin/exports/training-data/{export_id}` | `admin:write` |
 
 ทุก admin action บันทึก audit log: `actor_id`, `action`, `target`, `at`, `correlation_id`
+
+**รายละเอียด (ทำใน Step 5.11)** — *D-92..D-95*
+
+- ช่วงเวลา `[from, to)` (ISO 8601 ต้องมี timezone): ไม่ส่ง `to` = ตอนนี้, ไม่ส่ง `from` = `to` − 24 ชั่วโมง (training export: − 30 วัน); ยาวเกิน P-67 (training export: P-69) หรือ `from ≥ to` → `422 VALIDATION_ERROR`
+- รายการเรียงใหม่สุดก่อน + cursor (`limit` ≤ P-40); cursor ของ audit log ใช้ id ตัวเลข
+- `jobs` → `{items: [{job_id, type, status, stage, attempts, error_code, recommendation_id, cancel_requested, created_at, started_at, finished_at}], next_cursor}`
+- `recommendations/{id}` → `{recommendation_id, source, status, risk_level, risk_score, risk_confidence, recommendation_type, warning_codes, safety_gate_rules, overall_is_stale, error_code, versions, data_freshness[{category, updated_at, age_seconds, is_stale}], service_status, created_at, completed_at, valid_until, job, agent_runs[{run_id, attempt, status, http_status, error_code, duration_ms, tool_calls, agent_version, trace_id, started_at, finished_at}]}`; ไม่มี → `404`
+- admin เห็นเฉพาะ diagnostics: **ไม่มี** `user_id`, ชื่อสถานที่, พิกัด, คำถาม หรือ payload ของคำตอบ (D-94); audit log ไม่แสดง `ip_hash`
+- `audit-logs` → `{items: [{id, occurred_at, actor_type, actor_ref, action, target_type, target_id, result, correlation_id, metadata}], next_cursor}`; `action` รับ `[a-z0-9_.]`, `target_type` รับ `[a-z0-9_]`, `target_id` ต้องมากับ `target_type`
+- training export: `202 {export_id, status}` + `Location`; GET → `{export_id, status, from, to, row_count, created_at, completed_at, expires_at, download_url}`; ไฟล์ gzip JSON Lines อายุ P-68 ลิงก์อายุ P-62; หนึ่งบรรทัดต่อ prediction record (anonymized, เฉพาะผู้ใช้ที่ยินยอม analytics) พร้อม feedback ที่ reviewer approve แล้วเท่านั้น (rating, helpful, outcome, report_type — ไม่มี comment) — D-92; ส่งเข้า queue ไม่ได้ → `503`; ไม่ได้ตั้ง object storage → `503`
+- audit action: `admin.jobs_list`, `admin.recommendation_read`, `admin.audit_logs_list`, `export.training_data`, `export.training_data_read` (`success` / `error` เมื่อไม่พบหรือส่งงานไม่ได้); token ถูกต้องแต่ขาด scope → `403` + audit `denied` พร้อม `metadata.required_scope` (รวม review queue) — D-95
 
 **Review queue (ทำใน Step 5.8, ส่วน admin อื่นทำใน 5.11)** — *D-69, D-70*
 
@@ -945,6 +960,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.13 | 2026-09-18 | Step 5.11: P-67..P-69, รายละเอียด admin endpoints และ training export (§8.2) |
 | 0.12 | 2026-09-18 | Step 5.10: P-64..P-66, รายละเอียด E-23 (§8.1), `/ready`, `/metrics`, metrics และ tracing (§10) |
 | 0.11 | 2026-09-18 | Step 5.9b: P-62, P-63, รายละเอียด data export (§7.4) |
 | 0.10 | 2026-09-18 | Step 5.9a: P-60, P-61, รายละเอียด §6.2 (cancel, reaper) และ §7.4 (profile, consent, ลบบัญชี) |

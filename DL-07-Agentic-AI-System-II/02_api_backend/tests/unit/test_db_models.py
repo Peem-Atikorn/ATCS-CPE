@@ -33,6 +33,8 @@ def test_all_designed_tables_exist() -> None:
         "audit_logs",
         "coverage_areas",
         "emergency_defaults",
+        # No user data: the file it points to expires, the row stays as history (D-92).
+        "training_exports",
     }
 
 

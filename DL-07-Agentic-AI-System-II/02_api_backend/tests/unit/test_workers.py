@@ -15,6 +15,7 @@ from app.workers import celery_app as celery_module
 from app.workers.celery_app import (
     ALERT_QUEUE,
     BUILD_DATA_EXPORT,
+    BUILD_TRAINING_EXPORT,
     DELETE_ACCOUNT,
     MAINTENANCE_QUEUE,
     PURGE_EXPIRED,
@@ -50,6 +51,7 @@ def test_celery_configuration(settings: Settings) -> None:
     assert conf.task_routes[DELETE_ACCOUNT] == {"queue": MAINTENANCE_QUEUE}
     assert conf.task_routes[BUILD_DATA_EXPORT] == {"queue": MAINTENANCE_QUEUE}
     assert conf.task_routes[PURGE_EXPIRED] == {"queue": MAINTENANCE_QUEUE}
+    assert conf.task_routes[BUILD_TRAINING_EXPORT] == {"queue": MAINTENANCE_QUEUE}
     assert str(conf.timezone) == "Asia/Bangkok"
     assert conf.enable_utc is True
     assert conf.beat_schedule == beat_schedule(settings)
@@ -323,6 +325,10 @@ class FakeExportRuntime:
     def purge_expired(self) -> dict[str, int]:
         return {"deleted": 3}
 
+    def build_training_export(self, export_id: UUID) -> bool:
+        self.built.append((export_id, correlation_id_var.get()))
+        return True
+
 
 def test_export_and_purge_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = FakeExportRuntime()
@@ -332,8 +338,10 @@ def test_export_and_purge_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     assert maintenance_module.build_data_export(str(export_id), correlation_id="corr-9") is True
     assert maintenance_module.build_data_export("nope") is False
     assert maintenance_module.purge_expired() == {"deleted": 3}
+    assert maintenance_module.build_training_export(str(export_id), correlation_id="corr-8")
+    assert maintenance_module.build_training_export("nope") is False
 
-    assert runtime.built == [(export_id, "corr-9")]
+    assert runtime.built == [(export_id, "corr-9"), (export_id, "corr-8")]
 
 
 async def test_queue_sends_exports_to_maintenance() -> None:
@@ -347,4 +355,18 @@ async def test_queue_sends_exports_to_maintenance() -> None:
     name, options = celery.sent[0]
     assert name == BUILD_DATA_EXPORT
     assert options["kwargs"] == {"export_id": str(export_id), "correlation_id": "corr-3"}
+    assert options["queue"] == MAINTENANCE_QUEUE
+
+
+async def test_queue_sends_training_exports_to_maintenance() -> None:
+    celery = FakeCelery()
+    export_id = new_id()
+
+    await CeleryJobQueue(celery).enqueue_training_export(  # type: ignore[arg-type]
+        export_id, correlation_id="corr-4"
+    )
+
+    name, options = celery.sent[0]
+    assert name == BUILD_TRAINING_EXPORT
+    assert options["kwargs"] == {"export_id": str(export_id), "correlation_id": "corr-4"}
     assert options["queue"] == MAINTENANCE_QUEUE

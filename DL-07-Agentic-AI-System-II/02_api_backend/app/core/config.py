@@ -213,6 +213,14 @@ class LimitSettings(BaseSettings):
     rate_limit_fail_open: bool = True
 
 
+class AdminSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    admin_max_range_days: int = Field(default=31, gt=0)  # P-67: jobs / audit log listings
+    training_export_ttl_days: int = Field(default=7, gt=0)  # P-68
+    training_export_max_range_days: int = Field(default=366, gt=0)  # P-69
+
+
 class JobSettings(BaseSettings):
     model_config = _ENV_CONFIG
 
@@ -408,6 +416,7 @@ class Settings(BaseModel):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     limits: LimitSettings = Field(default_factory=LimitSettings)
+    admin: AdminSettings = Field(default_factory=AdminSettings)
     jobs: JobSettings = Field(default_factory=JobSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
     trips: TripSettings = Field(default_factory=TripSettings)

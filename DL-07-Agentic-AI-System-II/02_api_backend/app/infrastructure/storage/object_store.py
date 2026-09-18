@@ -66,6 +66,14 @@ class MinioObjectStore:
     async def put(self, key: str, data: bytes, *, content_type: str) -> None:
         await asyncio.to_thread(self._put, key, data, content_type)
 
+    def _put_file(self, key: str, path: str, content_type: str) -> None:
+        self._ensure_bucket()
+        self._client.fput_object(self._bucket, key, path, content_type=content_type)
+
+    async def put_file(self, key: str, path: str, *, content_type: str) -> None:
+        """Upload from disk in parts, so a large export never sits in memory."""
+        await asyncio.to_thread(self._put_file, key, path, content_type)
+
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(self._client.remove_object, self._bucket, key)
 

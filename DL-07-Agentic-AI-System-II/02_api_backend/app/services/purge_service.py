@@ -32,10 +32,10 @@ class RetentionPort(Protocol):
     async def purge_table(self, table: str, *, now: datetime, batch: int) -> int: ...
 
     async def expired_exports(
-        self, *, now: datetime, limit: int
+        self, *, now: datetime, limit: int, table: str = ...
     ) -> list[tuple[UUID, str | None]]: ...
 
-    async def mark_exports_expired(self, export_ids: list[UUID]) -> None: ...
+    async def mark_exports_expired(self, export_ids: list[UUID], *, table: str = ...) -> None: ...
 
     async def ensure_audit_partition(self, start: datetime) -> bool: ...
 
@@ -58,6 +58,7 @@ class PurgeService:
         retention: RetentionPort,
         tables: tuple[str, ...],
         store: ObjectStorePort | None,
+        export_tables: tuple[str, ...] = ("data_exports",),
         audit: AuditPort,
         lock: CooldownPort,
         settings: Settings,
@@ -65,6 +66,7 @@ class PurgeService:
     ) -> None:
         self._repo = retention
         self._tables = tables
+        self._export_tables = export_tables
         self._store = store
         self._audit = audit
         self._lock = lock
@@ -85,7 +87,8 @@ class PurgeService:
         result = PurgeResult(ran=True)
         for table in self._tables:
             result.deleted[table] = await self._repo.purge_table(table, now=now, batch=BATCH_SIZE)
-        result.exports_expired = await self._expire_exports(now)
+        for table in self._export_tables:
+            result.exports_expired += await self._expire_exports(now, table)
 
         this_month = month_start(now)
         for offset in range(PARTITIONS_AHEAD + 1):
@@ -115,8 +118,8 @@ class PurgeService:
         log.info("purge_finished", deleted=sum(result.deleted.values()))
         return result
 
-    async def _expire_exports(self, now: datetime) -> int:
-        expired = await self._repo.expired_exports(now=now, limit=BATCH_SIZE)
+    async def _expire_exports(self, now: datetime, table: str) -> int:
+        expired = await self._repo.expired_exports(now=now, limit=BATCH_SIZE, table=table)
         done: list[UUID] = []
         for export_id, key in expired:
             if key and self._store is not None:
@@ -126,5 +129,5 @@ class PurgeService:
                     log.warning("export_file_delete_failed", error_type=type(exc).__name__)
                     continue
             done.append(export_id)
-        await self._repo.mark_exports_expired(done)
+        await self._repo.mark_exports_expired(done, table=table)
         return len(done)

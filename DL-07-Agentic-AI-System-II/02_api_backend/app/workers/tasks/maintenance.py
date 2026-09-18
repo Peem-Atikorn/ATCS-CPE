@@ -1,4 +1,5 @@
-"""Queue `maintenance`: reaper (D-74), account deletion (D-79), exports (D-82), purge (D-85)."""
+"""Queue `maintenance`: reaper (D-74), account deletion (D-79), exports (D-82, D-92),
+purge (D-85)."""
 
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from app.core.logging import get_logger
 from app.core.telemetry import tag_correlation
 from app.workers.celery_app import (
     BUILD_DATA_EXPORT,
+    BUILD_TRAINING_EXPORT,
     DELETE_ACCOUNT,
     PURGE_EXPIRED,
     REAP_STUCK_JOBS,
@@ -68,3 +70,14 @@ def build_data_export(export_id: str, correlation_id: str | None = None) -> bool
 def purge_expired() -> dict[str, int]:
     with _correlation(str(new_id())):
         return runtime.purge_expired()
+
+
+@shared_task(name=BUILD_TRAINING_EXPORT, ignore_result=True)
+def build_training_export(export_id: str, correlation_id: str | None = None) -> bool:
+    with _correlation(accept_client_id(correlation_id) or str(new_id())):
+        try:
+            parsed = UUID(export_id)
+        except ValueError:
+            log.warning("invalid_export_id")
+            return False
+        return runtime.build_training_export(parsed)

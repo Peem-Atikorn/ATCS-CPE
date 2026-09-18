@@ -1,7 +1,8 @@
 """Keyset pagination with an opaque cursor (docs/02_api_spec.md section 1).
 
 The cursor is base64url of {"t": <timestamp>, "id": <uuid>} of the last item on the
-page. It is not encrypted, so it is validated strictly when it comes back.
+page (a number instead of a uuid for audit log rows). It is not encrypted, so it is
+validated strictly when it comes back.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ MAX_CURSOR_LENGTH = 200
 @dataclass(frozen=True, slots=True)
 class Cursor:
     at: datetime
-    id: UUID
+    id: UUID | int
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +44,7 @@ def encode_cursor(cursor: Cursor) -> str:
     return base64.urlsafe_b64encode(data.encode()).decode().rstrip("=")
 
 
-def decode_cursor(raw: str | None) -> Cursor | None:
+def decode_cursor(raw: str | None, *, numeric_id: bool = False) -> Cursor | None:
     if not raw:
         return None
     if len(raw) > MAX_CURSOR_LENGTH:
@@ -52,7 +53,7 @@ def decode_cursor(raw: str | None) -> Cursor | None:
         padded = raw + "=" * (-len(raw) % 4)
         data = json.loads(base64.urlsafe_b64decode(padded.encode()))
         at = datetime.fromisoformat(data["t"])
-        cursor_id = UUID(data["id"])
+        cursor_id: UUID | int = int(data["id"]) if numeric_id else UUID(data["id"])
     except (binascii.Error, ValueError, TypeError, KeyError, UnicodeDecodeError):
         raise _invalid("cursor", "the cursor is not valid") from None
     if at.tzinfo is None:

@@ -8,7 +8,8 @@ the active-job slot is freed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import Protocol
 
 from redis.exceptions import RedisError
 
@@ -35,6 +36,12 @@ log = get_logger(__name__)
 BATCH_SIZE = 100
 # Building an export takes seconds; one still waiting after this is lost.
 EXPORT_STUCK_AFTER = timedelta(minutes=30)
+
+
+class StuckExports(Protocol):
+    async def fail_stuck(self, *, older_than: datetime, now: datetime) -> int: ...
+
+
 _REDIS_ERRORS = (RedisError, OSError)
 _CODE = ErrorCode.AGENT_TIMEOUT
 
@@ -59,8 +66,10 @@ class ReaperService:
         settings: Settings,
         clock: Clock,
         exports: ExportRepository | None = None,
+        training_exports: StuckExports | None = None,
     ) -> None:
         self._exports = exports
+        self._training_exports = training_exports
         self._repo = recommendations
         self._users = users
         self._jobs = job_state
@@ -90,10 +99,11 @@ class ReaperService:
                 user_id, correlation_id=current_correlation_id() or str(new_id())
             )
         exports_failed = 0
-        if self._exports is not None:
-            exports_failed = await self._exports.fail_stuck(
-                older_than=now - EXPORT_STUCK_AFTER, now=now
-            )
+        for exports in (self._exports, self._training_exports):
+            if exports is not None:
+                exports_failed += await exports.fail_stuck(
+                    older_than=now - EXPORT_STUCK_AFTER, now=now
+                )
         log.info(
             "reaper_run",
             reaped=len(reaped),
