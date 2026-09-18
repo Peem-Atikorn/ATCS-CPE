@@ -32,6 +32,8 @@ from app.domain.enums import (
 )
 from app.domain.feedback import FeedbackInput, ReviewDecision
 from app.domain.normalization import NormalizedTravelRequest
+from app.domain.prediction import PredictionData
+from app.domain.profile import Profile
 from app.domain.trips import TripDraft
 from app.infrastructure.agent.client import AgentCallResult
 from app.infrastructure.agent.contracts import AgentRunRequest, AgentVersions, ProgressLine
@@ -48,6 +50,19 @@ class UserRef:
     pseudonymous_id: str
     language: str
     home_region: str | None
+    # Set once the user asked to delete the account (D-78).
+    deletion_requested: bool = False
+
+
+# None = no such job for this user.
+CancelOutcome = Literal["cancelled", "not_cancellable"] | None
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileRecord:
+    user_id: UUID
+    profile: Profile
+    created_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,6 +289,8 @@ class WorkItem:
     # Earlier (role, content) pairs of the conversation, oldest first.
     context: tuple[tuple[str, str], ...]
     cache_key: str | None
+    # The user agreed to analytics when the job started (checked again when storing).
+    analytics: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +315,9 @@ class JobOutcome:
     error_code: str | None
     agent_run: AgentRunRecord | None
     conversation_days: int
+    # Stored only when the user agreed to analytics (D-13, D-75).
+    prediction: PredictionData | None = None
+    prediction_days: int = 365
 
 
 # ------------------------------------------------------------------ ports
@@ -347,7 +367,17 @@ class RecommendationRepository(Protocol):
 
     async def emergency_default(self, region_code: str, language: str) -> dict[str, Any] | None: ...
 
-    async def finish_job(self, job_id: UUID, outcome: JobOutcome) -> None: ...
+    async def finish_job(self, job_id: UUID, outcome: JobOutcome) -> bool: ...
+
+    async def job_cancelled(self, job_id: UUID) -> bool: ...
+
+    async def cancel_job(
+        self, user_id: UUID, job_id: UUID, *, now: datetime
+    ) -> tuple[CancelOutcome, JobRecord | None]: ...
+
+    async def reap_stuck_jobs(
+        self, *, older_than: datetime, now: datetime, limit: int
+    ) -> list[JobRecord]: ...
 
     async def feedback_target(
         self, user_id: UUID, recommendation_id: UUID
@@ -431,6 +461,22 @@ class TripRepository(Protocol):
     async def user(self, user_id: UUID) -> UserRef | None: ...
 
 
+class UserRepository(Protocol):
+    async def profile(self, user_id: UUID) -> ProfileRecord | None: ...
+
+    async def update_profile(
+        self, user_id: UUID, profile: Profile, *, now: datetime
+    ) -> ProfileRecord | None: ...
+
+    async def request_deletion(self, user_id: UUID, *, now: datetime) -> bool: ...
+
+    async def recent_job_ids(self, user_id: UUID, *, since: datetime) -> list[UUID]: ...
+
+    async def delete_account(self, user_id: UUID) -> str | None: ...
+
+    async def pending_deletions(self, *, older_than: datetime, limit: int) -> list[UUID]: ...
+
+
 class FeedbackRepository(Protocol):
     """`reviews` returns up to `limit + 1` rows (see pagination.build_page)."""
 
@@ -510,5 +556,11 @@ class CachePort(Protocol):
     async def put(self, cache_key: str, payload: dict[str, Any], *, ttl_seconds: int) -> None: ...
 
 
+class UserDataPort(Protocol):
+    async def forget(self, user_id: UUID, *, principal_hash: str, job_ids: list[UUID]) -> int: ...
+
+
 class JobQueue(Protocol):
     async def enqueue_recommendation(self, job_id: UUID, *, correlation_id: str) -> str: ...
+
+    async def enqueue_account_deletion(self, user_id: UUID, *, correlation_id: str) -> str: ...

@@ -25,6 +25,13 @@ from app.domain.enums import (
 )
 from app.domain.errors import DomainError
 from app.domain.normalization import GeoPoint, NormalizationLimits
+from app.domain.profile import (
+    Consents,
+    Profile,
+    ProfileChanges,
+    apply_profile_changes,
+    mask_email,
+)
 from app.domain.trips import TripChanges, TripDraft, apply_trip_changes
 from app.infrastructure.redis.job_state import JobEvent
 from app.services.conversation_service import MessageReply
@@ -34,6 +41,7 @@ from app.services.ports import (
     FeedbackRecord,
     JobRecord,
     MessageRecord,
+    ProfileRecord,
     RecommendationRecord,
     RecommendationSummaryRecord,
     ReviewItem,
@@ -203,6 +211,14 @@ class FakeJobs:
         if found is None or found[1] != job_id:
             raise AppError(ErrorCode.UNAUTHENTICATED)
         return found[0]
+
+    async def cancel(self, user_id: UUID, job_id: UUID) -> JobRecord:
+        found = await self.get(user_id, job_id)
+        if found.status not in (JobStatus.QUEUED, JobStatus.RUNNING):
+            raise AppError(ErrorCode.JOB_NOT_CANCELLABLE)
+        cancelled = replace(found, status=JobStatus.CANCELLED, stage=JobStage.CANCELLED)
+        self.jobs[job_id] = cancelled
+        return cancelled
 
     async def open_stream(self, user_id: UUID, job_id: UUID) -> tuple[JobRecord, str]:
         return await self.get(user_id, job_id), "conn-1"
@@ -459,3 +475,38 @@ class FakeFeedback:
         )
         self.records[feedback_id] = updated
         return updated
+
+
+def profile_record(**changes: Any) -> ProfileRecord:
+    values: dict[str, Any] = {
+        "user_id": USER.id,
+        "profile": Profile(
+            display_name="Sakda",
+            language="th",
+            timezone="Asia/Bangkok",
+            home_region="TH",
+            consents=Consents(True, T0, False, None),
+        ),
+        "created_at": T0,
+    }
+    values.update(changes)
+    return ProfileRecord(**values)
+
+
+@dataclass
+class FakeMe:
+    record: ProfileRecord = field(default_factory=profile_record)
+    calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    async def get(self, user: UserRef, *, email: str | None) -> tuple[ProfileRecord, str | None]:
+        self.calls.append(("get", {"email": email}))
+        return self.record, mask_email(email)
+
+    async def update(self, user: UserRef, changes: ProfileChanges, **kwargs: Any) -> ProfileRecord:
+        self.calls.append(("update", {"changes": changes, **kwargs}))
+        profile = apply_profile_changes(self.record.profile, changes, now=T0)
+        self.record = replace(self.record, profile=profile)
+        return self.record
+
+    async def delete(self, user: UserRef, **kwargs: Any) -> None:
+        self.calls.append(("delete", kwargs))

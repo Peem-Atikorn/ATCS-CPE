@@ -15,9 +15,11 @@ from app.infrastructure.db.repositories.conversations import SqlConversationRepo
 from app.infrastructure.db.repositories.feedback import SqlFeedbackRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
+from app.infrastructure.db.repositories.users import SqlUserRepository
 from app.services.conversation_service import ConversationService
 from app.services.feedback_service import FeedbackService
 from app.services.job_service import JobService
+from app.services.me_service import MeService
 from app.services.ports import UserRef
 from app.services.recommendation_service import RecommendationService
 from app.services.trip_service import TripService
@@ -111,6 +113,20 @@ def get_feedback_service(request: Request) -> FeedbackService:
         feedback=SqlFeedbackRepository(sessions),
         recommendations=SqlRecommendationRepository(sessions),
         audit=SqlAuditWriter(sessions),
+        settings=resources.settings,
+        clock=_CLOCK,
+    )
+
+
+def get_me_service(request: Request) -> MeService:
+    resources = get_resources(request)
+    sessions = _require(resources.sessions, "sessions")
+    return MeService(
+        users=SqlUserRepository(sessions),
+        jobs=get_job_service(request),
+        user_data=_require(resources.user_data, "user_data"),
+        audit=SqlAuditWriter(sessions),
+        queue=_require(resources.queue, "queue"),
         settings=resources.settings,
         clock=_CLOCK,
     )

@@ -127,3 +127,14 @@ def test_trip_settings_defaults_and_override(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("TRIP_ALERT_BATCH_SIZE", "0")
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_maintenance_settings_defaults_and_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert Settings().maintenance.reaper_interval_minutes == 5  # P-60
+    assert Settings().maintenance.account_deletion_retry_minutes == 10  # P-61
+
+    monkeypatch.setenv("REAPER_INTERVAL_MINUTES", "2")
+    assert Settings().maintenance.reaper_interval_minutes == 2
+    monkeypatch.setenv("ACCOUNT_DELETION_RETRY_MINUTES", "0")
+    with pytest.raises(ValidationError):
+        Settings()

@@ -21,7 +21,8 @@ Design documents:
 | 5.6 | Recommendation flow: `POST/GET /v1/travel/recommendations`, Celery worker, job state and SSE in Redis, stream tickets, cache | done |
 | 5.7 | Conversations and follow-up questions (`/v1/conversations`), recommendation history with cursor pagination | done |
 | 5.8 | Trips, assessments and live alerts (`/v1/trips`, Celery beat), feedback and the safety review queue | done |
-| 5.9–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
+| 5.9a | Profile and consents (`/v1/me`), account deletion, job cancel (`DELETE /v1/jobs/{id}`), stuck-job reaper, anonymized prediction records | done |
+| 5.9b–5.12 | See [Project Structure §14](docs/04_project_structure.md#14-phase-5--ลำดับการ-implement-ที่เสนอ) | planned |
 
 ## Requirements
 
@@ -174,6 +175,26 @@ curl -s -X PATCH http://localhost:8000/v1/admin/feedback/reviews/<feedback_id> \
   -H "Authorization: Bearer $REVIEWER" -H "content-type: application/json" \
   -d '{"status":"approved","note":"ยืนยันแล้ว"}'
 ```
+
+## Profile, consents and account deletion
+
+`/v1/me` needs the `profile:read` / `profile:write` scopes. Consents are recorded with the
+server time and audited; `analytics` allows anonymized prediction records, `live_alerts`
+allows live trip alerts. Deleting the account answers `202`, stops running jobs and
+removes the data in the background; until then the account gets `403`.
+
+```bash
+ME=$(docker compose exec -T api python -m scripts.dev_token --sub alice \
+  --scope profile:read --scope profile:write)
+curl -s -H "Authorization: Bearer $ME" http://localhost:8000/v1/me
+curl -s -X PATCH http://localhost:8000/v1/me \
+  -H "Authorization: Bearer $ME" -H "content-type: application/merge-patch+json" \
+  -d '{"language":"en","consents":{"analytics":true}}'
+curl -s -X DELETE -H "Authorization: Bearer $ME" http://localhost:8000/v1/me
+```
+
+Cancel a running job with `DELETE /v1/jobs/{id}` (`202`, or `409` when it has finished).
+The worker stops the Agent run; the event stream ends with `cancelled`.
 
 On Windows, `curl.exe` may replace Thai text in `-d '...'` with `?` before sending it.
 Put the body in a UTF-8 file and send it with `--data-binary @body.json` instead.

@@ -14,6 +14,9 @@ from app.infrastructure.queue import CeleryJobQueue
 from app.workers import celery_app as celery_module
 from app.workers.celery_app import (
     ALERT_QUEUE,
+    DELETE_ACCOUNT,
+    MAINTENANCE_QUEUE,
+    REAP_STUCK_JOBS,
     RECOMMENDATION_QUEUE,
     RUN_RECOMMENDATION,
     SCAN_TRIP_ALERTS,
@@ -21,6 +24,7 @@ from app.workers.celery_app import (
 )
 from app.workers.runtime import WorkerRuntime
 from app.workers.schedule import beat_schedule
+from app.workers.tasks import maintenance as maintenance_module
 from app.workers.tasks import recommendation as task_module
 from app.workers.tasks import trip_alerts as alert_module
 
@@ -39,6 +43,9 @@ def test_celery_configuration(settings: Settings) -> None:
     assert conf.task_routes[RUN_RECOMMENDATION] == {"queue": RECOMMENDATION_QUEUE}
     assert conf.task_routes[SCAN_TRIP_ALERTS] == {"queue": ALERT_QUEUE}
     assert "app.workers.tasks.trip_alerts" in conf.include
+    assert "app.workers.tasks.maintenance" in conf.include
+    assert conf.task_routes[REAP_STUCK_JOBS] == {"queue": MAINTENANCE_QUEUE}
+    assert conf.task_routes[DELETE_ACCOUNT] == {"queue": MAINTENANCE_QUEUE}
     assert conf.beat_schedule == beat_schedule(settings)
     # Our JSON logs go to the real stdout; the redirect proxy would swallow them.
     assert conf.worker_redirect_stdouts is False
@@ -51,6 +58,8 @@ def test_module_exposes_a_configured_app_with_the_task() -> None:
 
     assert RUN_RECOMMENDATION in app.tasks
     assert SCAN_TRIP_ALERTS in app.tasks
+    assert REAP_STUCK_JOBS in app.tasks
+    assert DELETE_ACCOUNT in app.tasks
     with pytest.raises(AttributeError):
         _ = celery_module.not_there
 
@@ -196,3 +205,88 @@ def test_runtime_scans_in_the_callers_context(monkeypatch: pytest.MonkeyPatch) -
         runtime.close()
 
     assert seen == ["scan-1"]
+
+
+def test_beat_schedule_runs_the_reaper(settings: Settings) -> None:
+    maintenance = settings.maintenance.model_copy(update={"reaper_interval_minutes": 2})
+    changed = settings.model_copy(update={"maintenance": maintenance})
+
+    entry = beat_schedule(changed)["reap-stuck-jobs"]
+
+    assert entry["task"] == REAP_STUCK_JOBS
+    assert entry["schedule"] == timedelta(minutes=2)
+    assert entry["options"] == {"queue": MAINTENANCE_QUEUE, "expires": 120}
+
+
+class FakeMaintenanceRuntime:
+    def __init__(self) -> None:
+        self.reaps: list[str | None] = []
+        self.deleted: list[tuple[UUID, str | None]] = []
+
+    def reap_stuck_jobs(self) -> dict[str, int]:
+        self.reaps.append(correlation_id_var.get())
+        return {"reaped": 1, "deletions_requeued": 0}
+
+    def delete_account(self, user_id: UUID) -> bool:
+        self.deleted.append((user_id, correlation_id_var.get()))
+        return True
+
+
+def test_reaper_task_has_its_own_correlation_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeMaintenanceRuntime()
+    monkeypatch.setattr(maintenance_module, "runtime", runtime)
+
+    assert maintenance_module.reap_stuck_jobs() == {"reaped": 1, "deletions_requeued": 0}
+
+    assert runtime.reaps[0]
+    assert correlation_id_var.get() is None
+
+
+def test_delete_account_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = FakeMaintenanceRuntime()
+    monkeypatch.setattr(maintenance_module, "runtime", runtime)
+    user_id = new_id()
+
+    assert maintenance_module.delete_account(str(user_id), correlation_id="corr-7") is True
+    assert maintenance_module.delete_account("not-a-uuid") is False
+
+    assert runtime.deleted == [(user_id, "corr-7")]
+
+
+async def test_queue_sends_account_deletions_to_maintenance() -> None:
+    celery = FakeCelery()
+    user_id = new_id()
+
+    await CeleryJobQueue(celery).enqueue_account_deletion(  # type: ignore[arg-type]
+        user_id, correlation_id="corr-2"
+    )
+
+    name, options = celery.sent[0]
+    assert name == DELETE_ACCOUNT
+    assert options["kwargs"] == {"user_id": str(user_id), "correlation_id": "corr-2"}
+    assert options["queue"] == MAINTENANCE_QUEUE
+
+
+def test_runtime_runs_maintenance_in_the_callers_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    runtime = WorkerRuntime()
+    seen: list[str | None] = []
+
+    async def fake_reap() -> dict[str, int]:
+        seen.append(correlation_id_var.get())
+        return {"reaped": 0, "deletions_requeued": 0}
+
+    async def fake_delete(user_id: UUID) -> bool:
+        seen.append(correlation_id_var.get())
+        return True
+
+    monkeypatch.setattr(runtime, "_reap", fake_reap)
+    monkeypatch.setattr(runtime, "_delete", fake_delete)
+    token = correlation_id_var.set("maint-1")
+    try:
+        runtime.reap_stuck_jobs()
+        assert runtime.delete_account(new_id()) is True
+    finally:
+        correlation_id_var.reset(token)
+        runtime.close()
+
+    assert seen == ["maint-1", "maint-1"]

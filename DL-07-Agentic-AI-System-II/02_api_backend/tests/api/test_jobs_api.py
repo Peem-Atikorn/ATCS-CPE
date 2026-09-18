@@ -185,3 +185,39 @@ async def test_stream_slot_is_released_when_the_response_is_cancelled() -> None:
             scope.cancel()
 
     assert fake.closed == ["conn-1"]
+
+
+async def test_cancel_a_job(
+    client: httpx.AsyncClient, make_token: TokenFactory, fake: FakeJobs
+) -> None:
+    running = job()
+    done = job(status=JobStatus.SUCCEEDED, stage=JobStage.COMPLETED)
+    fake.jobs.update({running.id: running, done.id: done})
+    headers = bearer(make_token())
+
+    cancelled = await client.delete(f"/v1/jobs/{running.id}", headers=headers)
+    finished = await client.delete(f"/v1/jobs/{done.id}", headers=headers)
+    missing = await client.delete(f"/v1/jobs/{new_id()}", headers=headers)
+    read_only = await client.delete(
+        f"/v1/jobs/{running.id}", headers=bearer(make_token(scopes=["travel:read"]))
+    )
+
+    assert cancelled.status_code == 202
+    assert cancelled.json()["status"] == "cancelled"
+    assert cancelled.json()["stage"] == "cancelled"
+    assert finished.status_code == 409
+    assert finished.json()["code"] == "JOB_NOT_CANCELLABLE"
+    assert missing.status_code == 404
+    assert read_only.status_code == 403
+
+
+async def test_cancel_reports_rate_limit_headers(
+    client: httpx.AsyncClient, make_token: TokenFactory, fake: FakeJobs
+) -> None:
+    running = job()
+    fake.jobs[running.id] = running
+
+    response = await client.delete(f"/v1/jobs/{running.id}", headers=bearer(make_token()))
+
+    assert response.status_code == 202
+    assert "RateLimit-Limit" in response.headers

@@ -1,4 +1,4 @@
-"""E-04 job status, stream tickets and E-06 SSE progress (docs/02_api_spec.md section 6)."""
+"""E-04 job status, E-05 cancel, stream tickets and E-06 SSE (docs/02_api_spec.md section 6)."""
 
 from __future__ import annotations
 
@@ -7,13 +7,14 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from uuid import UUID
 
 import anyio
-from fastapi import APIRouter, Depends, Header, Query, Request
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.types import Receive, Send
 from starlette.types import Scope as AsgiScope
 
 from app.api.auth import authenticate, ensure_scopes, require_scopes
 from app.api.deps import get_current_user, get_job_service, get_user_service
+from app.api.v1.responses import json_response
 from app.core.security import Scope
 from app.infrastructure.redis.job_state import JobEvent
 from app.schemas.v1.jobs import JobResponse, StreamTicketResponse
@@ -80,6 +81,23 @@ async def get_job(
     service: JobService = Depends(get_job_service),
 ) -> JobResponse:
     return JobResponse.from_record(await service.get(user.id, job_id))
+
+
+@router.delete(
+    "/{job_id}",
+    summary="Cancel a job",
+    status_code=202,
+    response_model=JobResponse,
+    dependencies=[Depends(require_scopes(Scope.TRAVEL_WRITE))],
+)
+async def cancel_job(
+    job_id: UUID,
+    response: Response,
+    user: UserRef = Depends(get_current_user),
+    service: JobService = Depends(get_job_service),
+) -> JSONResponse:
+    cancelled = await service.cancel(user.id, job_id)
+    return json_response(JobResponse.from_record(cancelled), 202, response)
 
 
 @router.post(

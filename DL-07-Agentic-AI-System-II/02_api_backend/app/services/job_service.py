@@ -13,7 +13,7 @@ from app.core.config import Settings
 from app.core.errors import ERROR_SPECS, AppError, ErrorCode
 from app.core.ids import new_id
 from app.core.logging import get_logger
-from app.domain.enums import JobStatus
+from app.domain.enums import JobStage, JobStatus
 from app.infrastructure.redis.job_state import JobEvent
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import SlotLimiter
@@ -63,6 +63,28 @@ class JobService:
         record = await self._repo.get_job(user_id, job_id)
         if record is None:
             raise AppError(ErrorCode.NOT_FOUND)
+        return record
+
+    # ------------------------------------------------------------------ cancel
+
+    async def cancel(self, user_id: UUID, job_id: UUID) -> JobRecord:
+        """E-05: the database decides; the worker notices and stops the Agent run (D-72)."""
+        now = self._clock.now()
+        outcome, record = await self._repo.cancel_job(user_id, job_id, now=now)
+        if outcome is None or record is None:
+            raise AppError(ErrorCode.NOT_FOUND)
+        if outcome == "not_cancellable":
+            raise AppError(ErrorCode.JOB_NOT_CANCELLABLE)
+        try:
+            await self._jobs.update(
+                job_id, updated_at=now, status=JobStatus.CANCELLED, stage=JobStage.CANCELLED
+            )
+            await self._jobs.publish(job_id, "cancelled", {"job_id": str(job_id)})
+            await self._slots.release(self._keys.active_jobs(user_id), str(job_id))
+        except _REDIS_ERRORS as exc:
+            # Clients fall back to the database, which already says cancelled.
+            log.warning("job_cancel_state_unavailable", error_type=type(exc).__name__)
+        log.info("job_cancelled", job_id=str(job_id))
         return record
 
     # ------------------------------------------------------------------ tickets

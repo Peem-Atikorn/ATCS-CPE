@@ -40,6 +40,7 @@ from app.infrastructure.db.models import (
     EmergencyDefaultModel,
     JobModel,
     MessageModel,
+    PredictionRecordModel,
     RecommendationModel,
     TravelRequestModel,
     TripModel,
@@ -53,6 +54,7 @@ from app.infrastructure.db.repositories.requests import (
 )
 from app.services.pagination import Cursor
 from app.services.ports import (
+    CancelOutcome,
     CreatedRecommendation,
     JobOutcome,
     JobRecord,
@@ -69,6 +71,8 @@ log = get_logger(__name__)
 MESSAGE_MAX_CHARS = 4000
 TITLE_MAX_CHARS = 200
 _ACTIVE = (JobStatus.QUEUED.value, JobStatus.RUNNING.value)
+# A job the reaper closes ran out of time from the user's point of view (D-74).
+_STUCK_CODE = "AGENT_TIMEOUT"
 
 
 def _title(request: NormalizedTravelRequest) -> str | None:
@@ -87,6 +91,7 @@ def user_ref(row: UserModel) -> UserRef:
         pseudonymous_id=row.pseudonymous_id,
         language=row.language,
         home_region=row.home_region,
+        deletion_requested=row.deleted_at is not None,
     )
 
 
@@ -452,6 +457,7 @@ class SqlRecommendationRepository:
                 request=request,
                 context=context,
                 cache_key=travel.cache_key,
+                analytics=user.consent_analytics,
             )
 
     async def _context(
@@ -475,15 +481,73 @@ class SqlRecommendationRepository:
         ).all()
         return tuple((role, content) for role, content in reversed(rows))
 
-    async def finish_job(self, job_id: UUID, outcome: JobOutcome) -> None:
+    async def job_cancelled(self, job_id: UUID) -> bool:
+        """True once the job is no longer queued or running (cancelled, reaped or gone)."""
+        async with self._sessions() as session:
+            status = await session.scalar(select(JobModel.status).where(JobModel.id == job_id))
+            return status not in _ACTIVE
+
+    async def cancel_job(
+        self, user_id: UUID, job_id: UUID, *, now: datetime
+    ) -> tuple[CancelOutcome, JobRecord | None]:
+        async with self._sessions() as session, session.begin():
+            job = await session.scalar(
+                select(JobModel)
+                .where(JobModel.id == job_id, JobModel.user_id == user_id)
+                .with_for_update()
+            )
+            if job is None:
+                return None, None
+            if job.status not in _ACTIVE:
+                return "not_cancellable", _job_record(job)
+            job.status = JobStatus.CANCELLED.value
+            job.stage = JobStage.CANCELLED.value
+            job.cancel_requested_at = now
+            job.finished_at = now
+            if job.recommendation_id is not None:
+                recommendation = await session.get(RecommendationModel, job.recommendation_id)
+                if recommendation is not None:
+                    recommendation.status = RecommendationStatus.CANCELLED.value
+                    recommendation.completed_at = now
+            return "cancelled", _job_record(job)
+
+    async def reap_stuck_jobs(
+        self, *, older_than: datetime, now: datetime, limit: int
+    ) -> list[JobRecord]:
+        async with self._sessions() as session, session.begin():
+            jobs = (
+                await session.scalars(
+                    select(JobModel)
+                    .where(JobModel.status.in_(_ACTIVE), JobModel.created_at < older_than)
+                    .order_by(JobModel.created_at)
+                    .limit(limit)
+                    .with_for_update(skip_locked=True)
+                )
+            ).all()
+            reaped = []
+            for job in jobs:
+                _mark_failed(job, _STUCK_CODE, now)
+                if job.recommendation_id is not None:
+                    recommendation = await session.get(RecommendationModel, job.recommendation_id)
+                    if recommendation is not None:
+                        _fail_recommendation(recommendation, _STUCK_CODE, now)
+                reaped.append(_job_record(job))
+            return reaped
+
+    async def finish_job(self, job_id: UUID, outcome: JobOutcome) -> bool:
+        """Store the outcome; False when the job was cancelled or reaped meanwhile (D-73)."""
         now = outcome.finished_at
         async with self._sessions() as session, session.begin():
             job = await session.get(JobModel, job_id, with_for_update=True)
             if job is None:
-                return
+                return False
+            applied = job.status in _ACTIVE
             recommendation = await session.get(RecommendationModel, job.recommendation_id)
             assert recommendation is not None
-            if outcome.status is JobStatus.SUCCEEDED and outcome.result is not None:
+            if not applied:
+                if outcome.status is not JobStatus.CANCELLED:
+                    log.info("job_result_discarded", job_id=str(job_id), status=job.status)
+            elif outcome.status is JobStatus.SUCCEEDED and outcome.result is not None:
                 job.status = JobStatus.SUCCEEDED.value
                 job.stage = JobStage.COMPLETED.value
                 job.progress = 100
@@ -506,6 +570,14 @@ class SqlRecommendationRepository:
                 )
                 if conversation is not None:
                     conversation.expires_at = expires_at(now, outcome.conversation_days)
+                if outcome.prediction is not None:
+                    await _store_prediction(session, job.user_id, recommendation.id, outcome)
+            elif outcome.status is JobStatus.CANCELLED:
+                job.status = JobStatus.CANCELLED.value
+                job.stage = JobStage.CANCELLED.value
+                job.finished_at = now
+                recommendation.status = RecommendationStatus.CANCELLED.value
+                recommendation.completed_at = now
             else:
                 code = outcome.error_code or "INTERNAL_ERROR"
                 _mark_failed(job, code, now)
@@ -528,6 +600,49 @@ class SqlRecommendationRepository:
                         finished_at=run.finished_at,
                     )
                 )
+            return applied
+
+
+async def _store_prediction(
+    session: AsyncSession, user_id: UUID, recommendation_id: UUID, outcome: JobOutcome
+) -> None:
+    """Anonymized copy for MLOps, only with the user's analytics consent (D-13, D-75)."""
+    prediction = outcome.prediction
+    assert prediction is not None
+    consent = await session.scalar(
+        select(UserModel.consent_analytics).where(UserModel.id == user_id)
+    )
+    if not consent:
+        return
+    now = outcome.finished_at
+    session.add(
+        PredictionRecordModel(
+            id=new_id(),
+            recommendation_id=recommendation_id,
+            origin_geohash=prediction.origin_geohash,
+            destination_geohash=prediction.destination_geohash,
+            region_code=prediction.region_code,
+            departure_bucket=prediction.departure_bucket,
+            lead_time_hours=prediction.lead_time_hours,
+            travel_modes=list(prediction.travel_modes),
+            status=prediction.status.value,
+            risk_level=prediction.risk_level.value if prediction.risk_level else None,
+            risk_score=_decimal(prediction.risk_score),
+            risk_confidence=_decimal(prediction.risk_confidence),
+            recommendation_type=(
+                prediction.recommendation_type.value if prediction.recommendation_type else None
+            ),
+            hazard_types=list(prediction.hazard_types),
+            data_freshness=prediction.data_freshness,
+            service_status=prediction.service_status,
+            safety_gate_rules=list(prediction.safety_gate_rules),
+            agent_version=prediction.agent_version,
+            risk_model_version=prediction.risk_model_version,
+            prompt_version=prediction.prompt_version,
+            created_at=now,
+            expires_at=expires_at(now, outcome.prediction_days),
+        )
+    )
 
 
 def _coordinates(points: list[dict[str, Any]]) -> list[tuple[float, float]]:

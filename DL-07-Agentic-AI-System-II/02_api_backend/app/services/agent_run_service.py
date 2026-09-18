@@ -6,6 +6,7 @@ final event, so waiting API requests and SSE clients always learn the result.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -27,6 +28,7 @@ from app.domain.enums import (
 )
 from app.domain.freshness import StalenessPolicy
 from app.domain.normalization import GeoPoint
+from app.domain.prediction import PredictionData, build_prediction
 from app.domain.safety_gate import SafetyGateRejection
 from app.infrastructure.agent.client import AgentCallError, AttemptRecord
 from app.infrastructure.agent.contracts import (
@@ -62,6 +64,8 @@ _AGENT_STAGES = frozenset(
     {JobStage.FETCHING_DATA, JobStage.ASSESSING_RISK, JobStage.GENERATING_ADVICE}
 )
 _REDIS_ERRORS = (RedisError, OSError)
+# How often a running job checks whether the user cancelled it (D-72).
+CANCEL_POLL_SECONDS = 1.0
 
 
 def staleness_policy(settings: CacheSettings) -> StalenessPolicy:
@@ -175,15 +179,29 @@ class AgentRunService:
         progress = _Progress(self, item)
         await progress.stage(JobStage.FETCHING_DATA, status=JobStatus.RUNNING)
         run_id = new_id()
-        deadline = self._clock.now() + timedelta(
-            seconds=self._settings.agent.job_agent_timeout_seconds
-        )
-        try:
-            call = await self._agent.run(
+        started = self._clock.now()
+        deadline = started + timedelta(seconds=self._settings.agent.job_agent_timeout_seconds)
+        call_task = asyncio.create_task(
+            self._agent.run(
                 self._agent_request(item, run_id, deadline),
                 deadline=deadline,
                 on_progress=progress.from_agent,
             )
+        )
+        watch_task = asyncio.create_task(self._watch_cancel(item.job_id))
+        try:
+            await asyncio.wait({call_task, watch_task}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            watch_task.cancel()
+            if not call_task.done():
+                # Cancelled by the user (or the worker is stopping): the client tells the
+                # Agent to stop the run before the task ends.
+                call_task.cancel()
+            await asyncio.gather(call_task, watch_task, return_exceptions=True)
+        if call_task.cancelled():
+            return await self._cancelled(item, run_id, started)
+        try:
+            call = call_task.result()
         except AgentCallError as exc:
             record = _run_record(run_id, item.attempt, exc.attempts)
             return await self._fail(item, exc.to_app_error().code, record)
@@ -225,7 +243,7 @@ class AgentRunService:
             assessment, versions=response.versions, api_version=self._settings.app.api_version
         )
         now = self._clock.now()
-        await self._repo.finish_job(
+        stored = await self._repo.finish_job(
             item.job_id,
             JobOutcome(
                 status=JobStatus.SUCCEEDED,
@@ -234,8 +252,13 @@ class AgentRunService:
                 error_code=None,
                 agent_run=_run_record(run_id, item.attempt, call.attempts, response),
                 conversation_days=self._settings.retention.retention_conversation_days,
+                prediction=await self._prediction(item, result, now),
+                prediction_days=self._settings.retention.retention_prediction_days,
             ),
         )
+        if not stored:
+            # Cancelled or reaped while the Agent was working: nothing to announce (D-73).
+            return JobStatus.CANCELLED
         if item.cache_key is not None and result_is_cacheable(
             status=assessment.status,
             risk_level=assessment.risk_level,
@@ -265,6 +288,56 @@ class AgentRunService:
             rules=list(assessment.applied_rules),
         )
         return JobStatus.SUCCEEDED
+
+    async def _watch_cancel(self, job_id: UUID) -> None:
+        while True:
+            await asyncio.sleep(CANCEL_POLL_SECONDS)
+            try:
+                if await self._repo.job_cancelled(job_id):
+                    return
+            except Exception as exc:  # the next poll tries again
+                log.warning("job_cancel_check_failed", error_type=type(exc).__name__)
+
+    async def _cancelled(self, item: WorkItem, run_id: UUID, started: datetime) -> JobStatus:
+        now = self._clock.now()
+        await self._repo.finish_job(
+            item.job_id,
+            JobOutcome(
+                status=JobStatus.CANCELLED,
+                finished_at=now,
+                result=None,
+                error_code=None,
+                agent_run=AgentRunRecord(
+                    run_id=run_id,
+                    attempt=item.attempt,
+                    status=AgentRunStatus.CANCELLED,
+                    http_status=None,
+                    error_code=None,
+                    started_at=started,
+                    finished_at=now,
+                    tool_calls=None,
+                    agent_version=None,
+                    trace_id=None,
+                ),
+                conversation_days=self._settings.retention.retention_conversation_days,
+            ),
+        )
+        log.info("job_stopped_after_cancel", job_id=str(item.job_id))
+        return JobStatus.CANCELLED
+
+    async def _prediction(
+        self, item: WorkItem, result: StoredResult, now: datetime
+    ) -> PredictionData | None:
+        if not item.analytics:
+            return None
+        origin = item.request.origin
+        return build_prediction(
+            item.request,
+            result,
+            now=now,
+            region_code=await self._repo.region_for(origin.lat, origin.lon),
+            precision=self._settings.privacy.prediction_geohash_precision,
+        )
 
     def _agent_request(self, item: WorkItem, run_id: UUID, deadline: datetime) -> AgentRunRequest:
         request = item.request
@@ -323,7 +396,7 @@ class AgentRunService:
     async def _fail(
         self, item: WorkItem, code: ErrorCode, record: AgentRunRecord | None
     ) -> JobStatus:
-        await self._repo.finish_job(
+        stored = await self._repo.finish_job(
             item.job_id,
             JobOutcome(
                 status=JobStatus.FAILED,
@@ -334,6 +407,8 @@ class AgentRunService:
                 conversation_days=self._settings.retention.retention_conversation_days,
             ),
         )
+        if not stored:
+            return JobStatus.CANCELLED
         await self._finish_state(
             item,
             JobStatus.FAILED,

@@ -18,9 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.core.clock import SystemClock
 from app.core.config import Settings, get_settings
+from app.core.ids import correlation_id_var, new_id
 from app.infrastructure.agent.factory import build_agent_client
+from app.infrastructure.audit import SqlAuditWriter
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
+from app.infrastructure.db.repositories.users import SqlUserRepository
 from app.infrastructure.db.session import create_engine, create_session_factory
 from app.infrastructure.queue import CeleryJobQueue
 from app.infrastructure.redis.cache import RedisRecommendationCache
@@ -28,7 +31,9 @@ from app.infrastructure.redis.clients import RedisClients, create_redis_clients
 from app.infrastructure.redis.job_state import RedisJobStateStore
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import RedisSlotLimiter
+from app.services.account_service import AccountService
 from app.services.agent_run_service import AgentRunService
+from app.services.reaper_service import ReaperService
 from app.services.recommendation_service import RecommendationService
 from app.services.trip_alert_service import TripAlertService
 from app.services.trip_service import TripService
@@ -42,6 +47,8 @@ class WorkerResources:
     http: httpx.AsyncClient
     service: AgentRunService
     alerts: TripAlertService
+    reaper: ReaperService
+    accounts: AccountService
 
     async def aclose(self) -> None:
         await self.http.aclose()
@@ -74,12 +81,13 @@ def build_worker_resources(settings: Settings) -> WorkerResources:
     )
     # Scheduled re-assessments are queued like API requests and run by run_recommendation.
     trips = SqlTripRepository(sessions)
+    queue = CeleryJobQueue(get_celery())
     recommendations = RecommendationService(
         repository=repository,
         job_state=job_state,
         slots=slots,
         cache=cache,
-        queue=CeleryJobQueue(get_celery()),
+        queue=queue,
         keys=keys,
         settings=settings,
         clock=clock,
@@ -92,7 +100,19 @@ def build_worker_resources(settings: Settings) -> WorkerResources:
         settings=settings,
         clock=clock,
     )
-    return WorkerResources(engine, redis, http, service, alerts)
+    users = SqlUserRepository(sessions)
+    reaper = ReaperService(
+        recommendations=repository,
+        users=users,
+        job_state=job_state,
+        slots=slots,
+        queue=queue,
+        keys=keys,
+        settings=settings,
+        clock=clock,
+    )
+    accounts = AccountService(users=users, audit=SqlAuditWriter(sessions))
+    return WorkerResources(engine, redis, http, service, alerts, reaper, accounts)
 
 
 class WorkerRuntime:
@@ -113,6 +133,12 @@ class WorkerRuntime:
     def scan_trip_alerts(self) -> dict[str, int]:
         return self._call(self._scan())
 
+    def reap_stuck_jobs(self) -> dict[str, int]:
+        return self._call(self._reap())
+
+    def delete_account(self, user_id: UUID) -> bool:
+        return self._call(self._delete(user_id))
+
     def _get_resources(self) -> WorkerResources:
         if self._resources is None:
             self._resources = build_worker_resources(get_settings())
@@ -125,6 +151,14 @@ class WorkerRuntime:
     async def _scan(self) -> dict[str, int]:
         result = await self._get_resources().alerts.scan()
         return {"queued": result.queued, "skipped": result.skipped}
+
+    async def _reap(self) -> dict[str, int]:
+        result = await self._get_resources().reaper.run()
+        return {"reaped": result.reaped, "deletions_requeued": result.deletions_requeued}
+
+    async def _delete(self, user_id: UUID) -> bool:
+        correlation = correlation_id_var.get() or str(new_id())
+        return await self._get_resources().accounts.delete(user_id, correlation_id=correlation)
 
     def close(self) -> None:
         if self._runner is None:

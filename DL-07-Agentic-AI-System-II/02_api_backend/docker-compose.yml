@@ -61,7 +61,8 @@ services:
       context: .
       target: dev
     command: ["celery", "-A", "app.workers.celery_app:celery_app", "worker",
-              "-Q", "recommendations,alerts", "--concurrency", "2", "--loglevel", "INFO"]
+              "-Q", "recommendations,alerts,maintenance", "--concurrency", "2",
+              "--loglevel", "INFO"]
     environment:
       <<: *api-env
     volumes:

@@ -43,17 +43,6 @@ def api() -> Iterator[httpx.Client]:
         yield client
 
 
-@pytest.fixture
-def scenario() -> Iterator[Any]:
-    with httpx.Client(base_url=MOCK_URL, timeout=5) as mock:
-
-        def choose(name: str) -> None:
-            mock.put("/_mock/scenario", json={"name": name}).raise_for_status()
-
-        yield choose
-        choose("low_risk")
-
-
 def runs() -> int:
     count: int = httpx.get(f"{MOCK_URL}/_mock/scenario", timeout=5).json()["runs"]
     return count

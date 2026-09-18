@@ -207,3 +207,20 @@ async def test_cache_outage_is_not_an_error() -> None:
     await cache.put("abc", {"a": 1}, ttl_seconds=60)
 
     assert await cache.get("abc") is None
+
+
+@pytest.mark.parametrize("final", [JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED])
+async def test_terminal_status_is_never_left(jobs: RedisJobStateStore, final: JobStatus) -> None:
+    job = snapshot()
+    await jobs.create(job)
+    await jobs.update(job.job_id, updated_at=T0, status=final)
+
+    # A late progress update from a worker must not bring the job back (D-73).
+    await jobs.update(
+        job.job_id, updated_at=T0, status=JobStatus.RUNNING, stage=JobStage.ASSESSING_RISK
+    )
+
+    stored = await jobs.get(job.job_id)
+    assert stored is not None
+    assert stored.status is final
+    assert stored.stage is JobStage.QUEUED

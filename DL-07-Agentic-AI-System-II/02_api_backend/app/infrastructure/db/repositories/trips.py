@@ -11,7 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from geoalchemy2 import Geometry
-from sqlalchemy import Select, cast, delete, exists, func, or_, select, tuple_
+from sqlalchemy import Select, cast, delete, exists, func, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import aliased
 
@@ -119,6 +119,19 @@ def _record(result: Any) -> TripRecord:
     )
 
 
+async def _record_consent(
+    session: AsyncSession, user_id: UUID, draft: TripDraft, now: datetime
+) -> None:
+    """Alerts on a trip mean the user agreed to live alerts (D-77)."""
+    if not draft.alerts.enabled:
+        return
+    await session.execute(
+        update(UserModel)
+        .where(UserModel.id == user_id, UserModel.consent_live_alerts.is_(False))
+        .values(consent_live_alerts=True, consent_live_alerts_at=now, updated_at=now)
+    )
+
+
 class SqlTripRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
@@ -144,6 +157,7 @@ class SqlTripRepository:
         _columns(row, draft)
         async with self._sessions() as session, session.begin():
             session.add(row)
+            await _record_consent(session, user_id, draft, now)
             await session.flush()
             loaded = await self._load(session, user_id, row.id)
         assert loaded is not None
@@ -192,6 +206,7 @@ class SqlTripRepository:
             row.expires_at = expires_at(draft.departure_time, retention_days)
             if outdated:
                 row.assessment_outdated = True
+            await _record_consent(session, user_id, draft, now)
             await session.flush()
             return await self._load(session, user_id, trip_id)
 
@@ -251,9 +266,12 @@ class SqlTripRepository:
         )
         query = (
             select(TripModel.id, TripModel.user_id)
+            .join(UserModel, UserModel.id == TripModel.user_id)
             .outerjoin(_LAST, _LAST.id == TripModel.last_recommendation_id)
             .where(
                 TripModel.alerts_enabled,
+                UserModel.consent_live_alerts,
+                UserModel.deleted_at.is_(None),
                 TripModel.status.in_(_OPEN),
                 TripModel.departure_time > now,
                 TripModel.departure_time <= now + window,

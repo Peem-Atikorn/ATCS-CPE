@@ -26,6 +26,10 @@ class RedisKeys:
         key_hash = sha256_hex(key.encode())
         return f"{self._prefix}idem:{principal_hash}:{method.upper()}:{route_hash}:{key_hash}"
 
+    def idempotency_pattern(self, principal_hash: str) -> str:
+        """SCAN pattern for every stored response of one caller."""
+        return f"{self._prefix}idem:{principal_hash}:*"
+
     def job(self, job_id: UUID) -> str:
         return f"{self._prefix}job:{job_id}"
 

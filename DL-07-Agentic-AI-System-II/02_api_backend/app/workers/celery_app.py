@@ -1,7 +1,7 @@
 """Celery application (docs/04_project_structure.md section 6).
 
 Start a worker and the scheduler with:
-    celery -A app.workers.celery_app:celery_app worker -Q recommendations,alerts
+    celery -A app.workers.celery_app:celery_app worker -Q recommendations,alerts,maintenance
     celery -A app.workers.celery_app:celery_app beat --schedule /tmp/celerybeat-schedule
 
 The app is created on first access, so importing this module needs no configuration.
@@ -18,8 +18,11 @@ from app.core.config import Settings, get_settings
 
 RECOMMENDATION_QUEUE = "recommendations"
 ALERT_QUEUE = "alerts"
+MAINTENANCE_QUEUE = "maintenance"
 RUN_RECOMMENDATION = "app.workers.tasks.recommendation.run_recommendation"
 SCAN_TRIP_ALERTS = "app.workers.tasks.trip_alerts.scan_trip_alerts"
+REAP_STUCK_JOBS = "app.workers.tasks.maintenance.reap_stuck_jobs"
+DELETE_ACCOUNT = "app.workers.tasks.maintenance.delete_account"
 
 
 def create_celery(settings: Settings) -> Celery:
@@ -27,7 +30,11 @@ def create_celery(settings: Settings) -> Celery:
 
     app = Celery("tsa", broker=settings.redis.broker_url(), set_as_current=False)
     app.conf.update(
-        include=["app.workers.tasks.recommendation", "app.workers.tasks.trip_alerts"],
+        include=[
+            "app.workers.tasks.recommendation",
+            "app.workers.tasks.trip_alerts",
+            "app.workers.tasks.maintenance",
+        ],
         task_ignore_result=True,
         task_acks_late=True,
         task_reject_on_worker_lost=True,
@@ -38,6 +45,8 @@ def create_celery(settings: Settings) -> Celery:
         task_routes={
             RUN_RECOMMENDATION: {"queue": RECOMMENDATION_QUEUE},
             SCAN_TRIP_ALERTS: {"queue": ALERT_QUEUE},
+            REAP_STUCK_JOBS: {"queue": MAINTENANCE_QUEUE},
+            DELETE_ACCOUNT: {"queue": MAINTENANCE_QUEUE},
         },
         beat_schedule=beat_schedule(settings),
         timezone="UTC",
@@ -54,7 +63,7 @@ def create_celery(settings: Settings) -> Celery:
 def get_celery() -> Celery:
     celery = create_celery(get_settings())
     # Registers the tasks on this app (they are declared with shared_task).
-    from app.workers.tasks import recommendation, trip_alerts  # noqa: F401
+    from app.workers.tasks import maintenance, recommendation, trip_alerts  # noqa: F401
 
     return celery
 

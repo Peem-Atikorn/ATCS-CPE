@@ -87,7 +87,10 @@
 │   │   ├── trip_service.py            # trips + การประเมิน (Step 5.8)
 │   │   ├── trip_alert_service.py      # scan trip ที่เปิด live alert (Step 5.8)
 │   │   ├── feedback_service.py        # + safety review routing, audit
-│   │   ├── user_service.py            # JIT provisioning, consent, delete, export
+│   │   ├── user_service.py            # JIT provisioning; ปฏิเสธบัญชีที่กำลังถูกลบ
+│   │   ├── me_service.py              # profile, consent, ขอลบบัญชี (Step 5.9a)
+│   │   ├── account_service.py         # ลบบัญชีจริง (task delete_account)
+│   │   ├── reaper_service.py          # job ค้าง + ลบบัญชีที่ค้าง (Step 5.9a)
 │   │   ├── status_service.py
 │   │   ├── agent_run_service.py       # ใช้ใน worker: call agent → safety gate → persist
 │   │   ├── recommendation_payload.py  # assess(): freshness → safety gate → payload ที่ sanitize แล้ว
@@ -102,6 +105,8 @@
 │   │   ├── follow_up.py        # รวม overrides เข้ากับ request เดิม (Step 5.7)
 │   │   ├── trips.py            # ตรวจ trip, merge patch, สถานะ, consent (Step 5.8)
 │   │   ├── feedback.py         # ตรวจ feedback + review routing (Step 5.8)
+│   │   ├── profile.py          # profile, consent, mask email (Step 5.9a)
+│   │   ├── prediction.py       # prediction record แบบ anonymized (Step 5.9a)
 │   │   ├── freshness.py        # is_stale / valid_until (P-28)
 │   │   ├── sanitizer.py        # ตัด field ภายใน, ตรวจ URL, control chars
 │   │   ├── cache_policy.py     # cache key + เงื่อนไขห้าม cache
@@ -117,7 +122,8 @@
 │   │   │   │                   #      mlops.py (prediction_records, feedback), audit.py, reference.py
 │   │   │   ├── migration_filters.py  # autogenerate filter (ใช้ร่วมกับ drift test)
 │   │   │   ├── reference_data.py     # seed coverage_areas / emergency_defaults
-│   │   │   └── repositories/   # recommendations.py, conversations.py, requests.py, trips.py, feedback.py;
+│   │   │   └── repositories/   # recommendations.py, conversations.py, requests.py, trips.py, feedback.py,
+│   │   │                       #   users.py;
 │   │   │                       #   ทุก read ของผู้ใช้รับ user_id (กัน IDOR)
 │   │   ├── redis/
 │   │   │   ├── clients.py      # core / cache connections
@@ -127,6 +133,7 @@
 │   │   │   ├── job_state.py    # HASH + STREAM + done signal
 │   │   │   ├── slots.py        # จำกัดงานค้าง / stream ต่อ user (ZSET)
 │   │   │   ├── tickets.py
+│   │   │   ├── user_data.py    # ลบข้อมูล live ของ user (Step 5.9a)
 │   │   │   └── cache.py
 │   │   ├── agent/
 │   │   │   ├── client.py       # AgentClient (httpx): timeout, retry, deadline, cancel, NDJSON
@@ -145,9 +152,8 @@
 │       ├── tasks/
 │       │   ├── recommendation.py   # run_recommendation(job_id)
 │       │   ├── trip_alerts.py      # scan_trip_alerts: คิวประเมิน trip ใหม่ (Step 5.8)
-│       │   ├── purge.py            # retention (data design §6.1)
-│       │   ├── account.py          # delete user, export data
-│       │   └── reaper.py           # job ค้าง
+│       │   ├── maintenance.py      # reap_stuck_jobs, delete_account (Step 5.9a)
+│       │   └── purge.py            # retention (data design §6.1) — 5.9b
 │       └── schedule.py         # beat schedule (P-56; P-50 เพิ่มใน 5.9)
 │
 ├── migrations/                 # Alembic
@@ -297,7 +303,7 @@ flowchart LR
 
 - Image เดียวใช้ 3 บทบาทโดยเปลี่ยน command:
   - api: `python -m app.serve --workers 2` (ตรวจ config ก่อน แล้วค่อยเรียก uvicorn หลาย worker — D-25)
-  - worker: `celery -A app.workers.celery_app:celery_app worker -Q recommendations,alerts` (queue `maintenance` เพิ่มใน 5.9)
+  - worker: `celery -A app.workers.celery_app:celery_app worker -Q recommendations,alerts,maintenance`
   - beat: `celery -A app.workers.celery_app:celery_app beat --schedule /tmp/celerybeat-schedule` (หนึ่งตัวต่อ stack, Step 5.8)
 - Migration รันเป็น one-off service (`migrate`) ก่อน api start — ไม่รันใน api container
 
@@ -329,7 +335,7 @@ flowchart LR
 |---|---|---|
 | `recommendations` | `run_recommendation` | 4 (prefork; งานส่วนใหญ่คือรอ Agent) |
 | `alerts` | `scan_trip_alerts` (งานประเมินไปเข้า `recommendations`) | 2 — ตอนนี้ worker ตัวเดียวฟังทั้งสอง queue |
-| `maintenance` | `purge_expired`, `reap_stuck_jobs`, `delete_account`, `build_data_export` | 1 |
+| `maintenance` | `reap_stuck_jobs`, `delete_account` (5.9a); `purge_expired`, `build_data_export` (5.9b) | 1 — ตอนนี้ worker ตัวเดียวฟังทุก queue |
 
 - `task_acks_late=True`, `worker_prefetch_multiplier=1`, `task_reject_on_worker_lost=True`
 - Task รับแค่ `job_id` (ไม่ส่ง payload/PII ผ่าน broker) → โหลดจาก DB
@@ -478,6 +484,15 @@ flowchart LR
 | D-69 | review queue (`safety:review`) ทำใน 5.8; ค่า status เป็นตัวพิมพ์เล็ก; review ได้เฉพาะ `pending` (`409 REVIEW_NOT_PENDING`); approved → `usable_for_training` | รอ 5.11 | Accepted (Step 5.8) |
 | D-70 | `SqlAuditWriter` เขียนลง default partition; `actor_ref` = pseudonym (user) หรือ `sub` (staff); `ip_hash` = HMAC | เขียน audit ผ่าน log | Accepted (Step 5.8) |
 | D-71 | migration `0008`: index `recommendations (trip_id, created_at DESC) WHERE trip_id IS NOT NULL` | ไม่มี index | Accepted (Step 5.8) |
+| D-72 | E-05 ยกเลิกใน DB ทันที + event `cancelled` + คืน slot; ไม่ใช้ Celery revoke; worker ตรวจ DB ทุก 1 วินาทีระหว่างรอ Agent แล้วยกเลิก run ที่ Agent | Celery revoke | Accepted (Step 5.9a) |
+| D-73 | ผล/ความล้มเหลวที่มาหลัง job ไม่ active แล้วถูกทิ้ง; Redis job hash ไม่ย้อนจาก terminal (Lua) | เขียนทับตามลำดับที่มาถึง | Accepted (Step 5.9a) |
+| D-74 | reaper (beat ทุก P-60, queue `maintenance`) ปิด job ที่เก่ากว่า P-04 × 2 เป็น `failed` + `AGENT_TIMEOUT` | ปล่อยให้ค้าง | Accepted (Step 5.9a) |
+| D-75 | worker เขียน `prediction_records` ของผลสำเร็จเมื่อ user มี consent analytics; สร้างด้วยฟังก์ชัน domain (geohash P-48) | เขียนทุก user | Accepted (Step 5.9a) |
+| D-76 | `PATCH /v1/me` เป็น merge patch; ตรวจ language/timezone/region; consent on/off บันทึกเวลา server + audit `user.consent` | PUT ทั้งก้อน | Accepted (Step 5.9a) |
+| D-77 | consent `live_alerts` ของ user เป็นสวิตช์หลักของ alert ทุก trip | consent แยกต่อ trip อย่างเดียว | Accepted (Step 5.9a) |
+| D-78 | `DELETE /v1/me` ทำสองจังหวะ: API mark + หยุด job + ลบ Redis + audit + queue; ระหว่างรอ → 403; reaper ส่งใหม่หลัง P-61 | ลบทันทีใน request | Accepted (Step 5.9a) |
+| D-79 | `delete_account`: anonymize feedback แล้ว `DELETE users` (cascade); audit `user.delete` actor `system`; รันซ้ำได้ | soft delete | Accepted (Step 5.9a) |
+| D-80 | `/v1/me` ใช้ scope `profile:*`; `email_masked` มาจาก token ไม่เก็บ | เก็บ email | Accepted (Step 5.9a) |
 | D-26 | Enum เก็บเป็น `VARCHAR` + CHECK (ไม่ใช้ PostgreSQL ENUM) เพื่อเพิ่มค่าได้ใน migration ง่าย | PostgreSQL ENUM | Accepted (Step 5.2) |
 | D-27 | Role DB (`tsa_migrator`, `tsa_app`, `tsa_purge`, `tsa_readonly`) สร้างตอน deploy ไม่ใช่ใน migration | สร้างใน migration | Accepted (Step 5.2) |
 | D-25 | Production ใช้ `uvicorn --workers` ผ่าน `app.serve` (ไม่ใช้ gunicorn); `app.serve` ตรวจ config ก่อน start worker และ exit code 2 เมื่อ config ผิด | gunicorn + `uvicorn-worker` | Accepted (Step 5.1) |
@@ -501,7 +516,8 @@ flowchart LR
 | 5.6 | Recommendation flow: service + Celery task + job state + SSE (+ stream ticket, cache, JIT user แบบย่อ) | E2E: 200 / 202 + events — **done** |
 | 5.7 | Conversations + follow-up, `GET /v1/travel/recommendations` (E-02, cursor) | ครบ E-02, E-08..E-13 — **done** |
 | 5.8 | Trips + alerts, feedback + review queue (+ beat container, audit writer) | E-14..E-19 และ review queue — **done** |
-| 5.9 | Me: delete / export / consent, purge + reaper jobs, `DELETE /v1/jobs/{id}` (E-05), `prediction_records`, partition audit รายเดือน | |
+| 5.9a | Me: profile / consent / ลบบัญชี, reaper, `DELETE /v1/jobs/{id}` (E-05), `prediction_records` | E-05, E-20 — **done** |
+| 5.9b | Data export (E-21/E-22, MinIO), purge job (P-50), partition audit รายเดือน, column encryption (D-15) | |
 | 5.10 | Observability (OTel, metrics), `/ready`, service-status | |
 | 5.11 | Admin endpoints | |
 | 5.12 | OpenAPI export, contract tests, CI | |
@@ -512,6 +528,7 @@ flowchart LR
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
+| 0.10 | 2026-09-18 | Step 5.9a: D-72..D-80, ไฟล์ profile / prediction / me / account / reaper / maintenance, queue `maintenance`; แบ่ง 5.9 เป็น 5.9a / 5.9b |
 | 0.9 | 2026-09-17 | Step 5.8: D-59..D-71, ไฟล์ trips / feedback / audit / alert scan, container `beat` (ย้ายจาก 5.9), queue `alerts` |
 | 0.8 | 2026-09-17 | Step 5.7: D-52..D-58, ไฟล์ `follow_up.py`, `pagination.py`, `conversation_service.py`, repositories ใหม่ |
 | 0.7 | 2026-09-17 | Step 5.6: D-37..D-51 (D-23 แทนด้วย D-37), ไฟล์ใหม่ใน tree, งานที่เลื่อนไป 5.7 / 5.9 |

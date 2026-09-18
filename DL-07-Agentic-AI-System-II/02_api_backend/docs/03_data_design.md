@@ -378,6 +378,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 
 - **Index:** `(created_at)`, `(risk_model_version, created_at)`
 - เขียนเฉพาะเมื่อ `users.consent_analytics = true` — *D-13*
+- Worker เขียนหนึ่งแถวต่อผลสำเร็จของ Agent (ไม่เขียนเมื่อได้จาก cache หรือ fail); `region_code` = coverage area ของต้นทาง — *D-75*
 - `recommendation_id` ใช้ join กับ `feedback` เท่านั้น
 
 ### 3.10 `feedback`
@@ -550,6 +551,8 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
    - `prediction_records` คงอยู่ (ไม่มีข้อมูลระบุตัวตนตั้งแต่ต้น)
 3. `audit_logs` บันทึก `user.delete` (actor_ref เป็น `pseudonymous_id` ไม่ใช่ `sub`)
 
+ที่ทำจริงใน Step 5.9a (D-78, D-79): ไม่ใช้ Celery revoke (job ถูก `cancelled` ใน DB แล้ว worker หยุดเอง); Redis ที่ลบ = `jobs:active`, `streams`, `job:{id}` / `job:{id}:events` ของ job ใน P-05 ล่าสุด และ `idem:{principal_hash}:*`; task ชื่อ `delete_account` (queue `maintenance`) รันซ้ำได้; reaper ส่งงานลบใหม่เมื่อค้างเกิน P-61; audit มี `user.delete_requested` (actor `user`) และ `user.delete` (actor `system`)
+
 ### 6.3 Data Export (`POST /v1/me/data-export`)
 
 รวม `users`, `conversations` + `messages`, `trips`, `recommendations` (payload), `feedback` ของ `pseudonymous_id` → JSON zip → object storage → signed URL
@@ -623,6 +626,7 @@ Diagnostics ของการเรียก Agent — ไม่มีข้อ
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
 | 0.1 | 2026-09-17 | Draft แรก |
+| 0.6 | 2026-09-18 | Step 5.9a: ไม่เปลี่ยน schema; ใช้ `jobs.cancel_requested_at`, `users.deleted_at`, `users.consent_*`, `prediction_records`; รายละเอียดการลบบัญชีใน §6.2 |
 | 0.5 | 2026-09-17 | Step 5.8: index `recommendations (trip_id, created_at DESC)` (migration 0008); การประเมิน trip ใช้ `source = TRIP_ASSESSMENT` / `TRIP_ALERT` และ `jobs.type = TRIP_ASSESSMENT`; audit log ลง default partition จนกว่า 5.9 จะสร้าง partition รายเดือน |
 | 0.4 | 2026-09-17 | Step 5.7: ไม่เปลี่ยน schema; follow-up ใช้ `travel_requests.source = MESSAGE` และ `jobs.type = MESSAGE` |
 | 0.3 | 2026-09-17 | Step 5.6: ตัด `job:{id}:done` (D-38), `jobs:active` เป็น ZSET (D-39), ชื่อ key ของ ticket เป็น hash (D-40) |

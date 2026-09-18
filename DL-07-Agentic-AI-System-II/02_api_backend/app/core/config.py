@@ -235,6 +235,13 @@ class TripSettings(BaseSettings):
     trip_alert_batch_size: int = Field(default=100, gt=0)  # P-59
 
 
+class MaintenanceSettings(BaseSettings):
+    model_config = _ENV_CONFIG
+
+    reaper_interval_minutes: int = Field(default=5, gt=0)  # P-60
+    account_deletion_retry_minutes: int = Field(default=10, gt=0)  # P-61
+
+
 class RetentionSettings(BaseSettings):
     model_config = _ENV_CONFIG
 
@@ -306,6 +313,7 @@ class Settings(BaseModel):
     jobs: JobSettings = Field(default_factory=JobSettings)
     cache: CacheSettings = Field(default_factory=CacheSettings)
     trips: TripSettings = Field(default_factory=TripSettings)
+    maintenance: MaintenanceSettings = Field(default_factory=MaintenanceSettings)
     retention: RetentionSettings = Field(default_factory=RetentionSettings)
     privacy: PrivacySettings = Field(default_factory=PrivacySettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)

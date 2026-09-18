@@ -22,7 +22,8 @@ from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.rate_limiter import RateLimiter, RedisRateLimiter
 from app.infrastructure.redis.slots import RedisSlotLimiter, SlotLimiter
 from app.infrastructure.redis.tickets import RedisTicketStore
-from app.services.ports import CachePort, JobQueue, JobStatePort, TicketPort
+from app.infrastructure.redis.user_data import RedisUserData
+from app.services.ports import CachePort, JobQueue, JobStatePort, TicketPort, UserDataPort
 from app.workers.celery_app import create_celery
 
 
@@ -43,6 +44,7 @@ class AppResources:
     tickets: TicketPort | None = None
     cache: CachePort | None = None
     queue: JobQueue | None = None
+    user_data: UserDataPort | None = None
 
     async def aclose(self) -> None:
         if self.http is not None:
@@ -76,6 +78,7 @@ def build_resources(settings: Settings) -> AppResources:
         tickets=RedisTicketStore(redis.core, keys),
         cache=RedisRecommendationCache(redis.cache, keys),
         queue=CeleryJobQueue(create_celery(settings)),
+        user_data=RedisUserData(redis.core, keys),
     )
 
 

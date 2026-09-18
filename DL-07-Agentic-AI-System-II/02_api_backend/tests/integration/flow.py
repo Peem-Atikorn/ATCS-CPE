@@ -25,15 +25,21 @@ from app.infrastructure.db.repositories.conversations import SqlConversationRepo
 from app.infrastructure.db.repositories.feedback import SqlFeedbackRepository
 from app.infrastructure.db.repositories.recommendations import SqlRecommendationRepository
 from app.infrastructure.db.repositories.trips import SqlTripRepository
+from app.infrastructure.db.repositories.users import SqlUserRepository
 from app.infrastructure.redis.cache import RedisRecommendationCache
 from app.infrastructure.redis.job_state import JobSnapshot, RedisJobStateStore
 from app.infrastructure.redis.keys import RedisKeys
 from app.infrastructure.redis.slots import RedisSlotLimiter
 from app.infrastructure.redis.tickets import RedisTicketStore
+from app.infrastructure.redis.user_data import RedisUserData
+from app.services.account_service import AccountService
 from app.services.agent_run_service import AgentRunService
 from app.services.conversation_service import ConversationService
 from app.services.feedback_service import FeedbackService
+from app.services.job_service import JobService
+from app.services.me_service import MeService
 from app.services.ports import NewRecommendation, UserRef
+from app.services.reaper_service import ReaperService
 from app.services.recommendation_service import RecommendationService
 from app.services.trip_alert_service import TripAlertService
 from app.services.trip_service import TripService
@@ -72,6 +78,7 @@ class InlineQueue:
         self.enqueued: list[tuple[UUID, str]] = []
         self.fail = False
         self.failed: list[tuple[UUID, str]] = []
+        self.deletions: list[tuple[UUID, str]] = []
 
     async def enqueue_recommendation(self, job_id: UUID, *, correlation_id: str) -> str:
         if self.fail:
@@ -81,6 +88,10 @@ class InlineQueue:
         if self.worker is not None:
             self.tasks.append(asyncio.create_task(self.worker(job_id)))
         return f"task-{len(self.enqueued)}"
+
+    async def enqueue_account_deletion(self, user_id: UUID, *, correlation_id: str) -> str:
+        self.deletions.append((user_id, correlation_id))
+        return f"delete-{len(self.deletions)}"
 
     async def drain(self) -> None:
         await asyncio.gather(*self.tasks)
@@ -151,6 +162,47 @@ class Flow:
             trips=SqlTripRepository(self.repo.sessions),
             trip_service=self.trips(chosen),
             settings=chosen,
+            clock=SystemClock(),
+        )
+
+    def jobs_service(self) -> JobService:
+        return JobService(
+            repository=self.repo,
+            job_state=self.jobs,
+            slots=self.slots,
+            tickets=self.tickets,
+            keys=self.keys,
+            settings=self.settings,
+            clock=SystemClock(),
+        )
+
+    def me(self, settings: Settings | None = None) -> MeService:
+        chosen = settings or self.settings
+        return MeService(
+            users=SqlUserRepository(self.repo.sessions),
+            jobs=self.jobs_service(),
+            user_data=RedisUserData(self.redis, self.keys),
+            audit=SqlAuditWriter(self.repo.sessions),
+            queue=self.queue,
+            settings=chosen,
+            clock=SystemClock(),
+        )
+
+    def account(self) -> AccountService:
+        return AccountService(
+            users=SqlUserRepository(self.repo.sessions),
+            audit=SqlAuditWriter(self.repo.sessions),
+        )
+
+    def reaper(self, settings: Settings | None = None) -> ReaperService:
+        return ReaperService(
+            recommendations=self.repo,
+            users=SqlUserRepository(self.repo.sessions),
+            job_state=self.jobs,
+            slots=self.slots,
+            queue=self.queue,
+            keys=self.keys,
+            settings=settings or self.settings,
             clock=SystemClock(),
         )
 

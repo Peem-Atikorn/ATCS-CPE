@@ -20,9 +20,12 @@ from app.infrastructure.redis.keys import RedisKeys
 
 TERMINAL_EVENTS = frozenset({"completed", "failed", "cancelled"})
 
-# Only update a job that still exists, so a late update cannot create a partial hash.
+# Only update a job that still exists, so a late update cannot create a partial hash, and
+# never leave a terminal status, so a late worker cannot revive a cancelled job (D-73).
 _UPDATE = """
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local status = redis.call('HGET', KEYS[1], 'status')
+if status == 'succeeded' or status == 'failed' or status == 'cancelled' then return 0 end
 redis.call('HSET', KEYS[1], unpack(ARGV, 2))
 redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
 return 1

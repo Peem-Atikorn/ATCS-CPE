@@ -97,6 +97,8 @@
 | P-57 | scan เฉพาะ trip ที่ออกเดินทางภายใน | 24 h | `TRIP_ALERT_WINDOW_HOURS` |
 | P-58 | ประเมินซ้ำเมื่อผลล่าสุดเก่ากว่า | 60 min | `TRIP_ALERT_REASSESS_MINUTES` |
 | P-59 | จำนวน trip สูงสุดต่อการ scan หนึ่งรอบ | 100 | `TRIP_ALERT_BATCH_SIZE` |
+| P-60 | รอบของ reaper (job ค้าง + ลบบัญชีที่ค้าง) | 5 min | `REAPER_INTERVAL_MINUTES` |
+| P-61 | ลบบัญชีที่ค้างเกินนี้ → ส่งงานลบใหม่ | 10 min | `ACCOUNT_DELETION_RETRY_MINUTES` |
 
 ---
 
@@ -452,6 +454,13 @@
 - `202` → กำลังยกเลิก (ส่ง revoke ให้ Celery + cancel ไป Agent)
 - `409 JOB_NOT_CANCELLABLE` ถ้าจบแล้ว
 
+**รายละเอียดที่ตัดสินใจตอน implement (Step 5.9a):**
+
+- scope `travel:write`; job ของคนอื่น → `404`; ตอบ `202` พร้อม `JobResponse` (`status = cancelled`)
+- ยกเลิกใน DB ทันที (job + recommendation เป็น `cancelled`), ส่ง event `cancelled` (terminal), คืน slot P-33; ไม่ใช้ Celery revoke — worker ข้าม job ที่ไม่ active ตอนเริ่ม และระหว่างรอ Agent จะตรวจ DB ทุก 1 วินาทีแล้วส่ง `DELETE /runs/{id}` ไปที่ Agent — *D-72*
+- ผลที่มาถึงหลังยกเลิก (หรือหลัง reaper ปิด job) ถูกทิ้ง; สถานะใน Redis ไม่ย้อนกลับจาก terminal — *D-73*
+- **Reaper** (beat ทุก P-60, queue `maintenance`): job `queued`/`running` ที่เก่ากว่า P-04 × 2 → `failed` + `AGENT_TIMEOUT` และส่ง event `failed` — *D-74*
+
 ### 6.3 E-06 `GET /v1/jobs/{job_id}/events` (SSE)
 
 - รองรับ `Last-Event-ID` เพื่อ resume — `id` เป็นค่า opaque (Redis Stream entry id) client ห้ามตีความ
@@ -600,6 +609,17 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 - `PATCH /v1/me` → แก้ `display_name`, `language`, `timezone`, `home_region`, `consents`
 - `DELETE /v1/me` → `202` ลบข้อมูลทั้งหมดแบบ async (feedback ที่ anonymize แล้วเก็บต่อได้)
 - `POST /v1/me/data-export` → `202 { export_id, status }`; `GET /v1/me/data-export/{id}` → `{ status, download_url?, expires_at? }` (signed URL อายุสั้น)
+
+**รายละเอียดที่ตัดสินใจตอน implement (Step 5.9a; export อยู่ใน 5.9b):**
+
+- scope: `GET` ใช้ `profile:read`, `PATCH`/`DELETE` ใช้ `profile:write` — *D-80*
+- `email_masked` มาจาก claim `email` ใน token (`s***@example.com`) ไม่เก็บลง DB; ไม่มี claim → `null`
+- `PATCH` เป็น merge patch (`application/merge-patch+json` หรือ JSON): `display_name` ≤ 100 (`null` = ลบ), `language` = `th`/`en`, `timezone` = IANA, `home_region` = ISO 3166 เช่น `TH`, `TH-50` (`null` = ลบ), `consents.live_alerts` / `consents.analytics` = bool; `null` บน `language`, `timezone`, `consents.*` → `422 required` — *D-76*
+- เปิด consent → server บันทึกเวลา, ปิด → ล้างเวลา; ทุกครั้งที่ consent เปลี่ยนเขียน audit `user.consent` — *D-76*
+- consent `live_alerts` เป็นสวิตช์หลัก: เปิด alert ของ trip ก็บันทึก consent นี้ด้วย; ถอน consent → ปิด alert ทุก trip; scan ต้องมีทั้งสองอย่าง — *D-77*
+- consent `analytics` = อนุญาตให้เขียน `prediction_records` (D-13, D-75)
+- `DELETE /v1/me` → `202 {"status": "deleting"}`: ตั้ง `deleted_at`, ยกเลิก job ที่ค้าง, ลบข้อมูลของ user ใน Redis (job, stream, คำตอบ idempotency ที่เก็บไว้), audit `user.delete_requested`, ส่งงาน `delete_account` เข้า queue `maintenance`; ระหว่างรอลบ ทุก request ของ user นี้ได้ `403 FORBIDDEN` ("This account is being deleted."); ถ้ายังไม่ลบภายใน P-61 reaper ส่งงานใหม่ — *D-78*
+- หลังลบเสร็จ การ login ด้วย `sub` เดิมจะได้บัญชีใหม่ที่ว่างเปล่า
 
 ---
 
@@ -887,6 +907,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
+| 0.10 | 2026-09-18 | Step 5.9a: P-60, P-61, รายละเอียด §6.2 (cancel, reaper) และ §7.4 (profile, consent, ลบบัญชี) |
 | 0.9 | 2026-09-17 | Step 5.8: P-55..P-59, error `REVIEW_NOT_PENDING`, รายละเอียด §7.2 (trips, live alert), §7.3 (feedback), §8.2 (review queue: ค่า `status` เป็นตัวพิมพ์เล็ก) |
 | 0.8 | 2026-09-17 | Step 5.7: รายละเอียด §5.5 (history) และ §7.1 (conversations, follow-up, overrides) |
 | 0.7 | 2026-09-17 | Step 5.6: P-53, P-54, รายละเอียด §5.2 และ §6.3; `RecommendationResponse` มี `job_id` (ระหว่าง processing) และ `error` (เมื่อ failed) |

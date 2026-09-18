@@ -7,7 +7,12 @@ from uuid import UUID
 
 from celery import Celery
 
-from app.workers.celery_app import RECOMMENDATION_QUEUE, RUN_RECOMMENDATION
+from app.workers.celery_app import (
+    DELETE_ACCOUNT,
+    MAINTENANCE_QUEUE,
+    RECOMMENDATION_QUEUE,
+    RUN_RECOMMENDATION,
+)
 
 # Publishing blocks while the broker is unreachable; keep that short.
 _RETRY_POLICY = {"max_retries": 2, "interval_start": 0, "interval_step": 0.5, "interval_max": 1}
@@ -24,6 +29,17 @@ class CeleryJobQueue:
             RUN_RECOMMENDATION,
             kwargs={"job_id": str(job_id), "correlation_id": correlation_id},
             queue=RECOMMENDATION_QUEUE,
+            retry=True,
+            retry_policy=_RETRY_POLICY,
+        )
+        return str(result.id)
+
+    async def enqueue_account_deletion(self, user_id: UUID, *, correlation_id: str) -> str:
+        result = await asyncio.to_thread(
+            self._celery.send_task,
+            DELETE_ACCOUNT,
+            kwargs={"user_id": str(user_id), "correlation_id": correlation_id},
+            queue=MAINTENANCE_QUEUE,
             retry=True,
             retry_policy=_RETRY_POLICY,
         )
