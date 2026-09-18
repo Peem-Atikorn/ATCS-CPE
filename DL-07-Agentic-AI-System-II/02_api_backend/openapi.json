@@ -1253,6 +1253,30 @@
         "title": "FeedbackOutcome",
         "type": "string"
       },
+      "FieldErrorItem": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "message",
+          "code"
+        ],
+        "title": "FieldErrorItem",
+        "type": "object"
+      },
       "FreshnessItem": {
         "additionalProperties": false,
         "properties": {
@@ -2022,32 +2046,6 @@
         "type": "object"
       },
       "ProblemResponse": {
-        "$defs": {
-          "FieldErrorItem": {
-            "additionalProperties": false,
-            "properties": {
-              "code": {
-                "title": "Code",
-                "type": "string"
-              },
-              "field": {
-                "title": "Field",
-                "type": "string"
-              },
-              "message": {
-                "title": "Message",
-                "type": "string"
-              }
-            },
-            "required": [
-              "field",
-              "message",
-              "code"
-            ],
-            "title": "FieldErrorItem",
-            "type": "object"
-          }
-        },
         "additionalProperties": false,
         "description": "RFC 9457 Problem Details \u2014 the shape of every error response (app/api/problem.py).\n\nFastAPI documents its own `HTTPValidationError` for 422 by default; `custom_openapi`\nin app/main.py replaces every generated 422 (and adds this for other error statuses\ndeclared per-route) with this schema so the exported contract matches what the API\nactually sends.",
         "properties": {
