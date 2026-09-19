@@ -154,6 +154,48 @@ class RiskTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported feature_schema_version"):
             assess_risk(payload, now=NOW)
 
+    def test_summary_only_context_cannot_establish_low_risk(self):
+        summary = {
+            "primary_route_id": "primary-route",
+            "confidence": "HIGH",
+            "flags": [],
+            "active_restriction": False,
+        }
+        result = assess_risk(summary, now=NOW)
+        self.assertEqual(result.level, Level.MEDIUM)
+        self.assertEqual(result.confidence, Level.LOW)
+        self.assertIsNone(result.score)
+        self.assertIn("DATA_INCOMPLETE", {factor.type for factor in result.factors})
+
+    def test_module_05_weather_aliases_are_scored_with_degraded_confidence(self):
+        payload = context()
+        payload["evidence"] = [evidence(
+            "weather-05",
+            "weather_forecast",
+            value={
+                "wind_speed_kmh": 72.0,
+                "wind_speed_kph": 72.0,
+                "visibility_m": 800.0,
+                "visibility_km": 0.8,
+                "rain_probability_percent": 80.0,
+                "rain_probability": 0.8,
+            },
+        )]
+        payload["quality_flags"] = ["partial"]
+        payload["degraded"] = True
+        result = assess_risk(payload, now=NOW)
+        self.assertEqual(result.level, Level.HIGH)
+        self.assertEqual(result.confidence, Level.MEDIUM)
+        self.assertIn("WEATHER", {factor.type for factor in result.factors})
+
+    def test_unknown_freshness_is_not_counted_as_usable_evidence(self):
+        payload = context()
+        payload["evidence"][1]["freshness"] = "unknown"
+        payload["evidence"][1]["quality_flags"] = ["freshness_unknown"]
+        payload["evidence"] = [payload["evidence"][1]]
+        result = assess_risk(payload, now=NOW)
+        self.assertEqual(result.confidence, Level.LOW)
+
 
 class KnowledgeTests(unittest.TestCase):
     def test_retrieval_filters_expired_and_unapproved_documents(self):
@@ -191,6 +233,16 @@ class RouteTests(unittest.TestCase):
         result = analyze_routes(query(), None, None, now=NOW)
         self.assertFalse(result.primary.usable)
         self.assertTrue(result.no_safe_route)
+
+    def test_partial_coverage_is_not_claimed_as_clearly_safer(self):
+        payload = context()
+        for status in payload["routes"][1]["segments"][0]["coverage"]:
+            payload["routes"][1]["segments"][0]["coverage"][status] = "partial"
+        risk = assess_risk(payload, now=NOW)
+        result = analyze_routes(query(), payload, risk, now=NOW)
+        self.assertTrue(result.alternatives[0].usable)
+        self.assertEqual(result.alternatives[0].risk_level, Level.MEDIUM)
+        self.assertFalse(result.alternatives[0].clearly_safer)
 
 
 class ServiceAndContractTests(unittest.TestCase):
