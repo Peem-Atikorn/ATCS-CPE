@@ -11,6 +11,7 @@ never break a plain `pytest` run on a laptop without Docker running.
 from datetime import datetime, timezone
 
 import pytest
+import pytest_asyncio
 
 from app import db, feedback as feedback_module
 from app.mock_data import ALL_SCENARIOS
@@ -25,7 +26,7 @@ async def _db_reachable() -> bool:
         return False
 
 
-@pytest.fixture
+@pytest_asyncio.fixture   # เปลี่ยนจาก @pytest.fixture
 async def require_db():
     if not await _db_reachable():
         pytest.skip("Postgres is not reachable — run `docker compose up -d` first")
