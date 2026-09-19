@@ -5,9 +5,18 @@
 CREATE TABLE IF NOT EXISTS recommendation_log (
     request_id            TEXT PRIMARY KEY,
     schema_version         TEXT NOT NULL,
-    action_code             TEXT NOT NULL,
-    risk_level              TEXT NOT NULL,
-    confidence              NUMERIC(4,3) NOT NULL CHECK (confidence BETWEEN 0 AND 1),
+    -- Same 4 action codes / 3 risk levels as 02, 06, 07 (Contract Register v3).
+    action_code             TEXT NOT NULL
+                                 CONSTRAINT recommendation_log_action_code_check
+                                 CHECK (action_code IN ('TRAVEL_NORMALLY','CHANGE_ROUTE',
+                                                        'DELAY_TRAVEL','AVOID_TRAVEL')),
+    risk_level              TEXT NOT NULL
+                                 CONSTRAINT recommendation_log_risk_level_check
+                                 CHECK (risk_level IN ('LOW','MEDIUM','HIGH')),
+    -- Nullable: Module 07 currently emits confidence as LOW/MEDIUM/HIGH
+    -- (see confidence_level below), not a 0-1 number. See README.
+    confidence              NUMERIC(4,3) CHECK (confidence IS NULL OR confidence BETWEEN 0 AND 1),
+    confidence_level        TEXT CHECK (confidence_level IS NULL OR confidence_level IN ('LOW','MEDIUM','HIGH')),
     short_summary           TEXT NOT NULL,
     observed_at             TIMESTAMPTZ NOT NULL,
     fetched_at              TIMESTAMPTZ NOT NULL,

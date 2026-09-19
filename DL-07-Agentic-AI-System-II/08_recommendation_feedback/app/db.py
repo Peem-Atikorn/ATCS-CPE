@@ -10,6 +10,7 @@ Uses SQLAlchemy's async engine with the asyncpg driver, per 01_env.txt.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -47,11 +48,11 @@ async def save_recommendation(response: RecommendationResponse, pseudonymous_use
                 """
                 INSERT INTO recommendation_log
                     (request_id, schema_version, action_code, risk_level, confidence,
-                     short_summary, observed_at, fetched_at, expires_at,
+                     confidence_level, short_summary, observed_at, fetched_at, expires_at,
                      pseudonymous_user_id, payload)
                 VALUES
                     (:request_id, :schema_version, :action_code, :risk_level, :confidence,
-                     :short_summary, :observed_at, :fetched_at, :expires_at,
+                     :confidence_level, :short_summary, :observed_at, :fetched_at, :expires_at,
                      :pseudonymous_user_id, CAST(:payload AS JSONB))
                 ON CONFLICT (request_id) DO NOTHING
                 """
@@ -62,6 +63,7 @@ async def save_recommendation(response: RecommendationResponse, pseudonymous_use
                 "action_code": response.action_code.value,
                 "risk_level": response.risk_level.value,
                 "confidence": response.confidence,
+                "confidence_level": response.confidence_level.value if response.confidence_level else None,
                 "short_summary": response.short_summary,
                 "observed_at": response.observed_at,
                 "fetched_at": response.fetched_at,
@@ -79,7 +81,12 @@ async def get_recommendation(request_id: str) -> Optional[dict[str, Any]]:
             {"rid": request_id},
         )
         row = result.first()
-        return row[0] if row else None
+        if row is None:
+            return None
+        payload = row[0]
+        # A raw text() query may hand JSONB back as a string depending on the
+        # driver codec; normalise so callers always get a dict.
+        return json.loads(payload) if isinstance(payload, (str, bytes)) else payload
 
 
 async def save_feedback(feedback: FeedbackSubmission, escalated: bool) -> None:

@@ -23,18 +23,22 @@ RECOMMENDATION_SCHEMA_VERSION = settings.recommendation_schema_version
 # ---------------------------------------------------------------------------
 
 class ActionCode(str, Enum):
+    """Same four values as 02's backend action names (07 sends them as
+    `backend_action_code`). Emergency guidance is NOT a fifth action: it is
+    carried by `emergency_instructions` / `official_contacts` on top of one of
+    these four (see Contract Register v3)."""
     TRAVEL_NORMALLY = "TRAVEL_NORMALLY"
     CHANGE_ROUTE = "CHANGE_ROUTE"
     DELAY_TRAVEL = "DELAY_TRAVEL"
     AVOID_TRAVEL = "AVOID_TRAVEL"
-    EMERGENCY_INSTRUCTIONS = "EMERGENCY_INSTRUCTIONS"
 
 
 class RiskLevel(str, Enum):
+    """Three levels, identical to 02 / 06 / 07. There is intentionally no
+    CRITICAL and no MODERATE."""
     LOW = "LOW"
-    MODERATE = "MODERATE"
+    MEDIUM = "MEDIUM"
     HIGH = "HIGH"
-    CRITICAL = "CRITICAL"
 
 
 class SourceType(str, Enum):
@@ -49,6 +53,19 @@ class ServiceStatus(str, Enum):
     OK = "OK"
     DEGRADED = "DEGRADED"
     UNAVAILABLE = "UNAVAILABLE"
+
+
+class ConfidenceLevel(str, Enum):
+    """
+    Module 07 currently emits confidence as a category (LOW/MEDIUM/HIGH),
+    not a 0-1 probability — see 03_travel_ai_agent/README.md, "ข้อมูลที่ต้อง
+    ตกลงกับทีม". Until the team settles on a numeric scale, this is the
+    field that actually carries a value end-to-end; `confidence` (below)
+    stays optional and is populated only once/if a numeric score exists.
+    """
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
 
 
 class FeedbackCategory(str, Enum):
@@ -112,7 +129,15 @@ class RecommendationResponse(BaseModel):
 
     action_code: ActionCode
     risk_level: RiskLevel
-    confidence: float = Field(ge=0.0, le=1.0)
+
+    # Module 07 sends confidence as LOW/MEDIUM/HIGH today, and upstream
+    # (03) currently forwards `null` for the numeric field because of that
+    # mismatch with 02's expected 0-1 float. Both are optional so a payload
+    # missing either one is still valid; at least one SHOULD be present in
+    # practice, but that's a display-layer concern, not a schema one — see
+    # README "Open questions with upstream" for the team decision to track.
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    confidence_level: Optional[ConfidenceLevel] = None
 
     short_summary: str
     immediate_actions: List[str] = Field(default_factory=list)
@@ -132,6 +157,14 @@ class RecommendationResponse(BaseModel):
 
     limitations: List[str] = Field(default_factory=list)
     degraded_services: List[DegradedService] = Field(default_factory=list)
+
+    @field_validator("emergency_instructions", "official_contacts", mode="before")
+    @classmethod
+    def null_list_means_empty(cls, v):
+        """03 forwards `emergency_instructions = null` until 07/08 settle who
+        generates it (Contract Register, open question). Accept null as empty
+        instead of rejecting the whole recommendation."""
+        return [] if v is None else v
 
     @field_validator("expires_at")
     @classmethod
