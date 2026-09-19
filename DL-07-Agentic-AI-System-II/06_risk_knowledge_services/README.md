@@ -34,10 +34,14 @@ imported at runtime or modified.
   and derived-result provenance.
 - Uses a conservative `HIGH`/low-confidence result when the integrated context is
   unavailable.
+- Uses a conservative `MEDIUM` result with an unknown score and low confidence when
+  only summary context is present, because `active_restriction=false` is not proof
+  that weather, transport, and disaster evidence are complete.
+- Treats `partial` and `freshness_unknown` from Module 05 as data-quality issues.
 
 The baseline score is **not a calibrated probability**. A trained model must pass the
 documented time/location split, calibration, safety review, and registry process
-before replacing `rule-baseline-v0.1.0`.
+before replacing `rule-baseline-v0.1.1`.
 
 ### Disaster knowledge retrieval
 
@@ -59,7 +63,8 @@ later replace the text scorer without bypassing the metadata filters.
 - Calculates duration from timed route segments.
 - Scores evidence matched to each route.
 - Treats official closures and `AVOID` instructions as hard constraints.
-- Identifies a clearly safer usable alternative.
+- Identifies a clearly safer usable alternative only when every supplied coverage
+  status for that route is `covered`.
 - Does not claim a safe route when route context is unavailable.
 - Does not currently infer `safer_later`; that requires an agreed hazard-validity
   interval contract.

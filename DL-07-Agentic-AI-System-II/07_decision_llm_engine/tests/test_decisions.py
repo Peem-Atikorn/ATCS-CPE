@@ -33,7 +33,7 @@ def test_golden_scenarios(client, samples, scenario, action, rule):
     assert body["explanation"]["mode"] == "template"
     assert body["versions"]["policy_status"] == "prototype"
     assert body["prototype_only"] is True
-    assert body["confidence_kind"] == "ordinal_policy_assessment"
+    assert body["confidence_kind"] == "heuristic_policy_score"
 
 
 def test_closure_overrides_alternative_and_time(client, samples):
@@ -50,8 +50,11 @@ def test_closure_overrides_alternative_and_time(client, samples):
 def test_supported_restriction_is_not_itself_low_confidence(client, samples):
     result = client.post("/v1/decisions", json=samples["closure"]).json()
     assert result["action_code"] == "AVOID"
-    assert result["confidence"] == "HIGH"
-    assert not result["escalation_required"]
+    assert result["confidence"] == 0.9
+    assert result["escalation_reasons"] == [
+        "emergency_context_missing",
+        "emergency_guidance_unavailable",
+    ]
 
 
 @pytest.mark.parametrize("mutation", ["closed", "not_safer", "same_risk"])
@@ -104,7 +107,7 @@ def test_quality_flags_prevent_normal(client, samples, flag):
     body["quality"]["flags"] = [flag]
     result = client.post("/v1/decisions", json=body).json()
     assert result["action_code"] == "AVOID"
-    assert result["confidence"] == "LOW"
+    assert result["confidence"] <= 0.25
     assert result["escalation_required"]
 
 
@@ -141,7 +144,7 @@ def test_derived_conflicts_escalate_even_if_upstream_flags_are_empty(client, sam
     result = client.post("/v1/decisions", json=body).json()
     assert result["action_code"] == "AVOID"
     assert "conflicting" in result["escalation_reasons"]
-    assert result["confidence"] == "LOW"
+    assert result["confidence"] <= 0.25
     assert result["escalation_required"]
 
 
@@ -205,7 +208,7 @@ def test_increasing_to_high_never_weakens_decision(scenario, has_closure):
     if has_closure:
         body["alerts"] = data["closure"]["alerts"]
     request = DecisionRequest.model_validate(body)
-    policy = Policy.load("prototype-v1")
+    policy = Policy.load("prototype-v2")
     first = evaluate(request, now, policy)
     assert first.action == Action.AVOID
     assert evaluate(request, now, policy) == first

@@ -99,4 +99,14 @@ def scenarios(now: datetime | None = None) -> dict[str, dict]:
     result["stale_data"]["evidence"][0]["expires_at"] = now.isoformat()
     result["conflicting_data"] = deepcopy(base)
     result["conflicting_data"]["quality"]["flags"] = ["conflicting"]
+    result["numeric_confidence"] = deepcopy(base)
+    result["numeric_confidence"]["risk"]["confidence"] = 0.8
+    result["numeric_confidence"]["quality"]["confidence"] = 0.75
+    result["numeric_confidence"]["quality"]["schema_version"] = "07-draft-v2"
+    result["emergency_fallback"] = deepcopy(result["high_risk"])
+    result["emergency_fallback"]["emergency_context"] = {
+        "context": deepcopy(context),
+        "region": "TEST-REGION",
+        "hazard": "TEST-HAZARD",
+    }
     return result

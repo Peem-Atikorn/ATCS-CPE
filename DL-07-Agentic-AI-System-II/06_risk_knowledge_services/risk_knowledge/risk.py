@@ -21,10 +21,18 @@ from .models import (
 )
 
 
-MODEL_VERSION = "rule-baseline-v0.1.0"
+MODEL_VERSION = "rule-baseline-v0.1.1"
 KNOWN_FEATURE_SCHEMAS = {None, "integrated-travel-v0.1-proposed"}
 SEVERITY_SCORE = {"LOW": 0.2, "MEDIUM": 0.55, "HIGH": 0.85, "CRITICAL": 1.0}
-BAD_QUALITY_FLAGS = {"missing", "stale", "conflicting", "incomplete", "unavailable"}
+BAD_QUALITY_FLAGS = {
+    "missing",
+    "stale",
+    "conflicting",
+    "incomplete",
+    "unavailable",
+    "partial",
+    "freshness_unknown",
+}
 
 
 @dataclass(frozen=True)
@@ -138,7 +146,11 @@ def _factor_from_record(record: IntegratedEvidence) -> tuple[float, RiskFactorRe
 
 
 def _confidence(context: IntegratedTravelContext, has_usable_evidence: bool) -> Level:
-    flags = set(context.flags) | set(context.quality_flags)
+    flags = {flag.lower() for flag in context.flags + context.quality_flags}
+    for record in context.evidence:
+        flags.update(flag.lower() for flag in record.quality_flags)
+        if record.freshness in {None, "unknown"}:
+            flags.add("freshness_unknown")
     bad = flags & BAD_QUALITY_FLAGS
     if not has_usable_evidence or "conflicting" in bad or len(bad) >= 3:
         return Level.LOW
@@ -185,7 +197,7 @@ def assess_risk(
     usable = False
     for record in parsed.evidence:
         record_score, factor, hard = _factor_from_record(record)
-        if record.status == "available" and record.freshness != "stale":
+        if record.status == "available" and record.freshness == "fresh":
             usable = True
         score = max(score, record_score)
         hard_constraint = hard_constraint or hard
@@ -203,15 +215,26 @@ def assess_risk(
             level=Level.HIGH,
             description="Integrated context reports an active travel restriction.",
         ))
-    elif not parsed.evidence and parsed.active_restriction is None:
+    elif not parsed.evidence:
         factors.append(RiskFactorResult(
             type="DATA_INCOMPLETE",
             level=Level.MEDIUM,
-            description="No detailed evidence or restriction status was supplied.",
+            description=(
+                "No detailed evidence was supplied; restriction status alone cannot establish "
+                "low travel risk."
+            ),
         ))
 
-    risk_level = Level.HIGH if hard_constraint else _level(score, thresholds)
-    confidence = _confidence(parsed, usable or parsed.active_restriction is not None)
+    evidence_incomplete = not parsed.evidence and parsed.active_restriction is not True
+    risk_level = (
+        Level.HIGH
+        if hard_constraint
+        else Level.MEDIUM
+        if evidence_incomplete
+        else _level(score, thresholds)
+    )
+    output_score = None if evidence_incomplete else round(score, 4)
+    confidence = _confidence(parsed, usable or parsed.active_restriction is True)
     if not factors:
         factors.append(RiskFactorResult(
             type="NO_ELEVATED_FACTOR",
@@ -219,12 +242,12 @@ def assess_risk(
             description="No supplied feature crossed an approved baseline threshold.",
         ))
     excerpt = (
-        f"model={MODEL_VERSION}; score={score:.3f}; level={risk_level}; "
+        f"model={MODEL_VERSION}; score={output_score}; level={risk_level}; "
         f"confidence={confidence}; factors={','.join(item.type for item in factors)}"
     )
     return RiskResult(
         level=risk_level,
-        score=round(score, 4),
+        score=output_score,
         confidence=confidence,
         model_version=MODEL_VERSION,
         factors=factors[:12],

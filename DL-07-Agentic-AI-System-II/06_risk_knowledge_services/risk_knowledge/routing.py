@@ -81,6 +81,14 @@ def _record_level(record: IntegratedEvidence) -> Level:
     return Level.MEDIUM if raw == "MEDIUM" else Level.LOW
 
 
+def _has_complete_coverage(route: IntegratedRoute) -> bool:
+    return bool(route.segments) and all(
+        segment.coverage
+        and all(status.lower() == "covered" for status in segment.coverage.values())
+        for segment in route.segments
+    )
+
+
 def _route_info(
     route: IntegratedRoute,
     evidence_by_id: dict[str, IntegratedEvidence],
@@ -97,11 +105,7 @@ def _route_info(
             candidate = _record_level(record)
             if LEVEL_RANK[candidate] > LEVEL_RANK[level]:
                 level = candidate
-    incomplete = not route.segments or any(
-        status in {"missing", "stale", "unavailable"}
-        for segment in route.segments
-        for status in segment.coverage.values()
-    )
+    incomplete = not _has_complete_coverage(route)
     if incomplete and LEVEL_RANK[level] < LEVEL_RANK[Level.MEDIUM]:
         level = Level.MEDIUM
     if closure:
@@ -175,13 +179,14 @@ def analyze_routes(
 
     if parsed.active_restriction is True:
         primary = primary.model_copy(update={"usable": False, "risk_level": Level.HIGH})
+    alternative_routes = parsed.routes[1:11] if parsed.routes else []
     alternatives = [
         item.model_copy(update={
-            "clearly_safer": item.usable and (
+            "clearly_safer": _has_complete_coverage(route) and item.usable and (
                 not primary.usable or LEVEL_RANK[item.risk_level] < LEVEL_RANK[primary.risk_level]
             )
         })
-        for item in alternatives
+        for route, item in zip(alternative_routes, alternatives, strict=True)
     ]
     no_safe_route = not primary.usable and not any(item.usable for item in alternatives)
     excerpt = (

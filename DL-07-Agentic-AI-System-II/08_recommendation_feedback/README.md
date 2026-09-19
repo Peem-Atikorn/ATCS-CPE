@@ -1,102 +1,210 @@
-# 08_recommendation_feedback
+# โมดูล 08 — Recommendation & Feedback
 
-Full rebuild of this module — runs for real via Docker Compose: FastAPI +
-PostgreSQL + Redis, no more in-memory mocks for storage.
+เอกสารนี้อธิบายเฉพาะโมดูล 08 (Recommendation & Feedback) ว่าแต่ละไฟล์ทำหน้าที่อะไร
+เชื่อมกันอย่างไร รันยังไงให้ขึ้นจริง และตอนนี้ยังขาดอะไรอยู่บ้าง
 
-## Structure
+โมดูลนี้คือ **ปลายทางสุดท้ายก่อนถึงผู้ใช้** — รับผลการตัดสินใจที่ผ่านการวิเคราะห์มาแล้ว
+จากโมดูล 07 (Decision & LLM Engine) มาจัดรูปแบบ ตรวจสอบความปลอดภัยของข้อมูลฉุกเฉิน
+บันทึกลงฐานข้อมูล แล้วส่งต่อให้ 01 (Web App) แสดงผล พร้อมทั้งรับ feedback จากผู้ใช้กลับเข้าคิว
+ตรวจสอบความปลอดภัย
+
+---
+
+## ภาพรวมการไหลของข้อมูล
 
 ```
-08_recommendation_feedback/
-├── app/
-│   ├── config.py        # env-driven settings (pydantic-settings)
-│   ├── schema.py         # RecommendationResponse / FeedbackSubmission (the contract)
-│   ├── mock_data.py       # 5 fixtures, one per action_code, now with waypoints for maps
-│   ├── db.py              # async SQLAlchemy + asyncpg — real Postgres reads/writes
-│   ├── feedback.py         # classification + safety-review escalation (DB-backed)
-│   ├── live_update.py      # Redis-backed consent/dedup/cooldown for alerts
-│   ├── monitoring.py       # structlog + Prometheus, safety vs UX metrics kept separate
-│   └── main.py             # FastAPI app / routes
-├── tests/
-│   ├── test_recommendation.py    # unit tests — no DB/Redis needed
-│   └── test_db_integration.py    # integration tests — needs `docker compose up`
-├── db_schema.sql           # Postgres DDL, auto-run on first container start
-├── Dockerfile
-├── docker-compose.yml       # app + postgres + redis, with healthchecks
-├── .env.example             # copy to .env before running
-├── Makefile                 # make up / down / logs / rebuild / test
-└── requirements.txt
+07 (Decision Engine) --> [08: build response + validate emergency contacts]
+                                    |
+                                    v
+                          Postgres (recommendation_log)
+                                    |
+                                    v
+                          01 (Web App) แสดงผลให้ผู้ใช้
+                                    |
+                                    v
+                    ผู้ใช้กด feedback --> [08: classify + เก็บ user_feedback]
+                                    |
+                                    v
+                          ถ้า UNSAFE/INCORRECT --> คิว safety review (มนุษย์ตรวจ)
+                                    |
+                                    v
+                    อนุมัติแล้วเท่านั้น --> ใช้ retrain/evaluate ได้
 ```
 
-## Run it
+Redis ใช้แยกต่างหากสำหรับ **live update** — ส่งแจ้งเตือนเมื่อความเสี่ยงเปลี่ยน
+โดยมี consent, dedup และ cooldown กันแจ้งเตือนถี่เกินไป
 
-```bash
-cp .env.example .env          # edit if you want different credentials
-docker compose up -d --build  # or: make rebuild
-docker compose ps             # all 3 services should show "healthy" / "running"
+---
+
+## แต่ละไฟล์ทำหน้าที่อะไร
+
+### `app/config.py`
+อ่านค่า environment variable ทั้งหมดผ่าน `pydantic-settings` (เช่น
+`RECOMMENDATION_SCHEMA_VERSION`, `FEEDBACK_RETENTION_DAYS`, `DATABASE_URL`, `REDIS_URL`)
+เป็นจุดเดียวที่ทุกไฟล์อื่นเรียกใช้ค่าคอนฟิก ไม่มีไฟล์ไหน hardcode ค่าคอนฟิกเอง
+
+### `app/schema.py`
+หัวใจของ contract ทั้งโมดูล — นิยาม `RecommendationResponse` (สิ่งที่ 08 ส่งให้ 01)
+และ `FeedbackSubmission` (สิ่งที่ 01 ส่งกลับมา) ด้วย Pydantic model รวม enum ทั้งหมด
+(`ActionCode`, `RiskLevel`, `ConfidenceLevel`, `FeedbackCategory` ฯลฯ) มี validator สองตัวสำคัญ:
+- แปลง `null` เป็นลิสต์ว่างสำหรับ `emergency_instructions`/`official_contacts` (เผื่อ 07/03 ยังไม่ส่งมา)
+- บังคับว่า `expires_at` ต้องมาหลัง `fetched_at` เสมอ
+
+### `app/mock_data.py`
+fixture จำลอง 5 สถานการณ์ (`travel_normally`, `change_route`, `delay_travel`,
+`avoid_travel`, `emergency_instructions`) ให้ 01 (Web App) เอาไปทดสอบ UI ได้ก่อนที่ 07
+จะพร้อมส่งข้อมูลจริง ทุก fixture ต้องผ่าน validator ใน `schema.py` เหมือนข้อมูลจริงทุกประการ
+
+### `app/emergency.py`
+ตรวจ `official_contacts` ก่อนส่งให้ผู้ใช้ทุกครั้ง (ไม่ใช่แค่ตอนสร้าง) — ตัดเบอร์ที่
+`effective_date` ยังไม่ถึง, รูปแบบเบอร์ผิด, หรือ region ไม่ตรงกับผู้เดินทาง เบอร์ที่ถูกตัด
+จะไม่ถูก "แก้" แต่ถูก "ถอดออก" แล้วบันทึกเหตุผลไว้ใน `limitations` และ `degraded_services`
+ให้ทีมปฏิบัติการเห็นว่ามีอะไรถูกซ่อนไป
+
+### `app/db.py`
+ชั้นเขียน/อ่าน Postgres จริงด้วย SQLAlchemy async + asyncpg มี:
+- `wait_for_db()` — retry ตอนเริ่มระบบ เผื่อ Postgres ยังไม่พร้อม
+- `save_recommendation()` / `get_recommendation()` — บันทึก/ดึงคำแนะนำ (ตาราง `recommendation_log`)
+- `save_feedback()` / `mark_reviewed()` / `fetch_pending_safety_review()` /
+  `fetch_reviewed_for_training()` — จัดการ feedback (ตาราง `user_feedback`)
+
+ใช้ `engine` แบบ global ตัวเดียวทั้งโมดูล (สำคัญตอนเขียนเทสต์ async — ดูหัวข้อ "จุดที่ต้องระวัง" ด้านล่าง)
+
+### `app/feedback.py`
+รับ feedback จากผู้ใช้ แยกเป็น 2 กลุ่ม: `UNSAFE`/`INCORRECT` ต้องเข้าคิว safety review
+ก่อนเสมอ ส่วนที่เหลือบันทึกตรง ๆ มีฟังก์ชัน `classify_free_text()` เป็น fallback
+จัดหมวดจากคำในข้อความ (ใช้ regex) กรณี UI ไม่ได้ส่ง category มาให้เอง
+
+### `app/live_update.py`
+ตัวจัดการแจ้งเตือนแบบ real-time ผ่าน Redis เก็บเวลาส่งล่าสุดและความเสี่ยงล่าสุดต่อผู้ใช้
+1 คน มีกฎ 3 ข้อ: (1) ต้องได้รับ consent ก่อนส่งเสมอ (2) มี cooldown กันสแปม
+(3) **ห้ามระงับแจ้งเตือนถ้าความเสี่ยงเพิ่มขึ้น** แม้จะยังอยู่ในช่วง cooldown ก็ตาม
+มี `FakeRedis` สำรองไว้ให้ unit test ใช้โดยไม่ต้องพึ่ง Redis จริง
+
+### `app/monitoring.py`
+ตั้งค่า structured logging (`structlog`) และ Prometheus metrics โดย**แยก metric ด้าน
+ความปลอดภัย** (เช่น `reco_unsafe_feedback_total`) ออกจาก **metric ด้าน UX**
+(เช่น `reco_viewed_total`) ตามหลักที่ว่า metric ความปลอดภัยห้ามถูกกลบด้วยตัวเลข UX
+
+### `app/main.py`
+ประกอบทุกอย่างเป็น FastAPI app มี endpoint หลัก:
+- `GET /health` — เช็คสถานะ service + DB
+- `GET /recommendation/mock/{scenario}` — ดึง fixture จำลอง แล้วบันทึกลง DB จริง
+- `GET /recommendation/{request_id}` — ดึงคำแนะนำที่เคยบันทึกไว้ ตรวจ schema ซ้ำก่อนส่ง
+  (ถ้าแถวเก่าไม่ตรง schema ปัจจุบัน จะตอบ 500 โดยตั้งใจ ไม่ส่งข้อมูลผิดออกไป)
+- `POST /feedback`, `GET /feedback/safety-queue`, `POST /feedback/{id}/review` —
+  วงจร feedback ทั้งหมด
+
+### `db_schema.sql`
+DDL ของตาราง `recommendation_log` และ `user_feedback` มี `CHECK` constraint บังคับค่า
+`action_code` และ `risk_level` ให้ตรงตาม enum ใน `schema.py` เป๊ะ — กันไม่ให้แถวที่ผิด
+หลุดเข้า DB ได้เลยตั้งแต่ระดับฐานข้อมูล รันอัตโนมัติแค่ตอน Postgres container
+เริ่มครั้งแรกเท่านั้น (ผ่าน `docker-entrypoint-initdb.d`)
+
+### `migrations/001_three_risk_levels_four_actions.sql`
+สคริปต์ SQL สำหรับรันมือครั้งเดียว ใช้ตอนมี volume `pgdata` เก่าที่ยังมีแถวค่า
+`MODERATE`/`CRITICAL` ค้างอยู่ (จาก schema เวอร์ชันก่อนหน้า) ให้แปลงเป็น `LOW/MEDIUM/HIGH`
+
+### `pytest.ini`
+ตั้งค่า `pytest-asyncio` ให้ทุกเทสต์ async ใช้ event loop เดียวกันตลอดการรัน
+(`asyncio_mode = auto`, `loop_scope = session`) จำเป็นมากเพราะ `db.py` ใช้ engine
+แบบ global ตัวเดียว ถ้า loop ไม่ตรงกัน connection pool จะข้ามเทสต์ไม่ได้
+
+### `Dockerfile`
+Build image จาก `python:3.12-slim` ติดตั้ง dependency จาก `requirements.txt` แล้วก๊อปปี้
+`app/`, `tests/`, และ `pytest.ini` เข้า image รันด้วย `uvicorn app.main:app`
+
+### `docker-compose.yml`
+ประกอบ 3 service: `app` (โมดูลนี้), `postgres:16-alpine`, `redis:7-alpine` ทั้งคู่มี
+healthcheck และ `app` จะรอให้ทั้งสอง service เป็น `healthy` ก่อนเริ่มทำงาน
+mount `db_schema.sql` เข้า Postgres โดยตรงผ่าน volume
+
+### `tests/test_recommendation.py` (26 เคส)
+เทสต์ที่ไม่ต้องพึ่ง DB/Redis — ตรวจ schema, ตรวจว่าค่าที่ล้าสมัย (`MODERATE`, `CRITICAL`)
+ถูกปฏิเสธจริง, ตรวจการจัดหมวด feedback, และตรรกะ cooldown/consent ของ live update
+
+### `tests/test_emergency_validation.py` (21 เคส)
+เทสต์กฎตรวจเบอร์ฉุกเฉินทุกกรณี (เบอร์ผิดรูปแบบ, region ไม่ตรง, วันที่ยังไม่ถึง) รวมถึง
+ทดสอบผ่าน endpoint จริงด้วย `TestClient` โดย patch `db` ไว้ไม่ให้ต้องพึ่ง Postgres
+
+### `tests/test_db_integration.py` (3 เคส)
+เทสต์ที่ต้องมี Postgres/Redis จริง (เขียน-อ่านคำแนะนำจริง, feedback เข้าคิว safety
+review จริง, feedback ที่ reviewed แล้วเข้าชุด training จริง) จะ `skip` อัตโนมัติถ้าต่อ
+DB ไม่ได้ ไม่ทำให้ CI แดงทั้งที่แค่ไม่มี Docker
+
+---
+
+## วิธีรันให้ขึ้นจริง
+
+```powershell
+# 1) เตรียมค่า config
+cp .env.example .env            # หรือ Copy-Item .env.example .env บน PowerShell
+
+# 2) build และรันทั้ง 3 service
+docker compose up -d --build
+
+# 3) เช็คว่าทั้ง 3 service healthy
+docker compose ps
+
+# 4) ทดสอบเรียก API จริง (บน Windows PowerShell ต้องใช้ curl.exe ไม่ใช่ curl เฉย ๆ)
+curl.exe http://localhost:8080/health
+curl.exe http://localhost:8080/recommendation/mock/avoid_travel
+
+# 5) รัน unit test (ไม่ต้องพึ่ง DB)
+docker compose exec app pytest tests/test_recommendation.py tests/test_emergency_validation.py -v
+
+# 6) รัน integration test (ต้องมี Postgres/Redis จาก stepที่ 2 พร้อมแล้ว)
+docker compose exec app pytest tests/test_db_integration.py -v
+
+# 7) หยุดระบบ (เก็บข้อมูลไว้)
+docker compose down
+# หรือ docker compose down -v ถ้าต้องการล้างข้อมูลทั้งหมดเริ่มใหม่
 ```
 
-Try it:
+**ผลการรันจริงล่าสุด (19 ก.ย. 2026): ผ่านทั้งหมด 50/50 เคส**
+(26 + 21 unit test ไม่พึ่ง DB, 3 integration test พึ่ง DB จริง)
 
-```bash
-curl http://localhost:8080/health
-curl http://localhost:8080/recommendation/mock/avoid_travel
-curl http://localhost:8080/recommendation/mock-req-004      # re-fetch from Postgres
+### จุดที่ต้องระวังเวลาตั้งค่าใหม่บนเครื่องอื่น
 
-curl -X POST http://localhost:8080/feedback -H "Content-Type: application/json" -d '{
-  "request_id": "mock-req-004",
-  "pseudonymous_user_id": "anon-42",
-  "category": "UNSAFE",
-  "comment": "This was wrong",
-  "submitted_at": "2026-09-19T12:00:00Z"
-}'
+1. **`Dockerfile` ต้องมี `COPY pytest.ini .`** ถ้าลืมบรรทัดนี้ pytest ในคอนเทนเนอร์จะหา
+   config ไม่เจอ แล้วตกไปใช้ค่า default ของ `pytest-asyncio` (`loop_scope=function`)
+   ทำให้ `test_db_integration.py` รายงานผิดว่า "Postgres is not reachable" ทั้งที่ต่อได้จริง
+2. **`require_db` fixture ใน `test_db_integration.py` ต้องใช้ `@pytest_asyncio.fixture`**
+   ไม่ใช่ `@pytest.fixture` เฉย ๆ เพราะเป็น async fixture — pytest-asyncio โหมด strict
+   ไม่รองรับแบบเดิม
+3. **แก้ไฟล์บนเครื่องแล้วต้อง `docker compose up -d --build` ใหม่เสมอ** เพราะ Dockerfile
+   copy โค้ดเข้า image ตอน build เท่านั้น ไม่ใช่ live-mounted volume แก้ไฟล์เฉย ๆ
+   จะไม่มีผลกับคอนเทนเนอร์ที่รันอยู่
 
-curl http://localhost:8080/feedback/safety-queue
+---
 
-curl -X POST http://localhost:8080/feedback/mock-req-004/review -H "Content-Type: application/json" -d '{
-  "reviewer": "ops-alice",
-  "approve_for_training": true
-}'
-```
+## งานนี้ยังต้องการอะไรเพิ่มอีก
 
-Run tests:
+### ต้องรอทีมอื่นตัดสินใจ (ไม่ใช่งานของ 08 ฝ่ายเดียว)
+- **endpoint คำแนะนำซ้ำกับ 02**: ตอนนี้ 08 มี `GET /recommendation/{id}` ของตัวเอง
+  ส่วน 02 มี `GET /v1/recommendations/{id}` อยู่แล้ว ยังไม่ชัดว่า 01 (Web App) ควรเรียก
+  ที่ไหนเป็นตัวจริง — ถ้าใช้ทั้งคู่จะได้คำแนะนำสองชุดที่อาจไม่ตรงกัน
+- **`confidence` เป็นตัวเลขหรือหมวดหมู่**: 07 ยังส่งเป็น `LOW/MEDIUM/HIGH` (ordinal)
+  ไม่ใช่ float 0–1 ที่ 02 ต้องการ ตอนนี้ 08 รองรับทั้งสองแบบผ่าน `confidence_level`
+  แต่ต้องรอทีมตกลงว่าใครจะเป็นฝ่ายแปลงค่า
+- **`FEEDBACK_RETENTION_DAYS`**: 08 ยังใช้ 90 วัน ขณะที่ 02 เสนอ 180 วัน ยังไม่มีข้อสรุป
+- **เจ้าของข้อมูล emergency contacts**: 06 ยืนยันว่าไม่ใช่หน้าที่ตัวเอง แต่ยังไม่มีใคร
+  รับหน้าที่เก็บ/อัปเดตเบอร์ฉุกเฉินตามพื้นที่อย่างเป็นทางการ
+- **พื้นที่ให้บริการ (coverage)**: ไทยอย่างเดียว หรือรวมต่างประเทศด้วย — กระทบวิธีตรวจ
+  region ใน `emergency.py` โดยตรง
 
-```bash
-make test              # unit tests only, no DB needed
-make test-integration  # against the real containers (run `make up` first)
-```
-
-Stop everything:
-
-```bash
-docker compose down          # keeps the pgdata volume (recommendation history survives)
-docker compose down -v       # also wipes the volume — fresh DB next time
-```
-
-## What changed from the earlier version
-
-- **Real persistence.** `feedback.py` and the new `db.py` now write to actual
-  PostgreSQL tables (`recommendation_log`, `user_feedback`) instead of
-  Python lists that vanished when the process restarted.
-- **Real Redis.** `live_update.py` connects to the Redis container by
-  default; `FakeRedis` is kept only for the unit tests that shouldn't
-  need a running container.
-- **Waypoints added to `RouteOption`** so the Web App can render a map —
-  this was the gap identified against the architecture diagram earlier.
-- **Package layout** (`app/` + `tests/`) instead of flat files, so it
-  matches how the Dockerfile copies and runs it (`uvicorn app.main:app`).
-- **`db.wait_for_db()`** retries on startup — Postgres can take a couple
-  of seconds to accept connections right after `docker compose up`, so
-  the app waits instead of crash-looping.
-
-## Still mocked / still to connect
-
-- `/recommendation/mock/{scenario}` still serves the 5 canned fixtures
-  standing in for module 07's real decision output. Swap in a
-  `/recommendation/live` endpoint once module 07 exists — the schema and
-  the DB-write path (`db.save_recommendation`) don't need to change.
-- Notification delivery (email/SMS/push) is not implemented —
-  `NOTIFICATION_PROVIDER_KEYS` is read into config but unused until a
-  provider is chosen (per 01_env.txt: "install a provider SDK only
-  after a provider is selected").
-- OpenTelemetry tracing is imported but not wired to a collector —
-  `monitoring.py` only sets up structlog + Prometheus counters for now.
+### งานที่ 08 ต้องทำเองต่อ
+- **ต่อกับ 07 ตัวจริง**: `/recommendation/mock/{scenario}` ยังส่ง fixture 5 ชุดแทนผล
+  จริงจาก 07 ต้องรอ 07 เปิด endpoint ให้เรียก แล้วเพิ่ม `/recommendation/live` (schema
+  และเส้นทางเขียน DB ปัจจุบันรองรับอยู่แล้ว ไม่ต้องแก้)
+- **บังคับใช้ `EMERGENCY_CONTACT_DIRECTORY_VERSION`**: อ่านเข้า config แล้วแต่ยังไม่ได้
+  ใช้จริง เพราะเบอร์แต่ละรายการยังไม่มี directory version ต้องรอ 07 ส่งมาด้วย
+- **ระบบแจ้งเตือนจริง (email/SMS/push)**: `NOTIFICATION_PROVIDER_KEYS` อ่านเข้า config
+  ไว้แล้วแต่ยังไม่ได้ใช้ ต้องเลือก provider ก่อนถึงจะติดตั้ง SDK ได้
+- **ต่อ OpenTelemetry กับ collector จริง**: ตอนนี้ import ไว้เฉย ๆ `monitoring.py`
+  ใช้งานจริงแค่ structlog กับ Prometheus counter
+- **แก้ deprecation warning 2 จุด** (ไม่กระทบผลเทสต์ แต่ควรแก้ก่อนขึ้น production):
+  - `db.py` เปลี่ยน `datetime.utcnow()` เป็น `datetime.now(timezone.utc)`
+  - `main.py` เปลี่ยน `@app.on_event("startup")` เป็น FastAPI `lifespan` handler
+- **เขียน job ลบข้อมูลตาม retention policy จริง**: ตอนนี้มีแค่คอมเมนต์ตัวอย่าง SQL ใน
+  `db_schema.sql` ยังไม่มี scheduled job ที่รันจริง

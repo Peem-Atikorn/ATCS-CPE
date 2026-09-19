@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from .audit import AuditStore, AuditUnavailable
 from .config import Settings
+from .emergency import EmergencyCatalog
 from .models import DecisionRequest, DecisionResponse
 from .policy import Policy
 from .service import decide
@@ -14,10 +15,11 @@ from .service import decide
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     policy = Policy.load(settings.decision_policy_version)
+    catalog = EmergencyCatalog.load(settings.emergency_catalog_path)
     audit = AuditStore(settings.audit_log_path)
     app = FastAPI(
         title="Team D — Module 07 Decision Engine",
-        version="0.1.0",
+        version="0.2.0",
         description="Standalone prototype with a draft contract and unapproved mock policy.",
     )
     app.state.settings = settings
@@ -57,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 settings=settings,
                 policy=policy,
                 audit=audit,
+                emergency_catalog=catalog,
                 provider=app.state.provider,
             )
         except AuditUnavailable:
