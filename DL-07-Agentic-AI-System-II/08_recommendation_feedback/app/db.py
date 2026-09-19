@@ -47,11 +47,11 @@ async def save_recommendation(response: RecommendationResponse, pseudonymous_use
                 """
                 INSERT INTO recommendation_log
                     (request_id, schema_version, action_code, risk_level, confidence,
-                     short_summary, observed_at, fetched_at, expires_at,
+                     confidence_level, short_summary, observed_at, fetched_at, expires_at,
                      pseudonymous_user_id, payload)
                 VALUES
                     (:request_id, :schema_version, :action_code, :risk_level, :confidence,
-                     :short_summary, :observed_at, :fetched_at, :expires_at,
+                     :confidence_level, :short_summary, :observed_at, :fetched_at, :expires_at,
                      :pseudonymous_user_id, CAST(:payload AS JSONB))
                 ON CONFLICT (request_id) DO NOTHING
                 """
@@ -62,6 +62,7 @@ async def save_recommendation(response: RecommendationResponse, pseudonymous_use
                 "action_code": response.action_code.value,
                 "risk_level": response.risk_level.value,
                 "confidence": response.confidence,
+                "confidence_level": response.confidence_level.value if response.confidence_level else None,
                 "short_summary": response.short_summary,
                 "observed_at": response.observed_at,
                 "fetched_at": response.fetched_at,
