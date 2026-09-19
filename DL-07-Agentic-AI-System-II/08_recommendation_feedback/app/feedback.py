@@ -11,6 +11,8 @@ Rules encoded here (from 02_step.txt / 03_process.txt):
 
 from __future__ import annotations
 
+import re
+
 import structlog
 
 from app import db
@@ -48,21 +50,26 @@ async def reviewed_for_training() -> list[dict]:
     return await db.fetch_reviewed_for_training()
 
 
+# Order matters: the first match wins. Safety wording is checked first so an
+# unsafe report is never downgraded; the more specific issue types (route,
+# source, stale) come before the generic "wrong/incorrect".
+# Word-boundary patterns avoid false hits such as "old" inside "cold"/"told".
+_CLASSIFICATION_RULES: list[tuple[FeedbackCategory, re.Pattern[str]]] = [
+    (FeedbackCategory.UNSAFE, re.compile(r"\b(danger\w*|unsafe|injur\w*|accident\w*)\b", re.I)),
+    (FeedbackCategory.ROUTE_ISSUE, re.compile(r"\b(route\w*|path\w*|detour\w*)\b", re.I)),
+    (FeedbackCategory.SOURCE_ISSUE, re.compile(r"\b(source\w*|citation\w*|reference\w*)\b", re.I)),
+    (FeedbackCategory.STALE, re.compile(r"\b(old|outdated|stale|expired)\b", re.I)),
+    (FeedbackCategory.INCORRECT, re.compile(r"\b(wrong|incorrect|not accurate|inaccurate)\b", re.I)),
+]
+
+
 def classify_free_text(comment: str) -> FeedbackCategory:
     """
     Lightweight keyword-based fallback classifier for when the caller (UI)
     does not already supply a category. Prefer the UI's explicit category
     when available — this is only a safety net.
     """
-    text_lower = comment.lower()
-    if any(w in text_lower for w in ["danger", "unsafe", "injur", "accident"]):
-        return FeedbackCategory.UNSAFE
-    if any(w in text_lower for w in ["wrong", "incorrect", "not accurate"]):
-        return FeedbackCategory.INCORRECT
-    if any(w in text_lower for w in ["old", "outdated", "stale", "expired"]):
-        return FeedbackCategory.STALE
-    if any(w in text_lower for w in ["route", "path", "detour"]):
-        return FeedbackCategory.ROUTE_ISSUE
-    if any(w in text_lower for w in ["source", "citation", "reference"]):
-        return FeedbackCategory.SOURCE_ISSUE
+    for category, pattern in _CLASSIFICATION_RULES:
+        if pattern.search(comment):
+            return category
     return FeedbackCategory.HELPFUL

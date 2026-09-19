@@ -10,6 +10,7 @@ Uses SQLAlchemy's async engine with the asyncpg driver, per 01_env.txt.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 from typing import Any, Optional
 
@@ -80,7 +81,12 @@ async def get_recommendation(request_id: str) -> Optional[dict[str, Any]]:
             {"rid": request_id},
         )
         row = result.first()
-        return row[0] if row else None
+        if row is None:
+            return None
+        payload = row[0]
+        # A raw text() query may hand JSONB back as a string depending on the
+        # driver codec; normalise so callers always get a dict.
+        return json.loads(payload) if isinstance(payload, (str, bytes)) else payload
 
 
 async def save_feedback(feedback: FeedbackSubmission, escalated: bool) -> None:

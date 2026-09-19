@@ -1,5 +1,6 @@
 """
-Mock RecommendationResponse fixtures — one per action_code.
+Mock RecommendationResponse fixtures — one per action_code, plus one
+emergency scenario (AVOID_TRAVEL + emergency_instructions/official_contacts).
 Lets 01_web_app build/test the UI before 06/07 are wired up.
 """
 
@@ -67,7 +68,7 @@ TRAVEL_NORMALLY = RecommendationResponse(
 CHANGE_ROUTE = RecommendationResponse(
     request_id="mock-req-002",
     action_code=ActionCode.CHANGE_ROUTE,
-    risk_level=RiskLevel.MODERATE,
+    risk_level=RiskLevel.MEDIUM,
     confidence=0.81,
     confidence_level=ConfidenceLevel.HIGH,
     short_summary="Your planned route passes a flooded underpass. A safer route is available.",
@@ -77,7 +78,7 @@ CHANGE_ROUTE = RecommendationResponse(
         description="Original route via Rama IV underpass",
         mode="car",
         estimated_duration_min=25,
-        risk_level=RiskLevel.MODERATE,
+        risk_level=RiskLevel.MEDIUM,
         trade_offs=["Underpass flooding reported in last hour"],
         waypoints=[
             Waypoint(lat=13.7280, lng=100.5340, label="Rama IV underpass"),
@@ -113,7 +114,7 @@ CHANGE_ROUTE = RecommendationResponse(
 DELAY_TRAVEL = RecommendationResponse(
     request_id="mock-req-003",
     action_code=ActionCode.DELAY_TRAVEL,
-    risk_level=RiskLevel.MODERATE,
+    risk_level=RiskLevel.MEDIUM,
     # Deliberately mirrors what 03_travel_ai_agent forwards TODAY: 07 only
     # emits a categorical level, so the numeric field arrives as null.
     confidence=None,
@@ -164,8 +165,9 @@ AVOID_TRAVEL = RecommendationResponse(
 
 EMERGENCY_INSTRUCTIONS = RecommendationResponse(
     request_id="mock-req-005",
-    action_code=ActionCode.EMERGENCY_INSTRUCTIONS,
-    risk_level=RiskLevel.CRITICAL,
+    # Emergency guidance rides on one of the four shared action codes.
+    action_code=ActionCode.AVOID_TRAVEL,
+    risk_level=RiskLevel.HIGH,
     confidence=0.97,
     confidence_level=ConfidenceLevel.HIGH,
     short_summary="Active earthquake alert issued for your current area.",

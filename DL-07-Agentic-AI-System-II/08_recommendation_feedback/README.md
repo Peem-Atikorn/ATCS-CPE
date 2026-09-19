@@ -10,7 +10,8 @@ PostgreSQL + Redis, no more in-memory mocks for storage.
 ├── app/
 │   ├── config.py        # env-driven settings (pydantic-settings)
 │   ├── schema.py         # RecommendationResponse / FeedbackSubmission (the contract)
-│   ├── mock_data.py       # 5 fixtures, one per action_code, now with waypoints for maps
+│   ├── mock_data.py       # 5 fixtures (4 action codes + an emergency scenario), with waypoints for maps
+│   ├── emergency.py       # validates official_contacts (region / effective_date / phone) before serving
 │   ├── db.py              # async SQLAlchemy + asyncpg — real Postgres reads/writes
 │   ├── feedback.py         # classification + safety-review escalation (DB-backed)
 │   ├── live_update.py      # Redis-backed consent/dedup/cooldown for alerts
@@ -18,8 +19,11 @@ PostgreSQL + Redis, no more in-memory mocks for storage.
 │   └── main.py             # FastAPI app / routes
 ├── tests/
 │   ├── test_recommendation.py    # unit tests — no DB/Redis needed
+│   ├── test_emergency_validation.py  # emergency-contact rules + endpoint wiring (db patched)
 │   └── test_db_integration.py    # integration tests — needs `docker compose up`
 ├── db_schema.sql           # Postgres DDL, auto-run on first container start
+├── migrations/             # one-off SQL for volumes created by an older schema
+├── pytest.ini              # shared event loop for async DB tests
 ├── Dockerfile
 ├── docker-compose.yml       # app + postgres + redis, with healthchecks
 ├── .env.example             # copy to .env before running
@@ -72,6 +76,43 @@ docker compose down          # keeps the pgdata volume (recommendation history s
 docker compose down -v       # also wipes the volume — fresh DB next time
 ```
 
+## Contract alignment (Contract Register v3)
+
+Shared values now match 02 / 06 / 07:
+
+- `risk_level` is `LOW | MEDIUM | HIGH` (no `MODERATE`, no `CRITICAL`).
+- `action_code` is `TRAVEL_NORMALLY | CHANGE_ROUTE | DELAY_TRAVEL | AVOID_TRAVEL`.
+  Emergency guidance is **not** a fifth action; it is carried by
+  `emergency_instructions` / `official_contacts` on top of one of the four
+  (the `emergency_instructions` mock scenario is `AVOID_TRAVEL` + `HIGH`).
+- `emergency_instructions` / `official_contacts` accept `null` (03 sends
+  `null` today) and treat it as empty.
+- `db_schema.sql` now has CHECK constraints for both columns.
+
+**Existing database?** `db_schema.sql` only runs on first start, so an old
+`pgdata` volume still holds `MODERATE` / `CRITICAL` rows (and Redis may hold old
+`live_update:last_risk:*` values — those are mapped automatically). Either
+`docker compose down -v` (dev), or run
+`docker compose exec -T postgres psql -U reco_user -d reco_db < migrations/001_three_risk_levels_four_actions.sql`.
+Un-migrated rows make `GET /recommendation/{id}` return 500 on purpose rather
+than serve data that no longer matches the schema.
+
+## Emergency contact validation
+
+Both `GET /recommendation/...` endpoints accept `?region=TH` (the traveler's
+region) and run `emergency.validate_emergency_content` on every response:
+
+- a contact whose `effective_date` is in the future, whose phone is malformed,
+  or whose `region` differs from the traveler's is **withheld** (never edited);
+- the response then gets a `limitations` note and a `DEGRADED`
+  `emergency_contacts` entry in `degraded_services`;
+- if the region is unknown the contact is kept but a limitation says it is
+  unverified (`strict_region=True` in code withholds instead);
+- if emergency instructions remain but no verified contact does, the response
+  says so explicitly.
+
+Contacts are stored as produced and re-validated each time they are served.
+
 ## What changed from the earlier version
 
 - **Real persistence.** `feedback.py` and the new `db.py` now write to actual
@@ -94,10 +135,10 @@ docker compose down -v       # also wipes the volume — fresh DB next time
   decided: 07 generates the full `emergency_instructions` text and
   `official_contacts` list; 08 only receives, validates, and displays them.
   No schema change was needed — `RecommendationResponse` already modeled
-  it this way. **08's remaining job here** (per 01_env.txt: "Emergency
-  text and contact numbers must match the user's location and have a
-  valid effective date") is to validate what 07 sends before showing it —
-  not yet implemented; see "Still to connect" below.
+  it this way. 08's job (per 01_env.txt: "Emergency text and contact
+  numbers must match the user's location and have a valid effective date")
+  is to validate what 07 sends before showing it — implemented in
+  `app/emergency.py`; see "Emergency contact validation" above.
 
 ## Open questions with upstream (03 / 07) — tracked, not yet fully resolved
 
@@ -124,12 +165,12 @@ docker compose down -v       # also wipes the volume — fresh DB next time
   standing in for module 07's real decision output. Swap in a
   `/recommendation/live` endpoint once module 07 exists — the schema and
   the DB-write path (`db.save_recommendation`) don't need to change.
-- **Emergency contact validation is not implemented yet.** Now that 07
-  owns generating the text, 08 still needs to check, before serving a
-  response, that each `EmergencyContact.effective_date` is current for
-  `EMERGENCY_CONTACT_DIRECTORY_VERSION` and matches the traveler's region —
-  otherwise stale numbers could reach a user in a real emergency. This is
-  the next concrete piece of work for this module.
+- **Emergency contact validation is partly done.** Region, effective date and
+  phone format are enforced (see above). Still open, both need the team:
+  1. `EMERGENCY_CONTACT_DIRECTORY_VERSION` is read into config but not enforced —
+     contacts carry no directory version, so 07 would have to send one.
+  2. Where the traveler's region comes from (today: the `region` query param,
+     supplied by the caller). Ties into the coverage question (TH only vs abroad).
 - Notification delivery (email/SMS/push) is not implemented —
   `NOTIFICATION_PROVIDER_KEYS` is read into config but unused until a
   provider is chosen (per 01_env.txt: "install a provider SDK only

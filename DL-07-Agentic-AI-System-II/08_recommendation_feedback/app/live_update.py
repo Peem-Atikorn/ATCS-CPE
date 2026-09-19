@@ -27,10 +27,22 @@ except ImportError:  # pragma: no cover
 
 _RISK_RANK = {
     RiskLevel.LOW: 0,
-    RiskLevel.MODERATE: 1,
+    RiskLevel.MEDIUM: 1,
     RiskLevel.HIGH: 2,
-    RiskLevel.CRITICAL: 3,
 }
+
+# Redis may still hold values written before the 3-level change. Map them
+# instead of crashing, so a stale key can never suppress or break an alert.
+_LEGACY_RISK_ALIASES = {"MODERATE": "MEDIUM", "CRITICAL": "HIGH"}
+
+
+def _parse_risk(raw: Optional[str]) -> Optional[RiskLevel]:
+    if not raw:
+        return None
+    try:
+        return RiskLevel(_LEGACY_RISK_ALIASES.get(raw, raw))
+    except ValueError:
+        return None
 
 
 @dataclass
@@ -103,7 +115,8 @@ class LiveUpdateBroker:
             return True
 
         # Never suppress an increase in severity, even inside cooldown.
-        last_rank = _RISK_RANK.get(RiskLevel(last_risk_raw), -1) if last_risk_raw else -1
+        last_risk = _parse_risk(last_risk_raw)
+        last_rank = _RISK_RANK[last_risk] if last_risk is not None else -1
         current_rank = _RISK_RANK[event.risk_level]
         return current_rank > last_rank
 
