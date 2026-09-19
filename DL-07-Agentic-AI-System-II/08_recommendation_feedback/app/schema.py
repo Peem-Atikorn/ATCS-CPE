@@ -51,6 +51,19 @@ class ServiceStatus(str, Enum):
     UNAVAILABLE = "UNAVAILABLE"
 
 
+class ConfidenceLevel(str, Enum):
+    """
+    Module 07 currently emits confidence as a category (LOW/MEDIUM/HIGH),
+    not a 0-1 probability — see 03_travel_ai_agent/README.md, "ข้อมูลที่ต้อง
+    ตกลงกับทีม". Until the team settles on a numeric scale, this is the
+    field that actually carries a value end-to-end; `confidence` (below)
+    stays optional and is populated only once/if a numeric score exists.
+    """
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
 class FeedbackCategory(str, Enum):
     HELPFUL = "HELPFUL"
     INCORRECT = "INCORRECT"
@@ -112,7 +125,15 @@ class RecommendationResponse(BaseModel):
 
     action_code: ActionCode
     risk_level: RiskLevel
-    confidence: float = Field(ge=0.0, le=1.0)
+
+    # Module 07 sends confidence as LOW/MEDIUM/HIGH today, and upstream
+    # (03) currently forwards `null` for the numeric field because of that
+    # mismatch with 02's expected 0-1 float. Both are optional so a payload
+    # missing either one is still valid; at least one SHOULD be present in
+    # practice, but that's a display-layer concern, not a schema one — see
+    # README "Open questions with upstream" for the team decision to track.
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    confidence_level: Optional[ConfidenceLevel] = None
 
     short_summary: str
     immediate_actions: List[str] = Field(default_factory=list)

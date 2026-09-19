@@ -50,6 +50,23 @@ def test_change_route_scenario_has_waypoints_for_map_rendering():
     assert len(r.alternative_routes[0].waypoints) > 0
 
 
+def test_confidence_may_be_null_when_only_categorical_level_is_known():
+    """
+    Mirrors what 03_travel_ai_agent forwards today: 07 only emits a
+    categorical confidence (LOW/MEDIUM/HIGH), so the numeric field is
+    null until the team agrees on a 0-1 scale. The schema must accept
+    this instead of rejecting the payload.
+    """
+    r = ALL_SCENARIOS["delay_travel"]
+    assert r.confidence is None
+    assert r.confidence_level is not None
+
+    # Round-trips through JSON the same as every other fixture.
+    restored = RecommendationResponse.model_validate_json(r.model_dump_json())
+    assert restored.confidence is None
+    assert restored.confidence_level == r.confidence_level
+
+
 # ---------------------------------------------------------------------------
 # Feedback classification (pure function, no DB)
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.schema import (
     ActionCode,
+    ConfidenceLevel,
     DegradedService,
     EmergencyContact,
     RecommendationResponse,
@@ -33,6 +34,7 @@ TRAVEL_NORMALLY = RecommendationResponse(
     action_code=ActionCode.TRAVEL_NORMALLY,
     risk_level=RiskLevel.LOW,
     confidence=0.94,
+    confidence_level=ConfidenceLevel.HIGH,
     short_summary="Conditions along your route are normal. No active restrictions.",
     immediate_actions=["Proceed as planned."],
     primary_route=RouteOption(
@@ -67,6 +69,7 @@ CHANGE_ROUTE = RecommendationResponse(
     action_code=ActionCode.CHANGE_ROUTE,
     risk_level=RiskLevel.MODERATE,
     confidence=0.81,
+    confidence_level=ConfidenceLevel.HIGH,
     short_summary="Your planned route passes a flooded underpass. A safer route is available.",
     immediate_actions=["Switch to the alternative route below before departing."],
     primary_route=RouteOption(
@@ -111,7 +114,10 @@ DELAY_TRAVEL = RecommendationResponse(
     request_id="mock-req-003",
     action_code=ActionCode.DELAY_TRAVEL,
     risk_level=RiskLevel.MODERATE,
-    confidence=0.72,
+    # Deliberately mirrors what 03_travel_ai_agent forwards TODAY: 07 only
+    # emits a categorical level, so the numeric field arrives as null.
+    confidence=None,
+    confidence_level=ConfidenceLevel.MEDIUM,
     short_summary="A severe thunderstorm is expected to pass within 90 minutes.",
     immediate_actions=["Delay departure by approximately 90 minutes if possible."],
     primary_route=None,
@@ -132,6 +138,7 @@ AVOID_TRAVEL = RecommendationResponse(
     action_code=ActionCode.AVOID_TRAVEL,
     risk_level=RiskLevel.HIGH,
     confidence=0.88,
+    confidence_level=ConfidenceLevel.HIGH,
     short_summary="Official closure on your route with no acceptable alternative right now.",
     immediate_actions=["Do not travel until the closure is lifted.", "Check back in 1 hour."],
     primary_route=RouteOption(
@@ -160,6 +167,7 @@ EMERGENCY_INSTRUCTIONS = RecommendationResponse(
     action_code=ActionCode.EMERGENCY_INSTRUCTIONS,
     risk_level=RiskLevel.CRITICAL,
     confidence=0.97,
+    confidence_level=ConfidenceLevel.HIGH,
     short_summary="Active earthquake alert issued for your current area.",
     immediate_actions=["Move away from windows and heavy furniture now.", "Do not use elevators."],
     primary_route=None,
