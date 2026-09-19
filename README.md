@@ -9,20 +9,16 @@
 
 7 คน 8 โมดูล → มี 1 คนรับ 2 โมดูล (ตกลงกันในทีม)
 
-| #   | โมดูล                        | งานหลัก                                 | ผู้รับผิดชอบ | GitHub   | branch                     |
-| --- | ---------------------------- | --------------------------------------- | ------------ | -------- | -------------------------- |
-| 01  | `01_web_app`                 | Next.js, TypeScript, แผนที่, live alert | _TBD_        | `@_TBD_` | `ชื่อ-01-web-app`          |
-| 02  | `02_api_backend`             | FastAPI gateway, auth, CORS             | _TBD_        | `@_TBD_` | `ชื่อ-02-api-backend`      |
-| 03  | `03_travel_ai_agent`         | LLM planner, tool routing               | _TBD_        | `@_TBD_` | `ชื่อ-03-travel-ai-agent`  |
-| 04  | `04_external_data_services`  | adapter weather / transport / disaster  | _TBD_        | `@_TBD_` | `ชื่อ-04-external-data`    |
-| 05  | `05_data_integration`        | normalize → canonical schema            | _TBD_        | `@_TBD_` | `ชื่อ-05-data-integration` |
-| 06  | `06_risk_knowledge_services` | risk model + RAG knowledge base         | _TBD_        | `@_TBD_` | `ชื่อ-06-risk-knowledge`   |
-| 07  | `07_decision_llm_engine`     | ตัดสินใจ + อธิบายผล                     | _TBD_        | `@_TBD_` | `ชื่อ-07-decision-llm`     |
-| 08  | `08_recommendation_feedback` | ข้อเสนอแนะ + feedback loop              | _TBD_        | `@_TBD_` | `ชื่อ-08-recommendation`   |
-
-แต่ละโมดูลมี `01_env.txt` (สภาพแวดล้อม) · `02_step.txt` (ขั้นตอน) · `03_process.txt` (เทคนิค)
-
----
+| #   | โมดูล                        | งานหลัก                                 | ผู้รับผิดชอบ       | GitHub                         | branch                         |
+| --- | ---------------------------- | --------------------------------------- | ------------------ | ------------------------------ | ------------------------------ |
+| 01  | `01_web_app`                 | Next.js, TypeScript, แผนที่, live alert | โชคอนันต์ อันโน    | `aunoford89@gmail.com`         | `Chokanan-01-WebApp`           |
+| 02  | `02_api_backend`             | FastAPI gateway, auth, CORS             | ศักดา เบ้าคำ       | `sakda130646@gmail.com`        | `sakda-02-api-backend`         |
+| 03  | `03_travel_ai_agent`         | LLM planner, tool routing               | ปภาวิทย์ แก้วรักษ์ | `kokayou1234@gmail.com`        | `paphawit-03-traval-ai-agent`  |
+| 04  | `04_external_data_services`  | adapter weather / transport / disaster  | ศุภวิชญ์ มหาวงค์   | `mahawongsupawit125@gmail.com` | `supawit-04-external_data`     |
+| 05  | `05_data_integration`        | normalize → canonical schema            | ศุภวิชญ์ มหาวงค์   | `mahawongsupawit125@gmail.com` | `supawit-05-data_integration`  |
+| 06  | `06_risk_knowledge_services` | risk model + RAG knowledge base         | อธิกรณ์ น้ำฉ่า     | `atikorn.namcham@gmail.com`    | `atikorn-06-risk-knowledge`    |
+| 07  | `07_decision_llm_engine`     | ตัดสินใจ + อธิบายผล                     | เมฆใหม่ จันทร์แก้ว | `mekmai4234@gmail.com`         | `mekmai-07-decision-llm`       |
+| 08  | `08_recommendation_feedback` | ข้อเสนอแนะ + feedback loop              | พลกฤต สมทรง        | `phonlakrit012@gmail.com`      | `phonlakrit-08-recommendation` |
 
 ## 🌿 โครงสร้าง branch
 
