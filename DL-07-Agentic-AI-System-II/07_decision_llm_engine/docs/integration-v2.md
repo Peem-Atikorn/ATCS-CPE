@@ -5,7 +5,7 @@ confidence ผลลัพธ์เป็น float 0–1 และ 07 สร้�
 guide .txt ทั้งสามไฟล์ยังเป็นข้อกำหนดหลัก นโยบายยังเป็น prototype ไม่ใช่การรับรองใช้งานจริง
 
 ## Confidence
-//33333
+ 
 `DecisionResponse.confidence` เป็น JSON number ที่มีค่า finite ระหว่าง 0.0–1.0
 `confidence_kind = heuristic_policy_score` หมายถึงคุณภาพหลักฐานสำหรับการตัดสิน action
 ไม่ใช่โอกาสเกิดภัย ไม่ใช่ความมั่นใจที่ผ่าน calibration และไม่ใช่ risk score ของ 06
