@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from .models import Citation, DecisionRequest, EvidenceStatus
+from .models import Citation, DecisionRequest, EmergencyAssessment, EvidenceStatus
 from .policy import Decision
 
 
@@ -8,6 +8,7 @@ def references(
     request: DecisionRequest,
     decision: Decision,
     now: datetime,
+    emergency: EmergencyAssessment | None = None,
 ) -> tuple[list[Citation], list[EvidenceStatus]]:
     parts = [request.risk, request.weather, request.transport, request.routes]
     if decision.rule_id == "OFFICIAL_RESTRICTION":
@@ -40,6 +41,7 @@ def references(
         if part:
             for eid in part.evidence_ids:
                 expected_kinds.setdefault(eid, set()).add(kind)
+    emergency_ids = set(emergency.evidence_ids) if emergency else set()
     citations = []
     statuses = []
     for item in sorted(request.evidence, key=lambda e: e.evidence_id):
@@ -53,11 +55,12 @@ def references(
         if any(kind != item.kind for kind in expected_kinds.get(item.evidence_id, ())):
             issues.append("evidence_kind_mismatch")
         used = item.evidence_id in used_ids
-        cited = used and not issues
+        cited = (used or item.evidence_id in emergency_ids) and not issues
         statuses.append(
             EvidenceStatus(
                 evidence_id=item.evidence_id,
                 used_by_decision=used,
+                used_by_emergency=item.evidence_id in emergency_ids,
                 cited=cited,
                 validation_issues=issues,
             )
