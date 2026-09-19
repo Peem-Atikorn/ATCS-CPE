@@ -23,18 +23,22 @@ RECOMMENDATION_SCHEMA_VERSION = settings.recommendation_schema_version
 # ---------------------------------------------------------------------------
 
 class ActionCode(str, Enum):
+    """Same four values as 02's backend action names (07 sends them as
+    `backend_action_code`). Emergency guidance is NOT a fifth action: it is
+    carried by `emergency_instructions` / `official_contacts` on top of one of
+    these four (see Contract Register v3)."""
     TRAVEL_NORMALLY = "TRAVEL_NORMALLY"
     CHANGE_ROUTE = "CHANGE_ROUTE"
     DELAY_TRAVEL = "DELAY_TRAVEL"
     AVOID_TRAVEL = "AVOID_TRAVEL"
-    EMERGENCY_INSTRUCTIONS = "EMERGENCY_INSTRUCTIONS"
 
 
 class RiskLevel(str, Enum):
+    """Three levels, identical to 02 / 06 / 07. There is intentionally no
+    CRITICAL and no MODERATE."""
     LOW = "LOW"
-    MODERATE = "MODERATE"
+    MEDIUM = "MEDIUM"
     HIGH = "HIGH"
-    CRITICAL = "CRITICAL"
 
 
 class SourceType(str, Enum):
@@ -153,6 +157,14 @@ class RecommendationResponse(BaseModel):
 
     limitations: List[str] = Field(default_factory=list)
     degraded_services: List[DegradedService] = Field(default_factory=list)
+
+    @field_validator("emergency_instructions", "official_contacts", mode="before")
+    @classmethod
+    def null_list_means_empty(cls, v):
+        """03 forwards `emergency_instructions = null` until 07/08 settle who
+        generates it (Contract Register, open question). Accept null as empty
+        instead of rejecting the whole recommendation."""
+        return [] if v is None else v
 
     @field_validator("expires_at")
     @classmethod
