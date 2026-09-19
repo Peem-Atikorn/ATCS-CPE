@@ -10,11 +10,19 @@
 - ตรวจว่า request, route และ travel time ของหลักฐานตรงกัน รวมถึงปัญหาคุณภาพและอายุข้อมูล
 - Decision table มีเวอร์ชัน ใช้ action ตาม guide: `NORMAL`, `CHANGE_ROUTE`, `DELAY`, `AVOID`
 - ให้ข้อจำกัดหรือประกาศทางการมีความสำคัญสูงสุด และไม่ตีความข้อมูลขาดว่าเส้นทางปลอดภัย
-- confidence แบบลำดับ `HIGH` / `MEDIUM` / `LOW` และ escalation flag; ค่าเหล่านี้ไม่ใช่ความน่าจะเป็นที่ผ่านการสอบเทียบ
+- confidence ผลลัพธ์เป็น float 0–1 พร้อมปัจจัยคำนวณและ escalation; รองรับ ordinal input เดิมจาก 03/06
+- Emergency Instructions เป็นหน้าที่ของ 07: ใช้รายการคำแนะนำที่ทบทวนใน catalog และตรวจแหล่งข้อมูล พื้นที่ ประเภทภัย ภาษา และเวลา ก่อนใช้; ถ้าไม่มีจะส่ง fallback พร้อม escalation
 - ข้อความ fallback จาก template และจุดเชื่อมต่อ provider สำหรับทดสอบการตรวจคำตอบ โดยยังไม่มีการเรียก LLM ภายนอกจริง
 - audit trace แบบ JSONL บันทึกข้อมูลที่จำเป็นต่อการตรวจย้อนหลัง และ Docker Compose สำหรับเปิดเฉพาะ 07
 
 รุ่นนี้ไม่ได้แก้โค้ดหรือ Compose กลางของงานอื่น ไม่มี dependency ที่บังคับให้ต้องเปิด 02–06 หรือ 08 ก่อน
+
+## รุ่น 0.2.0: confidence และ Emergency Instructions
+
+อ่าน contract, สูตรคะแนน, ตัวอย่าง JSON และรายการส่งต่อใน [integration-v2](docs/integration-v2.md).
+รุ่นนี้ใช้ `DECISION_POLICY_VERSION=prototype-v2`; หากมี `.env` เก่าต้องเปลี่ยนค่านี้ด้วยตนเอง
+และแนะนำ `LLM_TIMEOUT=3` เพื่อเหลือเวลาให้ HTTP/audit ภายใน timeout ต่อ tool ของ 03
+ที่ประมาณ 5 วินาที ไม่ใช่งบรวม 60 วินาทีทั้ง Agent
 
 ## เริ่มใช้งานด้วย Python
 
@@ -69,7 +77,7 @@ docker compose exec decision-engine python -c "from pathlib import Path; p=Path(
 
 Image ติดตั้ง dependency จาก `uv.lock` ด้วย `uv sync --frozen --no-dev --no-install-project` แล้วรันด้วย user ที่ไม่ใช่ root มี `/health` healthcheck และพื้นที่เขียนเฉพาะ audit volume กับ temporary directory ไม่คัดลอก `.env` หรือข้อมูล audit เข้า image
 
-**สถานะการยืนยัน Docker:** เครื่องที่ใช้จัดทำต้นแบบไม่พบคำสั่ง Docker จึงยังไม่ได้ build image หรือรัน container จริง ต้องทดสอบขั้นตอน Compose ด้านบนบนเครื่องที่มี Docker ก่อนถือว่างานส่วนนี้ผ่าน
+**สถานะ Docker (19 กันยายน 2026):** พบ Docker CLI และ `docker compose config --quiet` ผ่าน แต่ Docker Engine ไม่ทำงาน (ไม่พบ pipe `dockerDesktopLinuxEngine`) จึงยังไม่ได้ build image หรือรัน container จริง
 
 ## API และการต่อกับเพื่อนในอนาคต
 
@@ -84,7 +92,7 @@ Input ของ 07 เป็น draft contract สำหรับรับ risk,
 
 เมื่อรวม Compose ในอนาคต Module 03 ที่อยู่ใน Docker network เดียวกันจะเรียก `http://decision-engine:8050` ส่วนโปรแกรมบนเครื่องเรียก `http://localhost:8050` ชื่อ service และ network ต้องตกลงกับทีมก่อน Compose แยกชุดไม่ได้อยู่ network เดียวกันโดยอัตโนมัติ
 
-ชื่อ action ภายในใช้ตาม guide ของ 07 ค่า `NORMAL`, `DELAY`, `AVOID` ต้องตกลง mapping กับค่า `TRAVEL_NORMALLY`, `DELAY_TRAVEL`, `AVOID_TRAVEL` ของ Backend 02 ก่อนเชื่อมจริง โดย `CHANGE_ROUTE` ใช้ชื่อเดียวกัน อย่าเปลี่ยนชื่อในงานของเพื่อนจากต้นแบบนี้
+ชื่อ action ภายในใช้ตาม guide ของ 07: `NORMAL`, `DELAY`, `AVOID` map เป็น `TRAVEL_NORMALLY`, `DELAY_TRAVEL`, `AVOID_TRAVEL` ของ 02 และ `CHANGE_ROUTE` ใช้ชื่อเดียวกัน การส่งต่อผ่าน 03 มีอยู่แล้ว ส่วน field ใหม่ในรุ่น 0.2.0 ต้องให้เจ้าของ 03/08 ต่อเพิ่มตาม `docs/integration-v2.md`
 
 Response มี `action_code` ตาม guide และ `backend_action_code` เป็น mapping ที่เสนอไว้แล้ว แต่ไม่ได้หมายความว่า JSON ทั้งชุดเข้ากับ Backend 02 โดยอัตโนมัติ ต้องยืนยัน contract ร่วมกันก่อน
 
@@ -100,7 +108,7 @@ Response มี `action_code` ตาม guide และ `backend_action_code` �
 
 ลำดับกฎทดลอง: ประกาศงดเดินทาง/ปิดเส้นทาง → ความเสี่ยง HIGH → ไม่มีเส้นทางปลอดภัย → ข้อมูลมีปัญหา → ทางเลือกที่ใช้ได้และมี risk level ต่ำกว่า → เวลาถัดไปที่มีหลักฐานว่าปลอดภัยกว่า → LOW และไม่มีข้อจำกัด → กรณีอื่นให้ตรวจต่อ ความเสี่ยง HIGH จะไม่ถูกลดเป็น CHANGE_ROUTE ในรุ่นนี้ แม้มีทางเลือก เพราะลำดับนี้ยังรอทีมอนุมัติ
 
-ความสดใช้ `expires_at` ของแต่ละหลักฐานเทียบกับเวลาของ service โดยค่าตรงเวลาหมดอายุถือว่า stale ไม่สมมติเกณฑ์อายุเป็นนาทีเพิ่ม confidence ใช้ค่าต่ำสุดของ risk/data-quality แบบลำดับ และลดเป็น LOW เมื่อมีปัญหา ไม่ได้แทน model probability
+ความสดใช้ `expires_at` ของแต่ละหลักฐานเทียบกับเวลาของ service โดยค่าตรงเวลาหมดอายุถือว่า stale ไม่สมมติเกณฑ์อายุเป็นนาทีเพิ่ม confidence เป็น float ตาม policy `prototype-v2`: base = ค่าต่ำสุดของ risk/data-quality; คูณสัดส่วนองค์ประกอบที่ครบและหลักฐานที่ยังสด แล้วจำกัดคะแนนเมื่อมีปัญหา รายละเอียดอยู่ใน `docs/integration-v2.md` ไม่ได้แทน model probability
 
 Provider seam ในรุ่นนี้ตรวจข้อความเทียบกับ sentence bank ที่อนุญาตอย่างเข้มงวด จึงยังไม่ใช่การเขียนคำอธิบายอิสระด้วย LLM ส่งออกไปเฉพาะ action ที่ล็อก ข้อความที่อนุญาต และ evidence IDs ที่ผ่านการตรวจ ไม่ส่ง raw summary/RAG excerpt งบ token ปัจจุบันใช้จำนวน UTF-8 bytes เป็นขอบเขตแบบระมัดระวัง และต้องเปลี่ยนเป็น tokenizer ของ provider เมื่อเชื่อมจริง
 
@@ -119,7 +127,8 @@ uv run ruff check .
 
 ## งานที่ยังรอการตกลงหรือพัฒนาต่อ
 
-- ยืนยัน input กับ 03/06 และ output/action mapping กับ 02/08 แล้วทดสอบร่วมกับบริการจริง
+- ให้ 03 ส่งต่อ confidence และ emergency_instructions; ให้ 08 ปรับตัวรับและความหมายคะแนนตาม `docs/integration-v2.md` แล้วทดสอบร่วมกับบริการจริง
+- เติม catalog คำแนะนำเฉพาะภัยจากเอกสารทางการที่ผ่านการทบทวน และตกลงเจ้าของข้อมูล emergency contacts; catalog ที่แจกยังไม่มีคำแนะนำเฉพาะภัยจริง
 - อนุมัติเกณฑ์ความเสี่ยง ความสดของข้อมูล ความปลอดภัยของทางเลือก และลำดับกฎเมื่อหลายเงื่อนไขเกิดพร้อมกัน
 - เชื่อม LLM SDK ที่รองรับ structured output พร้อมทดสอบ provider จริงและการควบคุม timeout/token/retry
 - เพิ่ม Redis cache, PostgreSQL สำหรับ policy/prompt versions และ OpenTelemetry หรือ Langfuse ตาม environment ที่ guide แนะนำ; JSONL ปัจจุบันเป็น audit แบบ local ไม่ใช่ระบบ tracing ครบชุด

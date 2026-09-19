@@ -12,7 +12,7 @@ services:
       USE_MOCK_TOOLS: "${USE_MOCK_TOOLS:-true}"
       MAX_AGENT_STEPS: "${MAX_AGENT_STEPS:-12}"
       MAX_TOOL_CALLS: "${MAX_TOOL_CALLS:-20}"
-      AGENT_TOTAL_TIMEOUT: "${AGENT_TOTAL_TIMEOUT:-30}"
+      AGENT_TOTAL_TIMEOUT: "${AGENT_TOTAL_TIMEOUT:-60}"
       TOOL_TIMEOUT_SECONDS: "${TOOL_TIMEOUT_SECONDS:-5}"
     depends_on:
       decision-engine:
