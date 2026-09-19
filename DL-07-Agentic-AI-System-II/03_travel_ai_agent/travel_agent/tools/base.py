@@ -20,14 +20,16 @@ from travel_agent.tools.schemas import (
     WeatherResult,
 )
 
-# Tool name -> service it belongs to (used for service_status in the response).
+# Tool name -> service key reported in service_status. Module 02 shows only the keys in
+# its D-47 list (weather, transport, disaster, risk_model, rag, llm) and ignores the rest.
+# "llm" is not reported until the agent has a real LLM planner.
 ALLOWED_TOOLS: dict[str, str] = {
     "weather": "weather",
     "transport": "transport",
     "disasters": "disaster",
     "integrate": "integration",
-    "risk": "risk",
-    "knowledge": "knowledge",
+    "risk": "risk_model",
+    "knowledge": "rag",
     "routes": "route",
     "decide": "decision",
 }
