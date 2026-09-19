@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import (
     AwareDatetime,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     HttpUrl,
@@ -25,6 +26,19 @@ class Level(StrEnum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+
+
+def reject_non_numeric(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError("Confidence must be a JSON number")
+    return value
+
+
+Score = Annotated[
+    float, Field(ge=0, le=1, allow_inf_nan=False), BeforeValidator(reject_non_numeric)
+]
+# Legacy input is accepted at the boundary; output is always numeric.
+InputConfidence = Score | Level
 
 
 class Action(StrEnum):
@@ -80,8 +94,8 @@ class Evidence(Scoped):
 
 class RiskAssessment(Scoped):
     level: Level
-    # Ordinal policy confidence, NOT a calibrated probability.
-    confidence: Level
+    # Accept upstream ordinal values or numeric policy confidence, not probability.
+    confidence: InputConfidence
     model_version: Identifier
     evidence_ids: EvidenceIds
 
@@ -127,19 +141,51 @@ class TimeAssessment(Scoped):
 
 
 class DataQuality(Scoped):
-    confidence: Level
+    confidence: InputConfidence
     flags: list[Literal["missing", "stale", "conflicting", "incomplete", "inferred"]] = Field(
         default_factory=list, max_length=5
     )
     # None means unknown, never equivalent to 'no restriction'.
     active_restriction: bool | None
     data_version: Identifier
-    schema_version: Literal["07-draft-v1"] = "07-draft-v1"
+    schema_version: Literal["07-draft-v1", "07-draft-v2"] = "07-draft-v1"
+
+
+class EmergencyContext(Scoped):
+    region: Identifier
+    hazard: Identifier
+
+
+class EmergencyContact(Contract):
+    name: str = Field(min_length=1, max_length=200)
+    phone: str = Field(min_length=1, max_length=80)
+    url: HttpUrl | None = None
+    available_hours: str | None = Field(default=None, max_length=200)
+
+
+class EmergencyInstructions(Contract):
+    what_to_do_now: str = Field(min_length=1, max_length=2000)
+    safety_steps: list[Annotated[str, Field(min_length=1, max_length=2000)]] = Field(
+        default_factory=list, max_length=16
+    )
+    contacts: list[EmergencyContact] = Field(default_factory=list, max_length=10)
+    # No location/ranking source yet: never invent a nearest support place.
+    nearest_support: list[dict] = Field(default_factory=list, max_length=0)
+
+
+class EmergencyAssessment(Contract):
+    status: Literal["not_required", "grounded", "fallback"]
+    procedure_id: Identifier | None = None
+    evidence_ids: list[Identifier] = Field(default_factory=list)
+    issues: list[str] = Field(default_factory=list)
+    # ID -> rejection reasons; never include raw source text.
+    rejected_evidence: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class DecisionRequest(Contract):
     context: Context
     locale: Literal["th-TH", "en-US"] = "th-TH"
+    emergency_context: EmergencyContext | None = None
     risk: RiskAssessment | None = None
     weather: Summary | None = None
     transport: Summary | None = None
@@ -152,6 +198,7 @@ class DecisionRequest(Contract):
     @model_validator(mode="after")
     def linked_evidence_and_context(self):
         scoped = [
+            self.emergency_context,
             self.risk,
             self.weather,
             self.transport,
@@ -201,6 +248,7 @@ class Explanation(Contract):
 class EvidenceStatus(Contract):
     evidence_id: Identifier
     used_by_decision: bool
+    used_by_emergency: bool = False
     cited: bool
     validation_issues: list[str]
 
@@ -213,7 +261,9 @@ class Versions(Contract):
     model: str
     risk_model: str | None
     data: str
-    schema_version: str = "07-draft-v1"
+    schema_version: str = "07-draft-v2"
+    emergency_catalog: str
+    emergency_catalog_sha256: str
 
 
 class DecisionResponse(Contract):
@@ -221,8 +271,11 @@ class DecisionResponse(Contract):
     action_code: Action
     backend_action_code: str
     risk_level: Level | None
-    confidence: Level
-    confidence_kind: Literal["ordinal_policy_assessment"] = "ordinal_policy_assessment"
+    confidence: Score
+    confidence_kind: Literal["heuristic_policy_score"] = "heuristic_policy_score"
+    confidence_details: dict[str, float]
+    emergency_instructions: EmergencyInstructions | None = None
+    emergency_assessment: EmergencyAssessment
     escalation_required: bool
     escalation_reasons: list[str]
     selected_route_id: str | None

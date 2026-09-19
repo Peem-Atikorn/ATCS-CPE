@@ -11,7 +11,7 @@
       "route_id": "mock-primary",
       "departure_time": "2026-09-19T10:35:19.454951+00:00"
     },
-    "level": "MEDIUM",
+    "level": "HIGH",
     "confidence": "HIGH",
     "model_version": "mock-risk-v1",
     "evidence_ids": [
@@ -178,16 +178,13 @@
       "excerpt": "MOCK DATA ONLY. Not an actual alert or travel assessment."
     }
   ],
-  "time_assessment": {
+  "emergency_context": {
     "context": {
       "request_id": "00000000-0000-4000-8000-000000000007",
       "route_id": "mock-primary",
       "departure_time": "2026-09-19T10:35:19.454951+00:00"
     },
-    "safer_later": true,
-    "suggested_departure_time": "2026-09-19T13:35:19.454951+00:00",
-    "evidence_ids": [
-      "mock-time"
-    ]
+    "region": "TEST-REGION",
+    "hazard": "TEST-HAZARD"
   }
 }

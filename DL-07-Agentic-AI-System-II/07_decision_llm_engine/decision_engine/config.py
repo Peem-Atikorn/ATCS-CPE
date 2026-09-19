@@ -7,7 +7,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    decision_policy_version: str = "prototype-v1"
+    decision_policy_version: str = "prototype-v2"
+    emergency_catalog_path: Path | None = None
     prompt_version: str = "v1"
     policy_approved: bool = False
     llm_api_key: SecretStr = SecretStr("")
@@ -15,7 +16,7 @@ class Settings(BaseSettings):
     temperature: float = Field(default=0, ge=0, le=0)
     max_input_tokens: int = Field(default=8000, ge=256, le=32000)
     max_output_tokens: int = Field(default=1500, ge=64, le=8000)
-    llm_timeout: float = Field(default=5, gt=0, le=60)
+    llm_timeout: float = Field(default=3, gt=0, le=60)
     llm_max_attempts: int = Field(default=2, ge=1, le=3)
     supported_locales: str = "th-TH,en-US"
     escalation_rules: str = "missing,stale,conflicting,incomplete,low_confidence,unverified_warning"
@@ -24,8 +25,8 @@ class Settings(BaseSettings):
     @field_validator("decision_policy_version")
     @classmethod
     def bundled_policy_only(cls, value: str) -> str:
-        if value != "prototype-v1":
-            raise ValueError("Only the bundled prototype-v1 policy is implemented")
+        if value != "prototype-v2":
+            raise ValueError("This release requires prototype-v2; roll back the release to use v1")
         return value
 
     @field_validator("prompt_version")

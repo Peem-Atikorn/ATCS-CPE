@@ -14,10 +14,11 @@ class Policy:
     version: str
     digest: str
     rules: tuple[tuple[str, Action], ...]
+    confidence_config: dict
 
     @classmethod
     def load(cls, version: str) -> "Policy":
-        if version != "prototype-v1":
+        if version != "prototype-v2":
             raise ValueError("Unsupported policy version")
         raw = (Path(__file__).parent / "policies" / f"{version}.json").read_bytes()
         manifest = json.loads(raw)
@@ -26,6 +27,7 @@ class Policy:
         return cls(
             version=version,
             digest=hashlib.sha256(raw).hexdigest(),
+            confidence_config=manifest["confidence"],
             rules=tuple((rule["id"], Action(rule["action"])) for rule in manifest["rules"]),
         )
 
@@ -34,11 +36,48 @@ class Policy:
 class Decision:
     action: Action
     rule_id: str
-    confidence: Level
+    confidence: float
+    confidence_details: dict[str, float]
     issues: tuple[str, ...]
     escalation_required: bool
     selected_route_id: str | None = None
     suggested_departure_time: datetime | None = None
+
+
+def normalize_confidence(value, policy: Policy) -> float:
+    if isinstance(value, Level):
+        return policy.confidence_config["ordinal_mapping"][value.value]
+    return float(value)
+
+
+def score_confidence(request: DecisionRequest, now: datetime, policy: Policy, issues: set[str]):
+    base = min(
+        normalize_confidence(request.quality.confidence, policy),
+        normalize_confidence(request.risk.confidence, policy) if request.risk else 0.0,
+    )
+    completeness = (
+        sum(
+            p is not None
+            for p in (request.risk, request.weather, request.transport, request.routes)
+        )
+        / 4
+    )
+    freshness = sum(e.fetched_at <= now < e.expires_at for e in request.evidence) / max(
+        len(request.evidence), 1
+    )
+    cap = 1.0
+    if issues:
+        cap = policy.confidence_config["issue_cap"]
+    if "conflicting" in issues:
+        cap = policy.confidence_config["conflict_cap"]
+    # Do not round across the escalation threshold.
+    score = min(base * completeness * freshness, cap)
+    return score, {
+        "base": base,
+        "completeness": completeness,
+        "freshness": freshness,
+        "issue_cap": cap,
+    }
 
 
 def evaluate(request: DecisionRequest, now: datetime, policy: Policy) -> Decision:
@@ -48,8 +87,9 @@ def evaluate(request: DecisionRequest, now: datetime, policy: Policy) -> Decisio
         issues.add("missing")
     if request.quality.active_restriction is None:
         issues.add("restriction_unknown")
-    if request.quality.confidence == Level.LOW or (
-        request.risk and request.risk.confidence == Level.LOW
+    threshold = policy.confidence_config["escalation_threshold"]
+    if normalize_confidence(request.quality.confidence, policy) < threshold or (
+        request.risk and normalize_confidence(request.risk.confidence, policy) < threshold
     ):
         issues.add("low_confidence")
     if any(item.expires_at <= now for item in request.evidence):
@@ -101,6 +141,12 @@ def evaluate(request: DecisionRequest, now: datetime, policy: Policy) -> Decisio
             if any(by_id[eid].kind != "route" for eid in route.evidence_ids):
                 issues.add("evidence_kind_mismatch")
 
+    if (
+        score_confidence(request, now, policy, issues)[0]
+        < policy.confidence_config["escalation_threshold"]
+    ):
+        issues.add("low_confidence")
+
     # Deterministic tie-breaking; HIGH never yields a weaker action via an alternative.
     alternatives = sorted(
         (
@@ -132,16 +178,12 @@ def evaluate(request: DecisionRequest, now: datetime, policy: Policy) -> Decisio
             continue
         if rule_id == "UNRESOLVED":
             issues.add("unresolved_policy")
-        confidence = min(
-            (request.quality.confidence, request.risk.confidence if request.risk else Level.LOW),
-            key=LEVEL_RANK.__getitem__,
-        )
-        if issues:
-            confidence = Level.LOW
+        confidence, details = score_confidence(request, now, policy, issues)
         return Decision(
             action=action,
             rule_id=rule_id,
             confidence=confidence,
+            confidence_details=details,
             issues=tuple(sorted(issues)),
             escalation_required=bool(issues),
             selected_route_id=alternatives[0].route_id if action == Action.CHANGE_ROUTE else None,
