@@ -1,0 +1,115 @@
+"""
+Module: 08_recommendation_feedback — FastAPI service.
+
+Run via Docker Compose (recommended):
+    docker compose up -d --build
+
+Or standalone (needs DATABASE_URL / REDIS_URL pointing at reachable
+Postgres/Redis instances):
+    uvicorn app.main:app --reload --port 8080
+
+Endpoints:
+    GET  /health                           -> service + DB + Redis status
+    GET  /recommendation/mock/{scenario}    -> mock RecommendationResponse, persisted to DB
+    GET  /recommendation/{request_id}       -> re-fetch a previously served recommendation
+    POST /feedback                          -> submit explicit user feedback
+    GET  /feedback/safety-queue             -> pending human safety reviews
+    POST /feedback/{request_id}/review      -> mark a report reviewed (ops-only)
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+from app import db, feedback as feedback_module, monitoring
+from app.config import settings
+from app.mock_data import ALL_SCENARIOS
+from app.schema import FeedbackSubmission
+
+app = FastAPI(title="Recommendation & Feedback Service", version=settings.recommendation_schema_version)
+
+
+@app.on_event("startup")
+async def on_startup() -> None:
+    monitoring.init_monitoring()
+    await db.wait_for_db()
+
+
+class ReviewRequest(BaseModel):
+    reviewer: str
+    approve_for_training: bool = True
+
+
+@app.get("/health")
+async def health():
+    db_ok = True
+    try:
+        await db.wait_for_db(retries=1, delay_seconds=0)
+    except Exception:
+        db_ok = False
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "schema_version": settings.recommendation_schema_version,
+        "database": "ok" if db_ok else "unreachable",
+    }
+
+
+@app.get("/recommendation/mock/{scenario}")
+async def get_mock_recommendation(scenario: str, user_id: str = "anon-demo-user"):
+    if scenario not in ALL_SCENARIOS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown scenario '{scenario}'. Options: {list(ALL_SCENARIOS)}",
+        )
+    response = ALL_SCENARIOS[scenario]
+    await db.save_recommendation(response, pseudonymous_user_id=user_id)
+    monitoring.record_recommendation_viewed(response.action_code.value)
+    return response
+
+
+@app.get("/recommendation/{request_id}")
+async def get_stored_recommendation(request_id: str):
+    payload = await db.get_recommendation(request_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="request_id not found")
+    return payload
+
+
+@app.post("/feedback")
+async def submit_feedback(feedback: FeedbackSubmission):
+    escalated = await feedback_module.submit_feedback(feedback)
+    monitoring.record_feedback_submitted(feedback.category.value)
+    if feedback.category.value == "UNSAFE":
+        monitoring.record_unsafe_feedback()
+    return {
+        "received": True,
+        "request_id": feedback.request_id,
+        "escalated_to_safety_review": escalated,
+    }
+
+
+@app.get("/feedback/safety-queue")
+async def safety_queue():
+    pending = await feedback_module.pending_safety_review()
+    return {"pending_count": len(pending), "items": pending}
+
+
+@app.post("/feedback/{request_id}/review")
+async def review_feedback(request_id: str, review: ReviewRequest):
+    await feedback_module.mark_reviewed(
+        request_id, reviewer=review.reviewer, approve_for_training=review.approve_for_training
+    )
+    return {"request_id": request_id, "reviewed": True}
+
+
+@app.get("/")
+async def root():
+    return {
+        "service": "08_recommendation_feedback",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "try": "/recommendation/mock/travel_normally",
+    }

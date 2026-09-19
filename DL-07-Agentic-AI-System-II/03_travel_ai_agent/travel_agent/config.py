@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     # Hard limits on one run (03_process.txt: the agent must not run forever).
     max_agent_steps: int = Field(default=12, ge=1, le=50)
     max_tool_calls: int = Field(default=20, ge=1, le=100)
-    agent_total_timeout: float = Field(default=30, gt=0, le=300)
+    # Our own cap only. Module 02 sends X-Deadline (60 s for jobs, P-04) and the run stops
+    # at the earliest deadline, so this must not be shorter than 02's budget.
+    agent_total_timeout: float = Field(default=60, gt=0, le=300)
     tool_timeout_seconds: float = Field(default=5, gt=0, le=60)
     decision_max_attempts: int = Field(default=2, ge=1, le=5)
