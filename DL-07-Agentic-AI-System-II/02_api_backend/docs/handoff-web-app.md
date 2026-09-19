@@ -21,7 +21,10 @@
 docker compose exec api python -m scripts.dev_token --sub alice --scope travel:read --scope travel:write
 ```
 
-ได้ JWT (HS256, dev-only) เอาไปใส่ `Authorization: Bearer <token>` — production ใช้ JWKS จริงผ่าน `JWT_ISSUER`/`JWKS_URL` (ยังไม่ตัดสินใจ IdP ตัวจริง — ดู Q1 ใน [01_requirements.md §6](01_requirements.md))
+ได้ JWT (HS256, dev-only) เอาไปใส่ `Authorization: Bearer <token>` — ใช้พอสำหรับ dev/demo
+
+ถ้าอยากทดสอบกับ JWKS จริงก่อน 01 มี OIDC library ของตัวเอง มี Keycloak กลางให้แล้ว (`identity/README.md`
+ที่ root ของ repo) client `web-app` รองรับ authorization code + PKCE ตรงกับที่ 01 จะต้องใช้ตอน implement จริง
 
 `CORS_ALLOWED_ORIGINS` default เปิดให้ `http://localhost:3000` แล้ว
 
@@ -36,13 +39,13 @@ Diagram: [`diagrams/sse-recommendation-flow.html`](diagrams/sse-recommendation-f
 3. Progress event มาเป็นลำดับ `queued → fetching_data → assessing_risk → generating_advice → completed` (หรือ `partial_result` / `failed` / `needs_clarification` แทน `completed`) — ห้าม hardcode ว่าต้องมีครบทุก stage เสมอ
 4. Endpoint บางอันตอบ `200` แบบ sync ได้เลยถ้า backend มีคำตอบพร้อม (ไม่ต้องเปิด SSE) — เช็ค status code ที่ได้กลับมาก่อนตัดสินใจเปิด SSE เสมอ
 
-## 4.1 Trip live alert: backend push ที่ไม่มี push จริง
+## 4.1 Trip live alert: อ่านด้วย polling (ตั้งใจไม่ push)
 
 Diagram: [`diagrams/trip-live-alert-flow.html`](diagrams/trip-live-alert-flow.html)
 
 Trip ที่เปิด live alert ไว้ (`consent_at` ตั้งแล้ว) จะถูก Celery beat สแกนซ้ำเป็นระยะ (ทุก P-56 นาที) แล้ว re-assess ผ่าน Travel AI Agent เอง **โดย Web App ไม่ได้เป็นคนสั่ง** — ถ้า risk level หรือชนิดคำแนะนำเปลี่ยนจากครั้งก่อน backend จะเติม message ใหม่ใน conversation ของ trip นั้นให้เงียบๆ
 
-**สำคัญ:** ตอนนี้ยังไม่มี push channel ไปหา Web App (WS ยังไม่ implement — ดูข้อ 6) ดังนั้น Web App **ต้อง poll เองเป็นระยะ** ด้วย `GET /v1/conversations/{conversation_id}/messages` ถึงจะเห็น alert ใหม่ ไม่ต้อง poll ถี่กว่า P-56 นาที เพราะ backend เองก็ไม่ scan ถี่กว่านั้น
+**สำคัญ:** ทีมตัดสินใจแล้วว่า**ไม่ทำ WS ในรอบนี้** (D-04 — โจทย์อาจารย์ให้เลือก SSE หรือ WS อย่างใดอย่างหนึ่ง ไม่บังคับทั้งคู่) ดังนั้นไม่มี push channel ไปหา Web App เลย Web App **ต้อง poll เองเป็นระยะ** ด้วย `GET /v1/conversations/{conversation_id}/messages` ถึงจะเห็น alert ใหม่ ไม่ต้อง poll ถี่กว่า P-56 นาที เพราะ backend เองก็ไม่ scan ถี่กว่านั้น — เป็นดีไซน์ตั้งใจ ไม่ใช่ของที่รอทำเพิ่ม
 
 ## 5. Architecture reference
 
@@ -53,6 +56,6 @@ Trip ที่เปิด live alert ไว้ (`consent_at` ตั้งแล
 
 ## 6. รู้ไว้ก่อนเริ่ม
 
-- **WebSocket `/v1/ws` ยังไม่ implement** — ตอนนี้ real-time ใช้ SSE อย่างเดียว (ดูข้อ 4) ถ้าต้องการ WS จริงๆ ต้องแจ้งทีม backend
-- Auth ตอนนี้เป็น dev token เท่านั้น รอ IdP จริง (Q1)
+- **WebSocket `/v1/ws` descoped แล้ว ไม่ทำในโปรเจกต์นี้** (D-04) — real-time ใช้ SSE อย่างเดียว (ดูข้อ 4), trip alert ใช้ poll (ดูข้อ 4.1)
+- Auth ใช้ dev token สำหรับ dev/demo ได้เลย ถ้าต้องการ Keycloak จริงดู `identity/README.md` ที่ root
 - Rate limit: user 60 req/min, IP 120 req/min (default) —ตอบ `429` + header `Retry-After`

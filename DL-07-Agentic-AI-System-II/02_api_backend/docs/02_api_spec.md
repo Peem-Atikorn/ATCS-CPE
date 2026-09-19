@@ -167,7 +167,7 @@
 | E-04 | GET | `/v1/jobs/{job_id}` | owner | P-30 | FR-06 |
 | E-05 | DELETE | `/v1/jobs/{job_id}` | owner | P-30 | FR-06 |
 | E-06 | GET | `/v1/jobs/{job_id}/events` (SSE) | owner | P-34 | FR-07 |
-| E-07 | GET | `/v1/ws` (WebSocket) | user | P-34 | FR-07 |
+| ~~E-07~~ | ~~GET~~ | ~~`/v1/ws` (WebSocket)~~ | — | — | **Descoped (D-04)** — โจทย์อาจารย์ระบุ "WebSocket/SSE" เป็นทางเลือก ไม่บังคับทั้งคู่; ใช้ SSE (E-06) เป็นช่องทางเดียว |
 | E-08 | POST | `/v1/conversations` | user | P-32 | FR-11 |
 | E-09 | GET | `/v1/conversations` | user | P-30 | FR-11 |
 | E-10 | GET | `/v1/conversations/{conversation_id}` | owner | P-30 | FR-11 |
@@ -499,14 +499,17 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 | `failed` | `error.code`, `error.message` |
 | `cancelled` | — |
 
-### 6.4 E-07 `WS /v1/ws`
+### 6.4 ~~E-07 `WS /v1/ws`~~ — Descoped (D-04)
 
-- Auth: ส่ง message แรกเป็น `{"type":"auth","token":"<jwt>"}` ภายใน 5 s ไม่งั้นปิดด้วย code `4401`
-- Client → Server: `subscribe` / `unsubscribe` `{ "type": "subscribe", "job_id": "..." }`, `ping`
-- Server → Client: `{ "type": "progress" | "completed" | "failed" | "trip_alert", "data": {...} }`
-- Close codes: `4401` unauthenticated, `4403` forbidden, `4429` rate limited, `1011` internal
+โจทย์อาจารย์ (`02_step.txt` บรรทัด 4) เขียนว่ารับ request ผ่าน "WebSocket/**SSE**" คือให้เลือกช่องทางเดียว
+ไม่ได้บังคับทั้งคู่ ทีมเลือก **SSE เป็นช่องทางเดียว** (E-06) เพื่อลดความเสี่ยงก่อนส่งงาน — ดูเหตุผลเต็มที่ D-04
 
-> SSE เป็นช่องทางหลัก, WS เป็นทางเลือกสำหรับ live trip alert — *D-04 (รอ Module 01)*
+ร่าง protocol เดิม (auth handshake, `subscribe`/`unsubscribe`, close code `4401`/`4403`/`4429`/`1011`)
+เก็บไว้เป็นข้อมูลอ้างอิงเผื่อทำต่อหลังส่งงาน แต่ **ไม่ implement ในรอบนี้**
+
+Live trip alert (ของเดิมที่ WS จะมาช่วย) ใช้ **polling `GET /v1/conversations/{id}/messages`
+แทน** — alert ถูกเขียนเป็นข้อความ assistant ใน conversation ของ trip นั้นอยู่แล้วจาก `scan_trip_alerts`
+(ดู §7.2) จึงไม่ต้องมี push channel เพิ่มเพื่อให้ฟีเจอร์นี้ใช้งานได้ครบ
 
 ---
 
@@ -576,7 +579,7 @@ data: {"job_id":"0192...","status":"completed","result_url":"/v1/travel/recommen
 - `POST /v1/trips/{id}/assessments` (`Idempotency-Key`, P-32) body `{ "mode?": "auto|sync|async", "language?": "th" }`; ภาษา: body → `Accept-Language` → ภาษาใน profile; ใช้ conversation เดิมของ trip (ครั้งแรกสร้างใหม่); `travel_requests.source = TRIP_ASSESSMENT`, `jobs.type = TRIP_ASSESSMENT` — *D-63*
 - `GET /v1/trips/{id}/assessments?limit=&cursor=` → `{items: RecommendationSummary[], next_cursor}` ใหม่สุดก่อน
 - `DELETE` → `204`; ผลประเมินยังอยู่ใน history (`trip_id = null`)
-- **Live alert** (D-65, D-66): Celery beat สั่ง `scan_trip_alerts` ทุก P-56 → คิวประเมินใหม่แบบ async (`source = TRIP_ALERT`) ให้ trip ที่เปิด alert, สถานะ `PLANNED`/`ACTIVE`, ออกเดินทางภายใน P-57, ผลล่าสุดไม่มี / outdated / เก่ากว่า P-58 และไม่มีการประเมินที่ค้างอยู่ (สูงสุด P-59 ต่อรอบ; user ที่ชน P-33 ข้ามไปรอบหน้า); alert แบบ in-app คือข้อความ assistant ใน conversation ของ trip ซึ่งบันทึกเฉพาะเมื่อระดับความเสี่ยงหรือชนิดคำแนะนำเปลี่ยนจากครั้งก่อน; push ผ่าน WebSocket รอ E-07
+- **Live alert** (D-65, D-66): Celery beat สั่ง `scan_trip_alerts` ทุก P-56 → คิวประเมินใหม่แบบ async (`source = TRIP_ALERT`) ให้ trip ที่เปิด alert, สถานะ `PLANNED`/`ACTIVE`, ออกเดินทางภายใน P-57, ผลล่าสุดไม่มี / outdated / เก่ากว่า P-58 และไม่มีการประเมินที่ค้างอยู่ (สูงสุด P-59 ต่อรอบ; user ที่ชน P-33 ข้ามไปรอบหน้า); alert แบบ in-app คือข้อความ assistant ใน conversation ของ trip ซึ่งบันทึกเฉพาะเมื่อระดับความเสี่ยงหรือชนิดคำแนะนำเปลี่ยนจากครั้งก่อน; ไม่ push (WS descoped, D-04) — client อ่านด้วยการ poll `GET /v1/conversations/{id}/messages`
 
 ### 7.3 E-19 Feedback
 
@@ -934,10 +937,10 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 
 | ID | การตัดสินใจ (ปัจจุบัน) | ทางเลือกอื่น | สถานะ |
 |---|---|---|---|
-| D-01 | Identity Provider: OIDC ภายนอก, dev ใช้ local issuer | Keycloak / Auth0 / Firebase | Proposed (Q1) |
+| D-01 | Identity Provider: Keycloak 26 (OIDC) ใน root `docker-compose.yml`, realm `travel-safety` (`identity/keycloak/realm-travel-safety.json`); dev token ยังใช้ได้สำหรับ test/CI | Auth0 (SaaS, ต้องต่อเน็ตตอน demo), Firebase Auth (ตั้ง `aud` เองไม่ได้และไม่มี OAuth scope) | Accepted สำหรับ dev (2026-09-19) — prod ต้องใช้ DB จริง, HTTPS และ login admin แบบรายคน (D-101) |
 | D-02 | ไม่มี guest mode รอบแรก | guest + rate limit ต่อ IP | Proposed (Q4) |
 | D-03 | Worker เรียก Agent เสมอ, API รอผลไม่เกิน P-02 | เรียก Agent ตรงจาก API แล้ว fallback เป็น job | Proposed |
-| D-04 | SSE หลัก, WS สำหรับ trip alert | WS อย่างเดียว | Proposed (Q3) |
+| D-04 | **SSE เป็นช่องทางเดียว** (E-06); ตัด WS (E-07) ออก — โจทย์อาจารย์ (`02_step.txt` บรรทัด 4) เขียน "WebSocket/SSE" เป็นทางเลือก ไม่บังคับทั้งคู่ และ WS ต้องออกแบบ protocol/pub-sub ข้าม worker process ใหม่ทั้งหมด (ไม่มี pattern เดิมให้ใช้ต่อ) ความเสี่ยงสูงเกินไปก่อน deadline ส่งงาน; live trip alert ใช้ polling `GET /v1/conversations/{id}/messages` แทน (ข้อความ assistant มีอยู่แล้วจาก `scan_trip_alerts`) | WS อย่างเดียว / ทำทั้งคู่ | Accepted (2026-09-19) — ปิด Q3 |
 | D-05 | ข้อมูลไม่ครบ → `recommendation.type = null` | เพิ่ม enum `INSUFFICIENT_DATA` / บังคับ `DELAY_TRAVEL` | Proposed |
 | D-06 | SSE auth ด้วย stream ticket อายุ 60 s | fetch-based SSE ส่ง header ได้ / cookie | Proposed |
 | D-07 | Agent contract ตาม §9 (NDJSON progress optional) | gRPC / Agent เขียน progress ลง Redis เอง | Proposed (Q2) |
