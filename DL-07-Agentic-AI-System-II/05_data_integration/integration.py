@@ -1,0 +1,269 @@
+"""Provisional Module 05 contract and deterministic integration core.
+
+This module consumes canonical source records, never raw provider payloads.  The
+wire format is deliberately marked v0.1-proposed until Modules 03 and 06 agree
+on route ownership and the final feature schema.
+"""
+
+from __future__ import annotations
+
+import math
+from datetime import datetime, timezone
+from typing import Any
+
+FEATURE_SCHEMA_VERSION = "integrated-travel-v0.1-proposed"
+RECORD_SCHEMA_VERSION = "canonical-record-v0.1-proposed"
+KINDS = (
+    "current_weather",
+    "weather_forecast",
+    "transport_status",
+    "closure",
+    "disaster_event",
+    "official_alert",
+)
+STATUSES = {"available", "unavailable"}
+EARTH_RADIUS_M = 6_371_000.0
+
+
+class ContractError(ValueError):
+    """Input cannot be interpreted without guessing."""
+
+
+def _time(value: Any, field: str) -> datetime:
+    if not isinstance(value, str):
+        raise ContractError(f"{field} must be an ISO 8601 string with an offset")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ContractError(f"{field} is not an ISO 8601 datetime") from error
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ContractError(f"{field} must include a timezone offset")
+    return parsed.astimezone(timezone.utc)
+
+
+def _point(value: Any, field: str) -> tuple[float, float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        raise ContractError(f"{field} must be [longitude, latitude]")
+    lon, lat = value
+    if any(isinstance(number, bool) or not isinstance(number, (int, float)) for number in (lon, lat)):
+        raise ContractError(f"{field} must contain numbers")
+    if not all(math.isfinite(number) for number in (lon, lat)) or not (-180 <= lon <= 180 and -90 <= lat <= 90):
+        raise ContractError(f"{field} is outside valid longitude/latitude bounds")
+    return float(lon), float(lat)
+
+
+def _route(route: Any) -> dict[str, Any]:
+    if not isinstance(route, dict) or not isinstance(route.get("route_id"), str) or not route["route_id"]:
+        raise ContractError("each route needs route_id")
+    geometry = route.get("geometry")
+    if not isinstance(geometry, dict) or geometry.get("type") != "LineString":
+        raise ContractError("route geometry must be GeoJSON LineString")
+    raw_coordinates = geometry.get("coordinates")
+    if not isinstance(raw_coordinates, list) or len(raw_coordinates) < 2:
+        raise ContractError("route geometry needs at least two coordinates")
+    coordinates = [_point(value, "route coordinate") for value in raw_coordinates]
+    raw_segments = route.get("segments")
+    if not isinstance(raw_segments, list) or not raw_segments:
+        raise ContractError("route needs timed segments covering its full geometry")
+    segments = []
+    previous_end = 0
+    previous_exit = None
+    for raw in raw_segments:
+        if not isinstance(raw, dict):
+            raise ContractError("segment must be an object")
+        start_index, end_index = raw.get("start_index"), raw.get("end_index")
+        if type(start_index) is not int or type(end_index) is not int:
+            raise ContractError("segment coordinate indices must be integers")
+        if start_index != previous_end or not start_index < end_index < len(coordinates):
+            raise ContractError("segments must cover consecutive route coordinates")
+        enter_at = _time(raw.get("enter_at"), "segment.enter_at")
+        exit_at = _time(raw.get("exit_at"), "segment.exit_at")
+        if enter_at >= exit_at or (previous_exit is not None and enter_at < previous_exit):
+            raise ContractError("segment times must be ordered and non-overlapping")
+        segments.append({
+            "start_index": start_index,
+            "end_index": end_index,
+            "enter_at": enter_at,
+            "exit_at": exit_at,
+            "matched_record_ids": {kind: [] for kind in KINDS},
+        })
+        previous_end, previous_exit = end_index, exit_at
+    if previous_end != len(coordinates) - 1:
+        raise ContractError("segments must cover the full route")
+    return {"route_id": route["route_id"], "coordinates": coordinates, "segments": segments}
+
+
+def _record(record: Any, now: datetime) -> dict[str, Any]:
+    if not isinstance(record, dict):
+        raise ContractError("record must be an object")
+    if record.get("schema_version") != RECORD_SCHEMA_VERSION:
+        raise ContractError("unsupported record schema_version")
+    record_id, kind, status = record.get("record_id"), record.get("record_kind"), record.get("status")
+    if not isinstance(record_id, str) or not record_id or kind not in KINDS or status not in STATUSES:
+        raise ContractError("record_id, record_kind, or status is invalid")
+    source = record.get("source")
+    if not isinstance(source, dict) or not isinstance(source.get("name"), str) or not source["name"]:
+        raise ContractError("record source.name is required")
+    fetched_at = _time(record.get("fetched_at"), "record.fetched_at")
+    expires_at = _time(record["expires_at"], "record.expires_at") if record.get("expires_at") else None
+    if expires_at is not None and expires_at <= fetched_at:
+        raise ContractError("record.expires_at must be after fetched_at")
+    valid_at = _time(record["valid_at"], "record.valid_at") if record.get("valid_at") else None
+    observed_at = _time(record["observed_at"], "record.observed_at") if record.get("observed_at") else None
+    issued_at = _time(record["issued_at"], "record.issued_at") if record.get("issued_at") else None
+    event_time = _time(record["event_time"], "record.event_time") if record.get("event_time") else None
+    if observed_at is not None and observed_at > fetched_at:
+        raise ContractError("record.observed_at cannot follow fetched_at")
+    if kind == "weather_forecast" and status == "available" and valid_at is None:
+        raise ContractError("available weather_forecast requires valid_at")
+    if status == "available" and record.get("value") is None:
+        raise ContractError("available record requires value")
+    if status == "available" and (not isinstance(record.get("source_lineage"), str) or not record["source_lineage"]):
+        raise ContractError("available record requires source_lineage")
+    if status == "unavailable" and record.get("value") is not None:
+        raise ContractError("unavailable record cannot contain a value")
+    if status == "unavailable" and not record.get("error_code"):
+        raise ContractError("unavailable record requires error_code")
+    footprint = record.get("spatial_footprint")
+    point = None
+    if footprint is not None:
+        if not isinstance(footprint, dict):
+            raise ContractError("spatial_footprint must be GeoJSON or null")
+        if footprint.get("type") == "Point":
+            point = _point(footprint.get("coordinates"), "record point")
+    flags = record.get("quality_flags", [])
+    if not isinstance(flags, list) or not all(isinstance(flag, str) for flag in flags):
+        raise ContractError("quality_flags must be a list of strings")
+    freshness = "unknown" if expires_at is None else "stale" if now >= expires_at else "fresh"
+    return {
+        "record_id": record_id,
+        "record_kind": kind,
+        "status": status,
+        "source": source,
+        "source_lineage": record.get("source_lineage"),
+        "spatial_footprint": footprint,
+        "point": point,
+        "valid_at": valid_at,
+        "observed_at": observed_at,
+        "issued_at": issued_at,
+        "event_time": event_time,
+        "fetched_at": fetched_at,
+        "expires_at": expires_at,
+        "freshness": freshness,
+        "severity": record.get("severity"),
+        "quality_flags": flags,
+        "value": record.get("value"),
+        "error_code": record.get("error_code"),
+    }
+
+
+def _distance_to_line_m(point: tuple[float, float], line: list[tuple[float, float]]) -> float:
+    """Local metric approximation; used only to find nearby point evidence."""
+    lon0, lat0 = point
+    latitude_scale = EARTH_RADIUS_M * math.pi / 180
+    longitude_scale = latitude_scale * math.cos(math.radians(lat0))
+    coordinates = [((lon - lon0) * longitude_scale, (lat - lat0) * latitude_scale) for lon, lat in line]
+    best = math.inf
+    for (ax, ay), (bx, by) in zip(coordinates, coordinates[1:]):
+        dx, dy = bx - ax, by - ay
+        fraction = 0.0 if dx == dy == 0 else max(0.0, min(1.0, -(ax * dx + ay * dy) / (dx * dx + dy * dy)))
+        best = min(best, math.hypot(ax + fraction * dx, ay + fraction * dy))
+    return best
+
+
+def _record_time(record: dict[str, Any]) -> datetime | None:
+    return record["valid_at"] or record["observed_at"] or record["event_time"] or record["issued_at"]
+
+
+def build_context(query: dict[str, Any], records: list[dict[str, Any]], *, now: datetime | None = None,
+                  corridor_m: float = 1000.0) -> dict[str, Any]:
+    """Build a conservative provisional context for every candidate route.
+
+    Only fresh point records with a source time inside a segment's ETA window
+    count as matched. Polygon intersection, time intervals, and provider-specific
+    semantics await the final cross-team contract and are reported as missing.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ContractError("now must be timezone-aware")
+    now = now.astimezone(timezone.utc)
+    if not math.isfinite(corridor_m) or corridor_m <= 0:
+        raise ContractError("corridor_m must be positive")
+    if not isinstance(query, dict) or not isinstance(query.get("run_id"), str) or not query["run_id"]:
+        raise ContractError("run_id is required")
+    raw_routes = query.get("routes")
+    if not isinstance(raw_routes, list) or not raw_routes:
+        raise ContractError("at least one route is required")
+    routes = [_route(route) for route in raw_routes]
+    route_ids = [route["route_id"] for route in routes]
+    if len(set(route_ids)) != len(route_ids):
+        raise ContractError("route_id must be unique")
+    if not isinstance(records, list):
+        raise ContractError("records must be a list")
+    normalized = [_record(record, now) for record in records]
+    record_ids = [record["record_id"] for record in normalized]
+    if len(set(record_ids)) != len(record_ids):
+        raise ContractError("record_id must be unique")
+
+    for route in routes:
+        for segment in route["segments"]:
+            line = route["coordinates"][segment["start_index"]:segment["end_index"] + 1]
+            for record in normalized:
+                source_time = _record_time(record)
+                if (record["status"] != "available" or record["freshness"] != "fresh" or
+                        record["point"] is None or source_time is None or
+                        not segment["enter_at"] <= source_time <= segment["exit_at"]):
+                    continue
+                if _distance_to_line_m(record["point"], line) <= corridor_m:
+                    segment["matched_record_ids"][record["record_kind"]].append(record["record_id"])
+
+    unavailable = {record["record_kind"] for record in normalized if record["status"] == "unavailable"}
+    stale = {record["record_kind"] for record in normalized if record["freshness"] == "stale"}
+    output_routes = []
+    all_flags = set()
+    for route in routes:
+        output_segments = []
+        for segment in route["segments"]:
+            coverage = {}
+            for kind in KINDS:
+                coverage[kind] = ("partial" if segment["matched_record_ids"][kind] else
+                                  "unavailable" if kind in unavailable else
+                                  "stale" if kind in stale else "missing")
+                if coverage[kind] != "covered":
+                    all_flags.add(coverage[kind])
+            output_segments.append({
+                "start_index": segment["start_index"],
+                "end_index": segment["end_index"],
+                "enter_at": segment["enter_at"].isoformat(),
+                "exit_at": segment["exit_at"].isoformat(),
+                "matched_record_ids": segment["matched_record_ids"],
+                "coverage": coverage,
+            })
+        output_routes.append({
+            "route_id": route["route_id"],
+            "geometry": {"type": "LineString", "coordinates": [list(point) for point in route["coordinates"]]},
+            "segments": output_segments,
+        })
+    for record in normalized:
+        all_flags.update(record["quality_flags"])
+        if record["status"] == "available" and (record["point"] is None or _record_time(record) is None):
+            all_flags.add("incomplete")
+        if record["freshness"] == "unknown":
+            all_flags.add("freshness_unknown")
+    evidence = []
+    for record in normalized:
+        evidence.append({
+            key: value.isoformat() if isinstance(value, datetime) else value
+            for key, value in record.items() if key != "point"
+        })
+    return {
+        "feature_schema_version": FEATURE_SCHEMA_VERSION,
+        "run_id": query["run_id"],
+        "created_at": now.isoformat(),
+        "routes": output_routes,
+        "evidence": evidence,
+        "quality_flags": sorted(all_flags),
+        "degraded": bool(all_flags),
+        "risk_score": None,
+    }
