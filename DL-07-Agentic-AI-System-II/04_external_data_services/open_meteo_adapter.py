@@ -99,6 +99,7 @@ def fetch_current_weather(latitude: float, longitude: float) -> dict:  # ดึ�
         "longitude": longitude,  # พิกัดลองจิจูด
         "valid_at": valid_at.isoformat(),  # เวลาที่ข้อมูลอากาศนี้อ้างอิง
         "fetched_at": fetched_at.isoformat(),  # เวลาที่ดึงข้อมูล
+        "expires_at": (fetched_at + timedelta(minutes=30)).isoformat(),  # เวลาหมดอายุแคชทดลอง 30 นาที
         "source": "Open-Meteo",  # ผู้ให้บริการข้อมูล
         "source_lineage": request_url,  # URL ต้นทางสำหรับตรวจสอบย้อนกลับ
         "quality_flags": ["incomplete"] if missing else [],  # ทำเครื่องหมายเมื่อบางฟิลด์ไม่มีค่า
@@ -152,6 +153,7 @@ def fetch_weather_forecast(latitude: float, longitude: float) -> list[dict]:  # 
         valid_at = _utc_time(hour).isoformat()  # แปลงเวลาพยากรณ์เป็น ISO 8601 พร้อม UTC
         record = {  # สร้างข้อมูลมาตรฐานหนึ่งรายการสำหรับพิกัดและชั่วโมงนี้
             "schema_version": "weather-record-v0.1",  # รุ่นของรูปแบบข้อมูลนี้ ยังเป็นรุ่นทดลอง
+            "data_kind": "forecast",  # แยกข้อมูลพยากรณ์ออกจาก model_current
             "latitude": latitude,  # พิกัดละติจูดของข้อมูล
             "longitude": longitude,  # พิกัดลองจิจูดของข้อมูล
             "valid_at": valid_at,  # เวลาที่ค่าพยากรณ์นี้ใช้ได้
