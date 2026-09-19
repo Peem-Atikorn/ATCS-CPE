@@ -45,6 +45,14 @@ async def test_scenarios_reach_module_07_decision(client, scenario, expected):
     assert result.diagnostics.tool_calls == 8
 
 
+async def test_service_status_uses_backend_d47_keys(client):
+    status = (await post(client, run_body())).json()["service_status"]
+    # Module 02 displays these D-47 keys; any others are passed along and ignored.
+    assert {"weather", "transport", "disaster", "risk_model", "rag"} <= status.keys()
+    assert not {"risk", "knowledge"} & status.keys()
+    assert "llm" not in status  # not reported until there is a real LLM planner
+
+
 async def test_closure_reports_the_hazard(client):
     result = (await post(client, run_body("closure"))).json()
     assert [h["type"] for h in result["hazards"]] == ["FLOOD"]
