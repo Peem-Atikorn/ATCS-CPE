@@ -7,8 +7,8 @@ These three files are new files for `DL-07-Agentic-AI-System-II/05_data_integrat
 1. Validate provisional canonical records and timed route segments. All datetimes must have a timezone offset. Route segments must cover the entire LineString in order.
 2. Keep `observed_at`, `valid_at`, `issued_at`, `event_time`, `fetched_at`, and `expires_at` separate. A future forecast can have `valid_at` without `observed_at`.
 3. Preserve source, lineage, severity, values, and quality flags without calculating or inventing a risk score.
-4. Match fresh point evidence to a route segment only when its source time falls within that segment's ETA window and its point is within the configured corridor distance. A point match is reported as `partial`, never as proof that the whole segment is covered.
-5. Return `missing`, `stale`, or `unavailable` for other category/segment pairs and mark the context `degraded`. Unavailable provider records have no fabricated value.
+4. Match fresh evidence to a route segment only when its source time overlaps that segment's ETA window and its point or line is within the configured corridor distance. A successful match reports that evidence category as `covered`; complete route coverage still requires every category on every segment to be `covered`.
+5. Return `missing`, `stale`, or `unavailable` for other category/segment pairs and mark the context `degraded`. A segment with a mix of covered and non-covered categories also adds the aggregate `partial` quality flag. Unavailable provider records have no fabricated value.
 
 ## Run
 
@@ -25,6 +25,6 @@ Import `build_context` from `integration.py`. Its input is a dictionary with `ru
 - Who produces candidate route geometry and per-segment ETA (03, 06, or routing service)?
 - Final names, types, units, version, and category requirements for `IntegratedTravelContext` accepted by 06.
 - How 03's mock-oriented `Record` and `IntegratedContext` will be replaced or adapted without misusing `observed_at` for forecasts.
-- Provider semantics for time intervals, polygons, transport delay/status, closures, and official alert severity. These are preserved as evidence but are not claimed as full coverage by this foundation.
+- Provider semantics for polygons, transport delay/status, closures, and official alert severity. These are preserved as evidence; Module 05 reports coverage per category and segment, while Module 06 decides whether the whole route has complete coverage.
 
 `integrated-travel-v0.1-proposed` is not a frozen interface. The output intentionally has `risk_score: null`; Module 06 owns risk evaluation.

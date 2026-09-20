@@ -465,7 +465,7 @@ def build_context(
             coverage = {}
             for kind in KINDS:
                 coverage[kind] = (
-                    "partial"
+                    "covered"
                     if segment["matched_record_ids"][kind]
                     else "unavailable"
                     if kind in unavailable
@@ -475,6 +475,10 @@ def build_context(
                 )
                 if coverage[kind] != "covered":
                     all_flags.add(coverage[kind])
+            if "covered" in coverage.values() and any(
+                status != "covered" for status in coverage.values()
+            ):
+                all_flags.add("partial")
             output_segments.append(
                 {
                     "start_index": segment["start_index"],

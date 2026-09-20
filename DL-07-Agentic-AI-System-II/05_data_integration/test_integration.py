@@ -47,11 +47,48 @@ class IntegrationTests(unittest.TestCase):
     def test_forecast_valid_at_may_be_in_future_without_observed_at(self):
         context = build_context(route_query(), [forecast()], now=NOW)
         first, second = context["routes"][0]["segments"]
-        self.assertEqual(first["coverage"]["weather_forecast"], "partial")
+        self.assertEqual(first["coverage"]["weather_forecast"], "covered")
         self.assertEqual(first["matched_record_ids"]["weather_forecast"], ["forecast-1"])
         self.assertEqual(second["coverage"]["weather_forecast"], "missing")
         self.assertIsNone(context["evidence"][0]["observed_at"])
         self.assertIsNone(context["risk_score"])
+        self.assertIn("partial", context["quality_flags"])
+
+    def test_complete_fresh_evidence_marks_segment_covered(self):
+        query = route_query()
+        query["routes"][0]["segments"] = [
+            {
+                "start_index": 0,
+                "end_index": 2,
+                "enter_at": "2026-09-20T08:00:00+07:00",
+                "exit_at": "2026-09-20T08:40:00+07:00",
+            }
+        ]
+        records = []
+        for kind in (
+            "current_weather",
+            "weather_forecast",
+            "transport_status",
+            "closure",
+            "disaster_event",
+            "official_alert",
+        ):
+            records.append(
+                forecast(
+                    record_id=f"{kind}-1",
+                    record_kind=kind,
+                )
+            )
+
+        context = build_context(query, records, now=NOW)
+        segment = context["routes"][0]["segments"][0]
+
+        self.assertEqual(
+            segment["coverage"],
+            {kind: "covered" for kind in segment["coverage"]},
+        )
+        self.assertEqual(context["quality_flags"], [])
+        self.assertFalse(context["degraded"])
 
     def test_unavailable_provider_is_explicit_and_has_no_invented_value(self):
         unavailable = forecast(

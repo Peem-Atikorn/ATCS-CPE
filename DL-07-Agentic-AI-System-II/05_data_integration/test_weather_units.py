@@ -57,7 +57,7 @@ class WeatherUnitsTests(unittest.TestCase):
         self.assertEqual(value["visibility_km"], 0.8)
         self.assertEqual(value["rain_probability_percent"], 80.0)
         self.assertEqual(value["rain_probability"], 0.8)
-        self.assertEqual(context["routes"][0]["segments"][0]["coverage"]["weather_forecast"], "partial")
+        self.assertEqual(context["routes"][0]["segments"][0]["coverage"]["weather_forecast"], "covered")
         self.assertEqual(self.record["value"].keys(), {
             "wind_speed_kmh", "visibility_m", "rain_probability_percent"
         })
