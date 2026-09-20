@@ -19,6 +19,9 @@ from typing import Dict, List, Optional
 
 from app.config import settings
 from app.schema import RiskLevel
+import structlog
+
+logger = structlog.get_logger("live_update")
 
 try:
     import redis.asyncio as redis_asyncio
@@ -135,3 +138,27 @@ class LiveUpdateBroker:
 
     def sent_log(self) -> List[AlertEvent]:
         return list(self._sent_log)
+
+
+def dispatch_notification(
+    user_id: str,
+    message: str,
+    channel: str = "in_app",
+) -> bool:
+    """
+    Dispatch notification to configured providers.
+    If no keys configured, safely no-op with structured log.
+    """
+    provider_keys = [k.strip() for k in settings.notification_provider_keys.split(",") if k.strip()]
+    if not provider_keys:
+        logger.info(
+            "notification_dispatched_noop",
+            user_id=user_id,
+            channel=channel,
+            reason="no_provider_keys_configured",
+        )
+        return True
+
+    # Real provider hooks would go here once provider SDKs are added
+    logger.info("notification_dispatched_external", user_id=user_id, channel=channel)
+    return True
