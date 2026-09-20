@@ -13,7 +13,7 @@
 | เรียก Module 07 ตัวจริง (`POST /v1/decisions`) | ✅ เทสกับ engine ของ 07 ตัวจริงแบบ in-process |
 | Module 04 | 🟡 `transport()` ใช้ TomTom จริง และ `disasters()` ใช้ GDACS จริง; weather/route candidates ยังเป็น mock |
 | Module 05 | ✅ เรียก `build_context()` จริงด้วย canonical records จาก 04 |
-| Module 06 | 🟡 **mock** (`travel_agent/tools/mocks.py`) จนกว่าจะมี service contract ที่เรียกได้ |
+| Module 06 | ✅ เรียก `RiskKnowledgeService` จริงแบบ in-process และตรวจ output ด้วย contract ของ 03 |
 | ส่งต่อ emergency instructions จาก 07 ไป 02 | ✅ ส่งต่อตามเดิมทุกตัวอักษร ไม่แก้ข้อความเอง |
 | จำกัด step, tool call และเวลา / ให้ tool ที่ล้มไม่ล้มทั้ง run | ✅ |
 | Intent และ planner ด้วย LLM, LangGraph, checkpoint สำหรับคำถามต่อ | ⏳ ขั้นถัดไป ตอนนี้ใช้ `intent_hint` จาก 02 และลำดับ tool ที่กำหนดไว้ตายตัว |
@@ -91,7 +91,7 @@ travel_agent/
 └── tools/
     ├── base.py     # allowlist ของ tool + ToolSet interface
     ├── schemas.py  # ร่าง contract ของ 04/05/06
-    ├── live.py     # adapter ของ transport/disaster (04) และ integration (05) ตัวจริง
+    ├── live.py     # adapter ของ transport/disaster (04), integration (05) และ risk/knowledge/routes (06) ตัวจริง
     ├── mocks.py    # ข้อมูลจำลองของ 04/05/06
     └── decision.py # HTTP client ของ 07 (retry ด้วย Tenacity)
 ```

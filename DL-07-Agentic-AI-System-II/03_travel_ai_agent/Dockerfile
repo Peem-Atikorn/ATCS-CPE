@@ -19,12 +19,13 @@ RUN groupadd --gid 10001 app \
 WORKDIR /app
 COPY --from=dependencies /opt/venv /opt/venv
 COPY 03_travel_ai_agent/travel_agent ./travel_agent
-# 04/05 currently expose Python adapters, not network services. Keep only the
+# 04/05/06 currently expose Python adapters, not network services. Keep only the
 # runtime files Module 03 calls, under the same sibling names used in the repo.
 COPY 04_external_data_services/tomtom_transport.py \
      04_external_data_services/gdacs_adapter.py \
      ./04_external_data_services/
 COPY 05_data_integration/integration.py ./05_data_integration/integration.py
+COPY 06_risk_knowledge_services/risk_knowledge ./06_risk_knowledge_services/risk_knowledge
 USER 10001:10001
 EXPOSE 8010
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \

@@ -115,7 +115,7 @@ def create_app(
     async def ready():
         return {
             "status": "ready",
-            "tools": "mock" if settings.use_mock_tools else "live-04-05-hybrid",
+            "tools": "mock" if settings.use_mock_tools else "live-04-05-06-hybrid",
             "decision_service": str(settings.decision_service_url),
         }
 

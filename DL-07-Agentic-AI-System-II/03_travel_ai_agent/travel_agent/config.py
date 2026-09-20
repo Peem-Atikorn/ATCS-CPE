@@ -14,8 +14,8 @@ class Settings(BaseSettings):
     agent_service_token: SecretStr = SecretStr("")
 
     decision_service_url: HttpUrl = HttpUrl("http://localhost:8050")
-    # False uses Module 04 transport/disaster adapters and Module 05 integration.
-    # The remaining 04/06 capabilities stay on their explicit synthetic stand-ins.
+    # False uses Module 04 transport/disaster, Module 05 integration, and Module 06.
+    # Weather and route candidates remain explicit synthetic stand-ins.
     use_mock_tools: bool = False
     tomtom_api_key: SecretStr = SecretStr("")
 

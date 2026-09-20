@@ -1,5 +1,5 @@
 # Runs Module 03 together with Module 07. The 03 image also packages the callable
-# Module 04 transport/disaster and Module 05 integration adapters.
+# Module 04 transport/disaster, Module 05 integration, and Module 06 adapters.
 services:
   travel-agent:
     build:

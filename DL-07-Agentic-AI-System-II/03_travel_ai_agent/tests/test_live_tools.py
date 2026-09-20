@@ -4,7 +4,7 @@ import pytest
 
 from travel_agent.tools.base import ToolError
 from travel_agent.tools.live import LiveToolSet
-from travel_agent.tools.schemas import TravelQuery
+from travel_agent.tools.schemas import IntegratedContext, TravelQuery
 
 NOW = datetime(2026, 9, 21, 3, 0, tzinfo=UTC)
 
@@ -152,3 +152,49 @@ async def test_unavailable_provider_marks_tool_unavailable_instead_of_claiming_s
 
     with pytest.raises(ToolError, match="PROVIDER_UNAVAILABLE"):
         await tools.transport(query())
+
+
+@pytest.mark.asyncio
+async def test_live_module_06_accepts_module_05_context_and_returns_agent_contracts():
+    tools = LiveToolSet(
+        clock=lambda: NOW,
+        transport_fetcher=lambda bbox, *, now, api_key: [],
+        disaster_fetcher=lambda *, now: [],
+        context_builder=context_builder_spy([]),
+    )
+    integrated = IntegratedContext.model_validate({
+        "feature_schema_version": "integrated-travel-v0.1-proposed",
+        "run_id": "run-live-1",
+        "created_at": NOW.isoformat(),
+        "routes": [{
+            "route_id": "route-1",
+            "label": "Route 1",
+            "travel_modes": ["CAR"],
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[100.5018, 13.7563], [99.9577, 12.5684]],
+            },
+            "segments": [{
+                "start_index": 0,
+                "end_index": 1,
+                "enter_at": (NOW + timedelta(minutes=10)).isoformat(),
+                "exit_at": (NOW + timedelta(hours=2)).isoformat(),
+                "matched_record_ids": {},
+                "coverage": {"weather_observation": "missing"},
+            }],
+        }],
+        "evidence": [],
+        "quality_flags": ["missing"],
+        "degraded": True,
+        "risk_score": None,
+    })
+
+    risk = await tools.risk(query(), integrated)
+    knowledge = await tools.knowledge(query(), [])
+    routes = await tools.routes(query(), integrated, risk)
+
+    assert risk.model_version == "rule-baseline-v0.1.2"
+    assert risk.confidence.value == "LOW"
+    assert knowledge.records == []
+    assert routes.primary.route_id == "route-1"
+    assert routes.primary.clearly_safer is False

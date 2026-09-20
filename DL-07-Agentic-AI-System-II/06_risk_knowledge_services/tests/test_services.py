@@ -308,6 +308,42 @@ class RouteTests(unittest.TestCase):
 
 
 class Module05IntegrationTests(unittest.TestCase):
+    def test_complete_coverage_from_module_05_is_recognized(self):
+        records = []
+        for kind in (
+            "current_weather",
+            "weather_forecast",
+            "transport_status",
+            "closure",
+            "disaster_event",
+            "official_alert",
+        ):
+            item = interval_record(
+                f"{kind}-complete",
+                kind,
+                {"type": "Point", "coordinates": [100.1, 13.0]},
+                value={
+                    "active": False,
+                    "status": "NORMAL",
+                    "severity": "LOW",
+                },
+            )
+            item["valid_at"] = "2026-09-20T01:10:00Z"
+            item["severity"] = "LOW"
+            records.append(item)
+
+        integrated = module_05_context(records)
+        risk = assess_risk(integrated, now=INTEGRATION_NOW)
+        routes = analyze_routes(query(), integrated, risk, now=INTEGRATION_NOW)
+
+        coverage = integrated["routes"][0]["segments"][0]["coverage"]
+        self.assertEqual(coverage, {kind: "covered" for kind in coverage})
+        self.assertEqual(integrated["quality_flags"], [])
+        self.assertFalse(integrated["degraded"])
+        self.assertEqual(risk.confidence, Level.HIGH)
+        self.assertEqual(routes.primary.risk_level, Level.LOW)
+        self.assertTrue(routes.primary.usable)
+
     def test_matched_transport_and_disaster_are_scored_conservatively(self):
         transport = interval_record(
             "tomtom-crossing",

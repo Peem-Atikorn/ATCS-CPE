@@ -1,14 +1,15 @@
-"""In-process adapters for the real Module 04 and Module 05 implementations.
+"""In-process adapters for the real Module 04, Module 05, and Module 06 implementations.
 
-Module 04 and 05 currently expose Python functions rather than HTTP services. This
+These modules currently expose Python functions/classes rather than HTTP services. This
 adapter runs their blocking provider calls in worker threads, validates the evidence
-that Module 03 sends onward, and leaves the still-unimplemented tools on MockToolSet.
+that Module 03 sends onward, and leaves weather/routing-provider tools on MockToolSet.
 """
 
 from __future__ import annotations
 
 import asyncio
 import importlib.util
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -22,7 +23,10 @@ from travel_agent.tools.schemas import (
     Alert,
     DisasterResult,
     IntegratedContext,
+    KnowledgeResult,
     Record,
+    RiskResult,
+    RouteResult,
     TransportResult,
     TravelQuery,
 )
@@ -31,6 +35,7 @@ CanonicalRecord = dict[str, Any]
 TransportFetcher = Callable[..., list[CanonicalRecord]]
 DisasterFetcher = Callable[..., list[CanonicalRecord]]
 ContextBuilder = Callable[..., dict[str, Any]]
+RiskKnowledgeFactory = Callable[..., Any]
 
 _SOURCE_ROOT = Path(__file__).resolve().parents[3]
 _IMAGE_ROOT = Path(__file__).resolve().parents[2]
@@ -53,7 +58,35 @@ def _load_module(name: str, path: Path) -> ModuleType:
     return module
 
 
-def _dependencies() -> tuple[TransportFetcher, DisasterFetcher, ContextBuilder]:
+def _load_package(name: str, directory: Path) -> ModuleType:
+    """Load an adjacent package without requiring the monorepo to be installed."""
+    existing = sys.modules.get(name)
+    if existing is not None:
+        return existing
+    init_path = directory / "__init__.py"
+    spec = importlib.util.spec_from_file_location(
+        name,
+        init_path,
+        submodule_search_locations=[str(directory)],
+    )
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load package {directory}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
+    return module
+
+
+def _dependencies() -> tuple[
+    TransportFetcher,
+    DisasterFetcher,
+    ContextBuilder,
+    RiskKnowledgeFactory,
+]:
     transport = _load_module(
         "teamd_module04_transport",
         _dependency_path("04_external_data_services", "tomtom_transport.py"),
@@ -66,10 +99,15 @@ def _dependencies() -> tuple[TransportFetcher, DisasterFetcher, ContextBuilder]:
         "teamd_module05_integration",
         _dependency_path("05_data_integration", "integration.py"),
     )
+    risk_knowledge = _load_package(
+        "teamd_module06_risk_knowledge",
+        _dependency_path("06_risk_knowledge_services", "risk_knowledge/__init__.py").parent,
+    )
     return (
         transport.fetch_canonical_transport,
         disaster.fetch_canonical_disasters,
         integration.build_context,
+        risk_knowledge.RiskKnowledgeService,
     )
 
 
@@ -168,10 +206,10 @@ def _available(records: list[CanonicalRecord], tool: str) -> list[CanonicalRecor
 
 
 class LiveToolSet(MockToolSet):
-    """Use real 04 transport/disaster and real 05 integration today.
+    """Use real 04 transport/disaster, 05 integration, and 06 risk services.
 
-    Weather, route candidates, and Module 06 continue to use clearly-labelled mock
-    methods inherited from MockToolSet until those teams expose compatible services.
+    Weather and route candidates continue to use clearly-labelled mock methods until
+    those teams expose compatible services.
     """
 
     def __init__(
@@ -182,17 +220,30 @@ class LiveToolSet(MockToolSet):
         transport_fetcher: TransportFetcher | None = None,
         disaster_fetcher: DisasterFetcher | None = None,
         context_builder: ContextBuilder | None = None,
+        risk_knowledge_service: Any | None = None,
     ) -> None:
         super().__init__(clock)
-        if transport_fetcher is None or disaster_fetcher is None or context_builder is None:
-            default_transport, default_disaster, default_context = _dependencies()
+        if (
+            transport_fetcher is None
+            or disaster_fetcher is None
+            or context_builder is None
+            or risk_knowledge_service is None
+        ):
+            (
+                default_transport,
+                default_disaster,
+                default_context,
+                service_factory,
+            ) = _dependencies()
             transport_fetcher = transport_fetcher or default_transport
             disaster_fetcher = disaster_fetcher or default_disaster
             context_builder = context_builder or default_context
+            risk_knowledge_service = risk_knowledge_service or service_factory(clock=clock)
         self._tomtom_api_key = tomtom_api_key
         self._fetch_transport = transport_fetcher
         self._fetch_disasters = disaster_fetcher
         self._build_context = context_builder
+        self._risk_knowledge = risk_knowledge_service
 
     def _now(self) -> datetime:
         now = self._clock()
@@ -317,3 +368,43 @@ class LiveToolSet(MockToolSet):
             return IntegratedContext.model_validate(context)
         except Exception as error:
             raise ToolError("integrate", f"invalid Module 05 result: {error}") from error
+
+    async def risk(
+        self, query: TravelQuery, context: IntegratedContext | None
+    ) -> RiskResult:
+        try:
+            result = await self._risk_knowledge.risk(
+                query.model_dump(mode="python"),
+                context.model_dump(mode="python") if context is not None else None,
+            )
+            return RiskResult.model_validate(result.model_dump(mode="python"))
+        except Exception as error:
+            raise ToolError("risk", f"invalid Module 06 result: {error}") from error
+
+    async def knowledge(
+        self, query: TravelQuery, alerts: list[Alert]
+    ) -> KnowledgeResult:
+        try:
+            result = await self._risk_knowledge.knowledge(
+                query.model_dump(mode="python"),
+                [alert.model_dump(mode="python") for alert in alerts],
+            )
+            return KnowledgeResult.model_validate(result.model_dump(mode="python"))
+        except Exception as error:
+            raise ToolError("knowledge", f"invalid Module 06 result: {error}") from error
+
+    async def routes(
+        self,
+        query: TravelQuery,
+        context: IntegratedContext | None,
+        risk: RiskResult | None,
+    ) -> RouteResult:
+        try:
+            result = await self._risk_knowledge.routes(
+                query.model_dump(mode="python"),
+                context.model_dump(mode="python") if context is not None else None,
+                risk.model_dump(mode="python") if risk is not None else None,
+            )
+            return RouteResult.model_validate(result.model_dump(mode="python"))
+        except Exception as error:
+            raise ToolError("routes", f"invalid Module 06 result: {error}") from error
