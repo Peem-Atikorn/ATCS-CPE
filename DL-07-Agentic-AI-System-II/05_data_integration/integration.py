@@ -311,6 +311,33 @@ def _record_time(record: dict[str, Any]) -> datetime | None:
     )
 
 
+def _matches_segment_time(
+    record: dict[str, Any], segment: dict[str, Any]
+) -> bool:
+    """Match an event interval, or a single timestamp when no interval exists."""
+    if record["record_kind"] == "disaster_event" and isinstance(
+        record["value"], dict
+    ):
+        start_raw = record["value"].get("starts_at")
+        end_raw = record["value"].get("ends_at")
+        if start_raw is not None and end_raw is not None:
+            try:
+                start = _time(start_raw, "disaster.starts_at")
+                end = _time(end_raw, "disaster.ends_at")
+            except ContractError:
+                return False
+            return (
+                start < end
+                and start < segment["exit_at"]
+                and segment["enter_at"] < end
+            )
+
+    source_time = _record_time(record)
+    return source_time is not None and (
+        segment["enter_at"] <= source_time <= segment["exit_at"]
+    )
+
+
 def build_context(
     query: dict[str, Any],
     records: list[dict[str, Any]],
@@ -320,9 +347,9 @@ def build_context(
 ) -> dict[str, Any]:
     """Build a conservative provisional context for every candidate route.
 
-    Only fresh point records with a source time inside a segment's ETA window
-    count as matched. Polygon intersection, time intervals, and provider-specific
-    semantics await the final cross-team contract and are reported as missing.
+    Match fresh point records near a route at the time of travel. Disaster
+    intervals can overlap a segment; other records use their source time.
+    Polygon intersection awaits the final cross-team contract.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -357,13 +384,11 @@ def build_context(
                 segment["start_index"] : segment["end_index"] + 1
             ]
             for record in normalized:
-                source_time = _record_time(record)
                 if (
                     record["status"] != "available"
                     or record["freshness"] != "fresh"
                     or record["point"] is None
-                    or source_time is None
-                    or not segment["enter_at"] <= source_time <= segment["exit_at"]
+                    or not _matches_segment_time(record, segment)
                 ):
                     continue
                 if _distance_to_line_m(record["point"], line) <= corridor_m:
@@ -429,21 +454,32 @@ def build_context(
             all_flags.add("incomplete")
         if record["freshness"] == "unknown":
             all_flags.add("freshness_unknown")
+    matched_ids = {
+        record_id
+        for route in routes
+        for segment in route["segments"]
+        for ids in segment["matched_record_ids"].values()
+        for record_id in ids
+    }
     evidence = []
+    unmatched_evidence = []
     for record in normalized:
-        evidence.append(
-            {
-                key: value.isoformat() if isinstance(value, datetime) else value
-                for key, value in record.items()
-                if key != "point"
-            }
-        )
+        serialized = {
+            key: value.isoformat() if isinstance(value, datetime) else value
+            for key, value in record.items()
+            if key != "point"
+        }
+        if record["record_id"] in matched_ids or record["status"] == "unavailable":
+            evidence.append(serialized)
+        else:
+            unmatched_evidence.append(serialized)
     return {
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "run_id": query["run_id"],
         "created_at": now.isoformat(),
         "routes": output_routes,
         "evidence": evidence,
+        "unmatched_evidence": unmatched_evidence,
         "quality_flags": sorted(all_flags),
         "degraded": bool(all_flags),
         "risk_score": None,
