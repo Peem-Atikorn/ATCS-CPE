@@ -948,6 +948,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | D-09 | ตัวเลขทั้งหมดใน §2 | — | Proposed (Q5) |
 | D-10 | Admin endpoints ทำหลัง core flow | ทำพร้อมกัน | Proposed (Q6) |
 | D-11 | พื้นที่ให้บริการ (`coverage_areas`) คือ**ประเทศไทยเท่านั้น** — ตรงกับที่ seed ไว้แล้วใน `reference_data.py` (แถวเดียว, `code="TH"`) และ test ที่ยืนยันอยู่แล้วว่าพิกัดโตเกียวได้ `region_for() is None` (`test_recommendation_repository.py`); origin/destination/waypoint นอกไทย → `422 UNSUPPORTED_REGION` ก่อนสร้าง job เสมอ ไม่มีโมดูลไหนเห็นพิกัดนอกไทย | เปิดรับต่างประเทศ (ต้องหาเบอร์ฉุกเฉินและ knowledge base ของทุกประเทศเพิ่ม ซึ่งขัดกับที่ 06/08 ออกแบบรอบข้อมูลไทยอยู่แล้ว) | Accepted (2026-09-20) — ปิด Open Question 3; ขอบเขตแบบ multi-country เพิ่มทีหลังได้โดยไม่ breaking change (เพิ่มแถวใน `coverage_areas`); กล่องพื้นที่ยังเป็นสี่เหลี่ยมคร่าวๆ ไม่ใช่เขตแดนจริง ยังต้องแก้แยกทีหลัง (ไม่เกี่ยวกับการตัดสินใจนี้) |
+| D-12 | **02 ไม่เรียก 08 — 02 พอในตัวเองอยู่แล้ว** สำหรับทั้ง 4 หน้าที่ที่ 08 เสนอตัวเป็น *Internal Domain Service* (`08/docs/specs/2026-09-20-module-08-internal-tasks-design.md`): feedback (`POST /v1/recommendations/{id}/feedback`, E-19), safety review queue (admin, Phase 5.11), trip live alert (Celery beat, Phase 5.8), และ formatting/emergency validation (safety gate R-01..R-07) — ทั้งหมดมี test คลุมอยู่แล้วใน 1030 เคสของ 02; 08 ไม่เคยระบุช่องว่างที่ 02 ขาดจริงๆ ก่อนเสนอโครงสร้างนี้ | เขียน client เรียก 08 เฉพาะบางจุด (เช่น feedback) เพื่อให้งานของ 08 ถูกใช้จริง | Accepted (2026-09-21) — ปิดคำถามที่ค้างใน Contract Register ("02 vs 08 ตัดสินสถาปัตยกรรมแล้ว แต่ 02 ยังไม่มี client เรียก 08"); เหตุผลหลัก: สองระบบคำนวณเรื่องเดียวกันแยกกันจะเสี่ยงคำตอบไม่ตรงกัน โดยไม่มีตัวชี้ขาดว่าใครถูก และไม่คุ้มความเสี่ยงก่อน deadline; งานของ 08 (`decision_client.py`, `adapter.py`, 58 tests) ยังใช้ประโยชน์ได้เองถ้า 08 เปิด endpoint ให้ 01 เรียกตรงในอนาคต แค่ไม่ใช่ผ่าน 02 |
 
 ## 15. Open Questions (Phase 2)
 
@@ -961,6 +962,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
+| 0.15 | 2026-09-21 | D-12: 02 ไม่เรียก 08 — 02 พอในตัวเองสำหรับ feedback/review queue/live alert/formatting อยู่แล้ว ปิดคำถาม 02→08 client ใน Contract Register |
 | 0.14 | 2026-09-20 | D-11: ปิด Open Question 3 — พื้นที่ให้บริการคือไทยเท่านั้น (ตรงกับที่ seed ไว้แล้ว ไม่ต้องแก้โค้ด) |
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
