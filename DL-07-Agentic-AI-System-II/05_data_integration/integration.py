@@ -93,6 +93,42 @@ def _route(route: Any) -> dict[str, Any]:
     return {"route_id": route["route_id"], "coordinates": coordinates, "segments": segments}
 
 
+def _weather_value_for_06(kind: str, value: Any) -> Any:
+    """Add unit-explicit aliases read by 06, retaining every source value.
+
+    The mapping is deterministic: km/h and kph are the same unit, metres become
+    kilometres, and a percentage becomes a fraction. No missing value is filled.
+    """
+    if kind not in {"current_weather", "weather_forecast"} or not isinstance(value, dict):
+        return value
+    normalized = value.copy()
+    aliases = (
+        ("wind_speed_kmh", "wind_speed_kph", 1.0),
+        ("visibility_m", "visibility_km", 0.001),
+        ("rain_probability_percent", "rain_probability", 0.01),
+    )
+    for source_field, target_field, factor in aliases:
+        source_value = value.get(source_field)
+        if source_value is None:
+            continue
+        if (isinstance(source_value, bool) or not isinstance(source_value, (int, float))
+                or not math.isfinite(source_value)):
+            raise ContractError(f"weather {source_field} must be a finite number or null")
+        if source_field == "rain_probability_percent" and not 0 <= source_value <= 100:
+            raise ContractError("rain_probability_percent must be between 0 and 100")
+        if source_field in {"wind_speed_kmh", "visibility_m"} and source_value < 0:
+            raise ContractError(f"weather {source_field} cannot be negative")
+        derived = source_value * factor
+        existing = value.get(target_field)
+        if existing is not None:
+            if (isinstance(existing, bool) or not isinstance(existing, (int, float))
+                    or not math.isfinite(existing) or
+                    not math.isclose(existing, derived, rel_tol=1e-9, abs_tol=1e-9)):
+                raise ContractError(f"weather {target_field} conflicts with {source_field}")
+        normalized[target_field] = derived
+    return normalized
+
+
 def _record(record: Any, now: datetime) -> dict[str, Any]:
     if not isinstance(record, dict):
         raise ContractError("record must be an object")
@@ -152,7 +188,7 @@ def _record(record: Any, now: datetime) -> dict[str, Any]:
         "freshness": freshness,
         "severity": record.get("severity"),
         "quality_flags": flags,
-        "value": record.get("value"),
+        "value": _weather_value_for_06(kind, record.get("value")),
         "error_code": record.get("error_code"),
     }
 
