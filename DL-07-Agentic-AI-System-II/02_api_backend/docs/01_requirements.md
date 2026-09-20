@@ -63,7 +63,7 @@ Backend คือ **trust boundary** ระหว่าง Web/Mobile App กั
 
 1. มี OIDC Identity Provider ภายนอก (dev ใช้ local issuer ไปก่อน)
 2. Agent มี HTTP API ตาม contract ใน [02_api_spec.md §9](02_api_spec.md#9-agent-contract-backend--travel-ai-agent)
-3. Web App ใช้ SSE เป็นหลัก, WebSocket เป็นทางเลือก
+3. Web App ใช้ SSE เป็นช่องทาง real-time เดียว — ไม่ทำ WebSocket รอบนี้ (D-04)
 4. รองรับเฉพาะผู้ใช้ที่ login (ไม่มี guest) ในรอบแรก
 5. Admin tools อยู่ในแผน แต่ทำหลัง core flow
 
@@ -71,9 +71,9 @@ Backend คือ **trust boundary** ระหว่าง Web/Mobile App กั
 
 | # | คำถาม | ผู้ตัดสิน |
 |---|---|---|
-| Q1 | Identity Provider ตัวจริง | ทีม |
+| Q1 | Identity Provider ตัวจริง — **ปิดสำหรับ dev:** Keycloak (D-01); ค่า prod ยังเปิดอยู่ (D-101) | ทีม |
 | Q2 | Agent contract ตกลงกับ Module 03 | Backend + Module 03 |
-| Q3 | SSE vs WebSocket | Backend + Module 01 |
+| ~~Q3~~ | ~~SSE vs WebSocket~~ — **ปิดแล้ว: SSE เท่านั้น** (D-04, `02_api_spec.md`) | Backend + Module 01 |
 | Q4 | รองรับ guest หรือไม่ | ทีม |
 | Q5 | ค่าตัวเลข SLO / rate limit / retention | ทีม |
 | Q6 | Admin tools รอบนี้หรือไม่ | ทีม |

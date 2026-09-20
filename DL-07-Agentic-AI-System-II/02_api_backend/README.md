@@ -70,6 +70,28 @@ docker compose exec api python -m scripts.dev_token --sub alice --scope travel:r
 Outside dev/test the key is refused at startup and tokens are verified against the
 issuer's JWKS (`JWKS_URL`, or discovery from `JWT_ISSUER`).
 
+### With the team's Keycloak (D-01, D-101)
+
+The shared Keycloak lives in the repo-root `docker-compose.yml` (see `identity/README.md`
+at the repo root). To verify its tokens instead of dev tokens:
+
+```bash
+# repo root
+docker compose up -d keycloak
+# this folder
+docker compose -f docker-compose.yml -f docker-compose.keycloak.yml up -d --wait
+
+TOKEN=$(curl -s -X POST http://localhost:8180/realms/travel-safety/protocol/openid-connect/token \
+  -d grant_type=password -d client_id=dev-cli -d username=dev-user \
+  -d password=dev-password-change-me | python -c "import json,sys; print(json.load(sys.stdin)['access_token'])")
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/v1/me
+```
+
+`docker-compose.keycloak.yml` empties `DEV_JWT_SIGNING_KEY` (while it is set the verifier
+uses only the dev key) and points `JWKS_URL` at Keycloak through `host.docker.internal`,
+because the token issuer is `localhost:8180`, which is not reachable from inside the
+container. Admin scopes come only from the `ops-admin` client (client credentials).
+
 ## Recommendation flow
 
 `POST /v1/travel/recommendations` stores the request, queues a Celery job and waits up to

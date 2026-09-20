@@ -40,7 +40,7 @@
 │   │   ├── geo.py              # geohash, coordinate rounding
 │   │   └── clock.py            # Clock abstraction (ทดสอบเวลาได้)
 │   │
-│   ├── api/                    # ── Presentation layer (HTTP / SSE / WS)
+│   ├── api/                    # ── Presentation layer (HTTP / SSE — WS descoped, D-04)
 │   │   ├── resources.py        # AppResources: verifier, redis, rate limiter, idempotency store
 │   │   ├── auth.py             # get_principal, require_scopes, RateLimit (P-30, P-32)
 │   │   ├── idempotency.py      # IdempotentRoute (spec §11.1)
@@ -495,7 +495,7 @@ flowchart LR
 | D-63 | ประเมิน trip ใช้ conversation เดิมของ trip; `jobs.type = TRIP_ASSESSMENT` สำหรับ source `TRIP_ASSESSMENT` และ `TRIP_ALERT` | conversation ใหม่ทุกครั้ง | Accepted (Step 5.8) |
 | D-64 | `last_assessment` = ผลล่าสุดที่จบแล้ว; ล้าง `outdated` เมื่อ request ตรงกับ trip ปัจจุบันเท่านั้น; job ที่ fail ไม่เปลี่ยนอะไร | ล้างทุกครั้งที่มีผล | Accepted (Step 5.8) |
 | D-65 | beat สั่ง `scan_trip_alerts` ทุก P-56 (queue `alerts`) → คิวประเมินแบบ async ตาม P-57/P-58/P-59; ข้าม user ที่ชน P-33; container `beat` ย้ายมาทำใน 5.8 | task แยกต่อ trip / ตั้ง ETA ต่อ trip | Accepted (Step 5.8) |
-| D-66 | alert แบบ in-app = ข้อความ assistant ใน conversation ของ trip เฉพาะเมื่อ risk level หรือ type เปลี่ยน; push ผ่าน WS รอ E-07 | ตาราง notifications | Accepted (Step 5.8) |
+| D-66 | alert แบบ in-app = ข้อความ assistant ใน conversation ของ trip เฉพาะเมื่อ risk level หรือ type เปลี่ยน; อ่านด้วย polling `GET /v1/conversations/{id}/messages` (WS descoped, D-04) | ตาราง notifications | Accepted (Step 5.8, อัปเดตช่องทางอ่าน 2026-09-19) |
 | D-67 | รับ feedback เฉพาะ recommendation ที่จบแล้วและมีเนื้อหา; ส่งได้หลายครั้ง | หนึ่งครั้งต่อ recommendation | Accepted (Step 5.8) |
 | D-68 | "แจ้ง Ops" = log warning `safety_review_requested` + audit `feedback.report` + metric `safety_review_requested_total` (5.10); alert rule เป็นของ `08_monitoring` | ส่ง email / webhook | Accepted (Step 5.8) |
 | D-69 | review queue (`safety:review`) ทำใน 5.8; ค่า status เป็นตัวพิมพ์เล็ก; review ได้เฉพาะ `pending` (`409 REVIEW_NOT_PENDING`); approved → `usable_for_training` | รอ 5.11 | Accepted (Step 5.8) |
@@ -533,11 +533,12 @@ flowchart LR
 | D-98 | schemathesis สองชั้น: (1) contract — โหลด schema ที่ export แล้วตรวจโครงสร้างล้วน (`schema.validate()`, ไม่ยิง request จริง) รันทุก push ไม่ต้องมี stack; (2) e2e (`tests/e2e/test_openapi_contract_fuzz.py`) — ยิง fuzz จริงเฉพาะ `GET` ต่อ compose stack จริง เช็คแค่ "ไม่ 5xx" (`not_a_server_error`); ไม่ fuzz POST/PATCH/DELETE เพราะจะไปรบกวนสถานะที่ e2e ไฟล์อื่นใช้ร่วมกัน (เช่นลบบัญชีของ test อื่น) และไปกิน rate limit ต่อ IP (P-31) ของทั้ง suite — งานนี้เคลียร์ key `tsa:*:rl:ip:*` ใน redis-core ทิ้งหลังรันเสมอ | fuzz ทุก method ด้วย mock ทั้งชุด | Accepted (Step 5.12) |
 | D-99 | CI เป็น `.github/workflows/api-backend-ci.yml` ที่ root repo (git root คือ monorepo ไม่ใช่โมดูลนี้) กรองด้วย `paths:` ให้ทำงานเฉพาะไฟล์ในโมดูลนี้; job: `lint` (ruff+mypy), `test` (unit+api+integration+contract, Testcontainers ใช้ Docker ของ runner ตรงๆ), `build` (docker build target `runtime` + Trivy scan), `openapi-diff` (oasdiff เทียบ `openapi.json` กับ base branch, เฉพาะ PR, fail เมื่อ breaking), `e2e` (เฉพาะ PR เข้า `develop`) | รอให้ทีมตัดสิน workflow กลางก่อน (item 3 ด้านล่าง) | Accepted (Step 5.12) — ชื่อไฟล์ตั้งใจไม่ชนกับโมดูลอื่น ถ้าทีมมี CI กลางทีหลังค่อยรวม |
 | D-100 | stage `base` ใน Dockerfile รัน `apt-get upgrade` ทุกครั้งที่ build เพราะ `python:3.12-slim` ของ upstream ตามหลัง Debian security fix (Trivy เจอ CRITICAL/HIGH ที่มีตัวแก้แล้ว 13 ตัวใน gzip, pcre2, sqlite, perl-base; หลังแก้เหลือ 0); Trivy action ปักที่ `v0.36.0` (tag ของ repo นั้นมี `v` นำหน้า) | ปัก digest ของ base image / รอ upstream rebuild | Accepted (Step 5.12, แก้หลัง CI รอบแรก) |
+| D-101 | Keycloak ที่ใช้ร่วมกันทั้งทีมอยู่ใน root `docker-compose.yml` (ไม่ใช่ใน compose ของ 02) เพราะ 01 ต้อง login ผ่านมันด้วย; backend สลับไปตรวจ token ของ Keycloak ด้วย `docker-compose.keycloak.yml` (override) ซึ่งตั้ง `DEV_JWT_SIGNING_KEY=""` (ถ้ามี key นี้ verifier จะใช้แต่ dev key) และ `JWKS_URL` ผ่าน `host.docker.internal` (issuer คือ `localhost:8180` ซึ่ง container เข้าไม่ถึง; ตั้ง `KC_HOSTNAME` ตายตัวให้ `iss` เหมือนกันทุกทาง); scope admin/safety:review อยู่เฉพาะ client `ops-admin` (client credentials) เพื่อให้ user ที่ login ผ่าน `web-app` ขอ scope เหล่านี้ไม่ได้ (ทดสอบแล้วได้ `invalid_scope`); ทดสอบกับ stack จริงแล้ว: user → `/v1/me` 200, user → admin 403, ops-admin → admin 200, ไม่มี token / token ปลอมด้วย dev key / ลายเซ็นผิด → 401 | แก้ default ของ `DEV_JWT_SIGNING_KEY` ใน compose หลัก (กระทบ CI/e2e ที่ใช้ dev token) / Keycloak ใน compose ของ 02 | Accepted (dev) — ก่อน prod: DB จริงแทน H2, HTTPS, admin login รายคนพร้อม role-gated scope แทน client secret ร่วม, ลบ client `dev-cli` |
 
 ## 13. Open Questions (Phase 4)
 
 1. `FEEDBACK_RETENTION_DAYS` ของ Module 08 = 90 วัน vs P-23 = 180 วัน — ใช้ค่าไหน
-2. ทีมจะมี root `docker-compose.yml` ไฟล์เดียวหรือให้แต่ละโมดูลมีของตัวเอง (D-19)
+2. ทีมจะมี root `docker-compose.yml` ไฟล์เดียวหรือให้แต่ละโมดูลมีของตัวเอง (D-19) — **ตอบไปบางส่วน:** มี root compose แล้วแต่ตอนนี้เก็บเฉพาะ infra ที่ใช้ร่วมกัน (Keycloak, D-101); ยังไม่ได้ตัดสินว่าจะ `include:` stack ของแต่ละโมดูลหรือไม่
 3. ~~CI ใช้ GitHub Actions ได้ไหม~~ — ใช้แล้ว (D-99, `.github/workflows/api-backend-ci.yml`, กรองด้วย `paths:`); ที่ยังไม่ตอบคือใครดูแล workflow กลางถ้าทีมอยากรวมของ 8 โมดูลเข้าด้วยกันทีหลัง
 4. `08_monitoring` (Prometheus/Grafana) ใครเป็นเจ้าของ — backend ต้องส่ง scrape config ให้หรือไม่
 
@@ -563,6 +564,8 @@ flowchart LR
 
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
+| 0.16 | 2026-09-19 | D-04: ปิด Q3 — SSE เป็นช่องทางเดียว, WS (E-07) descoped ก่อนส่งงาน เพราะโจทย์อาจารย์ระบุ "WebSocket/SSE" เป็นทางเลือก; trip live alert อ่านด้วย polling |
+| 0.15 | 2026-09-19 | D-01 → Keycloak (dev), D-101, `docker-compose.keycloak.yml`; root `docker-compose.yml` + `identity/keycloak/realm-travel-safety.json` (repo root) |
 | 0.14 | 2026-09-18 | Step 5.12: D-96..D-99, `app/api/openapi.py` + `app/schemas/v1/common.py` (ProblemResponse แทน HTTPValidationError), `scripts/export_openapi.py` + `openapi.json`, `make openapi`, `tests/contract/test_openapi_schema.py`, `tests/e2e/test_openapi_contract_fuzz.py`, `.github/workflows/api-backend-ci.yml` (repo root) |
 | 0.1 | 2026-09-17 | Draft แรก |
 | 0.2 | 2026-09-17 | Step 5.1: เปลี่ยนจาก gunicorn เป็น `app.serve` + uvicorn workers (D-25) |
