@@ -11,7 +11,9 @@
 | API ให้ 02 เรียก `POST /v1/agent/runs` | ✅ ตาม contract ใน `02_api_backend/docs/02_api_spec.md` §9 |
 | Progress แบบ NDJSON / ยกเลิก run ด้วย `DELETE` / `X-Deadline` | ✅ |
 | เรียก Module 07 ตัวจริง (`POST /v1/decisions`) | ✅ เทสกับ engine ของ 07 ตัวจริงแบบ in-process |
-| Module 04 / 05 / 06 | 🟡 **mock** (`travel_agent/tools/mocks.py`) แต่ใช้รูปแบบละเอียดแบบเดียวกับของจริงแล้ว |
+| Module 04 | 🟡 `transport()` ใช้ TomTom จริง และ `disasters()` ใช้ GDACS จริง; weather/route candidates ยังเป็น mock |
+| Module 05 | ✅ เรียก `build_context()` จริงด้วย canonical records จาก 04 |
+| Module 06 | 🟡 **mock** (`travel_agent/tools/mocks.py`) จนกว่าจะมี service contract ที่เรียกได้ |
 | ส่งต่อ emergency instructions จาก 07 ไป 02 | ✅ ส่งต่อตามเดิมทุกตัวอักษร ไม่แก้ข้อความเอง |
 | จำกัด step, tool call และเวลา / ให้ tool ที่ล้มไม่ล้มทั้ง run | ✅ |
 | Intent และ planner ด้วย LLM, LangGraph, checkpoint สำหรับคำถามต่อ | ⏳ ขั้นถัดไป ตอนนี้ใช้ `intent_hint` จาก 02 และลำดับ tool ที่กำหนดไว้ตายตัว |
@@ -41,7 +43,7 @@ understand ─▶ fetch_external ─────▶ integrate ─▶ assess ─�
 - **02 (sakda):** `travel_agent/contracts.py` คัดลอกมาจาก contract ของ 02 ถ้าฝั่งไหนแก้ ต้องแก้อีกฝั่งด้วย
 - **04 / 05 / 06:** `travel_agent/tools/schemas.py` เป็น**ร่าง** contract ที่ 03 เสนอ ทุก record ต้องมี `source`, `url` (https), `observed_at`, `fetched_at` และ `expires_at` ตามที่ 07 บังคับ
 - **04 (supawit):** ต้องผลิต `RouteCandidate` (geometry LineString + duration ต่อ leg) และ record ที่มี `observed_at`/`expires_at` ครบ เพราะ 07 บังคับลำดับ `observed_at <= fetched_at < expires_at` ส่วนพยากรณ์ที่มีแต่ `valid_at` ยังส่งเข้า 07 ไม่ได้จนกว่าจะตกลงกัน
-- **05 (supawit):** 03 ส่ง `routes` พร้อม `enter_at`/`exit_at` ให้แล้ว และส่ง context ที่ได้ต่อให้ 06 ทั้งก้อน ยังค้าง: 05 ยังไม่ส่ง `confidence` กับ `active_restriction` และ coverage ไม่เคยขึ้นเป็น "covered" ทำให้ 07 ตอบ AVOID ทุกครั้ง ต้องตกลงเกณฑ์ร่วมกัน
+- **05 (supawit):** 03 ส่ง `routes` พร้อม `enter_at`/`exit_at` และ canonical records เข้า `build_context()` แล้ว จากนั้นส่ง context ต่อให้ 06 ทั้งก้อน; `confidence` กับ `active_restriction` ยังต้องตกลงร่วมกัน
 - **07 (mekmai):** v3 ให้ `confidence` เป็นตัวเลข 0–1 แต่เป็นคะแนนของนโยบาย ไม่ใช่ความมั่นใจของค่าความเสี่ยง ส่วน 02 ใช้ `risk.confidence` เตือนเมื่อต่ำกว่า 0.5 ตอนนี้ 03 จึงส่ง `risk.confidence = null` จนกว่าจะตกลงความหมายกัน; `emergency_contact_metadata` ก็ยังไม่มีช่องรับใน contract ของ 02
 
 ## เริ่มใช้งานด้วย Python
@@ -51,6 +53,7 @@ understand ─▶ fetch_external ─────▶ integrate ─▶ assess ─�
 ```powershell
 uv sync
 Copy-Item .env.example .env
+# ใส่ TOMTOM_API_KEY ใน .env; GDACS ไม่ต้องใช้ key
 uv run pytest
 ```
 
@@ -61,7 +64,7 @@ uv run uvicorn decision_engine.api:app --port 8050   # Module 07
 uv run uvicorn travel_agent.api:app --port 8010      # Module 03
 ```
 
-เปิดดู [API docs](http://localhost:8010/docs) แล้วลองส่ง request ตามตัวอย่างใน `tests/conftest.py` (`run_body`) เลือกสถานการณ์จำลองได้ด้วย `request.preferences.mock_scenario` ซึ่งมีค่า `low_risk`, `high_risk`, `closure`, `safer_route`, `safer_time` และ `weather_down`
+เปิดดู [API docs](http://localhost:8010/docs) แล้วลองส่ง request ตามตัวอย่างใน `tests/conftest.py` (`run_body`) หากต้องการทดสอบแบบจำลองทั้งหมดให้ตั้ง `USE_MOCK_TOOLS=true`; `request.preferences.mock_scenario` รองรับ `low_risk`, `high_risk`, `closure`, `safer_route`, `safer_time` และ `weather_down`
 
 port 8010 ตรงกับค่าเริ่มต้นของ `AGENT_SERVICE_URL` ใน Module 02
 
@@ -88,6 +91,7 @@ travel_agent/
 └── tools/
     ├── base.py     # allowlist ของ tool + ToolSet interface
     ├── schemas.py  # ร่าง contract ของ 04/05/06
+    ├── live.py     # adapter ของ transport/disaster (04) และ integration (05) ตัวจริง
     ├── mocks.py    # ข้อมูลจำลองของ 04/05/06
     └── decision.py # HTTP client ของ 07 (retry ด้วย Tenacity)
 ```

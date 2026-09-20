@@ -45,7 +45,11 @@ def decision_http(tmp_path):
 
 @pytest.fixture
 def settings():
-    return Settings(_env_file=None, decision_service_url="http://decision")
+    return Settings(
+        _env_file=None,
+        decision_service_url="http://decision",
+        use_mock_tools=True,
+    )
 
 
 @pytest.fixture
