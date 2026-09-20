@@ -234,3 +234,9 @@ next-env.d.ts
 # เพื่อไม่ให้ src/lib ของ Next.js ถูก ignore โดยไม่ตั้งใจ
 !lib/
 !**/src/lib/
+
+# ===== AI Agent Configs & Local Rules =====
+.claude/
+.agents/rules/
+GEMINI.md
+AGENTS.md
