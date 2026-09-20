@@ -53,6 +53,25 @@ async def test_service_status_uses_backend_d47_keys(client):
     assert "llm" not in status  # not reported until there is a real LLM planner
 
 
+async def test_avoid_passes_module_07_emergency_instructions_through(client):
+    # 02's gate rule R-01 rejects a HIGH-risk answer without emergency instructions.
+    result = (await post(client, run_body("closure"))).json()
+
+    assert result["recommendation"]["type"] == "AVOID_TRAVEL"
+    emergency = result["emergency_instructions"]
+    assert emergency is not None, "07 sends guidance with AVOID; the agent must forward it"
+    assert emergency["what_to_do_now"]
+    assert emergency["nearest_support"] == []
+    for contact in emergency["contacts"]:
+        assert contact.keys() <= {"name", "phone", "url", "available_hours"}
+
+
+async def test_non_avoid_actions_carry_no_emergency_instructions(client):
+    result = (await post(client, run_body())).json()
+    assert result["recommendation"]["type"] == "TRAVEL_NORMALLY"
+    assert result["emergency_instructions"] is None
+
+
 async def test_closure_reports_the_hazard(client):
     result = (await post(client, run_body("closure"))).json()
     assert [h["type"] for h in result["hazards"]] == ["FLOOD"]

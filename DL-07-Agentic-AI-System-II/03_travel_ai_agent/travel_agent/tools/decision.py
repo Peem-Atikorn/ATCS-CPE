@@ -7,7 +7,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 import httpx
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from tenacity import (
     AsyncRetrying,
     retry_if_exception,
@@ -46,6 +46,28 @@ class Versions(_Lenient):
     risk_model: str | None
 
 
+class EmergencyContact(_Lenient):
+    # Same four fields as Module 02's contract; 07 keeps its catalog metadata separate.
+    name: str
+    phone: str
+    url: str | None = None
+    available_hours: str | None = None
+
+
+class EmergencyInstructions(_Lenient):
+    what_to_do_now: str
+    safety_steps: list[str] = Field(default_factory=list)
+    contacts: list[EmergencyContact] = Field(default_factory=list)
+    nearest_support: list[dict] = Field(default_factory=list)
+
+
+class EmergencyAssessment(_Lenient):
+    # "not_required" unless the action is AVOID; "grounded" from a reviewed procedure,
+    # "fallback" from 07's generic text.
+    status: Literal["not_required", "grounded", "fallback"]
+    issues: list[str] = Field(default_factory=list)
+
+
 class DecisionResult(_Lenient):
     request_id: UUID
     action_code: Literal["NORMAL", "CHANGE_ROUTE", "DELAY", "AVOID"]
@@ -58,6 +80,13 @@ class DecisionResult(_Lenient):
     citations: list[Citation]
     versions: Versions
     valid_until: datetime | None
+    # Present only when 07 locks AVOID (integration-v3). The agent passes the object
+    # through untouched; it never writes or edits emergency text itself.
+    emergency_instructions: EmergencyInstructions | None = None
+    emergency_assessment: EmergencyAssessment | None = None
+    # Catalog provenance per contact index ("0", "1", ...). Module 02's response has no
+    # field for it yet, so the agent only logs it — see README for the open question.
+    emergency_contact_metadata: dict[str, dict] = Field(default_factory=dict)
 
 
 class _RetryableStatus(Exception):

@@ -16,6 +16,8 @@ from travel_agent.contracts import (
     Clarification,
     DataCategory,
     DataFreshness,
+    EmergencyContact,
+    EmergencyInstructions,
     FreshnessItem,
     Hazard,
     RiskFactor,
@@ -23,6 +25,7 @@ from travel_agent.contracts import (
     ServiceState,
     Source,
 )
+from travel_agent.tools.decision import EmergencyInstructions as DecisionEmergency
 from travel_agent.tools.schemas import RouteInfo
 
 if TYPE_CHECKING:
@@ -75,8 +78,10 @@ def build_response(
         risk = AgentRisk(
             level=risk_level,
             score=state.risk.score if state.risk else None,
-            # 06 and 07 give confidence as LOW/MEDIUM/HIGH, not a probability;
-            # we do not invent a number for the backend's 0-1 field.
+            # 06 gives ordinal confidence; 07 v3 now returns a numeric policy score,
+            # but that scores the decision rules, not the risk estimate, and 02 uses
+            # this field to warn about low confidence. Left unset until the team
+            # agrees what 02's risk.confidence means (07 integration-v3, open item).
             confidence=None,
             factors=[
                 RiskFactor(type=f.type, level=f.level, description=f.description)
@@ -136,14 +141,35 @@ def build_response(
             for a in (state.disasters.alerts if state.disasters else [])
             if a.active
         ],
-        # Pending team agreement on who owns emergency instructions (07 or 08).
-        emergency_instructions=None,
+        emergency_instructions=_emergency(decision.emergency_instructions),
         sources=sources,
         data_freshness=DataFreshness(
             items=[FreshnessItem(category=c, updated_at=t) for c, t in oldest.items()]
         ),
         valid_until=decision.valid_until,
         **common,
+    )
+
+
+def _emergency(source: DecisionEmergency | None) -> EmergencyInstructions | None:
+    """Pass 07's reviewed emergency guidance through to 02 (gate rule R-01).
+
+    The agent copies the text as it stands: it never writes, edits or completes safety
+    steps or phone numbers. 07 sends this only when it locks AVOID.
+    """
+    if source is None:
+        return None
+    return EmergencyInstructions(
+        what_to_do_now=source.what_to_do_now,
+        safety_steps=source.safety_steps,
+        contacts=[
+            EmergencyContact(
+                name=c.name, phone=c.phone, url=c.url, available_hours=c.available_hours
+            )
+            for c in source.contacts
+        ],
+        # 07 keeps this empty: there is no verified place data to rank yet.
+        nearest_support=[],
     )
 
 

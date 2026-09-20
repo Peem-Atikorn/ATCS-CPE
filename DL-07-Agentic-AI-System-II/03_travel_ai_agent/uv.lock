@@ -497,7 +497,7 @@ wheels = [
 
 [[package]]
 name = "teamd-decision-engine"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "../07_decision_llm_engine" }
 dependencies = [
     { name = "fastapi" },
