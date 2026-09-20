@@ -534,12 +534,13 @@ flowchart LR
 | D-99 | CI เป็น `.github/workflows/api-backend-ci.yml` ที่ root repo (git root คือ monorepo ไม่ใช่โมดูลนี้) กรองด้วย `paths:` ให้ทำงานเฉพาะไฟล์ในโมดูลนี้; job: `lint` (ruff+mypy), `test` (unit+api+integration+contract, Testcontainers ใช้ Docker ของ runner ตรงๆ), `build` (docker build target `runtime` + Trivy scan), `openapi-diff` (oasdiff เทียบ `openapi.json` กับ base branch, เฉพาะ PR, fail เมื่อ breaking), `e2e` (เฉพาะ PR เข้า `develop`) | รอให้ทีมตัดสิน workflow กลางก่อน (item 3 ด้านล่าง) | Accepted (Step 5.12) — ชื่อไฟล์ตั้งใจไม่ชนกับโมดูลอื่น ถ้าทีมมี CI กลางทีหลังค่อยรวม |
 | D-100 | stage `base` ใน Dockerfile รัน `apt-get upgrade` ทุกครั้งที่ build เพราะ `python:3.12-slim` ของ upstream ตามหลัง Debian security fix (Trivy เจอ CRITICAL/HIGH ที่มีตัวแก้แล้ว 13 ตัวใน gzip, pcre2, sqlite, perl-base; หลังแก้เหลือ 0); Trivy action ปักที่ `v0.36.0` (tag ของ repo นั้นมี `v` นำหน้า) | ปัก digest ของ base image / รอ upstream rebuild | Accepted (Step 5.12, แก้หลัง CI รอบแรก) |
 | D-101 | Keycloak ที่ใช้ร่วมกันทั้งทีมอยู่ใน root `docker-compose.yml` (ไม่ใช่ใน compose ของ 02) เพราะ 01 ต้อง login ผ่านมันด้วย; backend สลับไปตรวจ token ของ Keycloak ด้วย `docker-compose.keycloak.yml` (override) ซึ่งตั้ง `DEV_JWT_SIGNING_KEY=""` (ถ้ามี key นี้ verifier จะใช้แต่ dev key) และ `JWKS_URL` ผ่าน `host.docker.internal` (issuer คือ `localhost:8180` ซึ่ง container เข้าไม่ถึง; ตั้ง `KC_HOSTNAME` ตายตัวให้ `iss` เหมือนกันทุกทาง); scope admin/safety:review อยู่เฉพาะ client `ops-admin` (client credentials) เพื่อให้ user ที่ login ผ่าน `web-app` ขอ scope เหล่านี้ไม่ได้ (ทดสอบแล้วได้ `invalid_scope`); ทดสอบกับ stack จริงแล้ว: user → `/v1/me` 200, user → admin 403, ops-admin → admin 200, ไม่มี token / token ปลอมด้วย dev key / ลายเซ็นผิด → 401 | แก้ default ของ `DEV_JWT_SIGNING_KEY` ใน compose หลัก (กระทบ CI/e2e ที่ใช้ dev token) / Keycloak ใน compose ของ 02 | Accepted (dev) — ก่อน prod: DB จริงแทน H2, HTTPS, admin login รายคนพร้อม role-gated scope แทน client secret ร่วม, ลบ client `dev-cli` |
+| D-102 | ผู้ดูแล CI กลางของทั้ง 8 โมดูล คือ **ผู้ดูแลการรวมระบบ (เจ้าของ 02)** — ตอบ item 3 ใน §13; แต่ละโมดูลยังคง workflow แยกของตัวเองไปก่อน (`api-backend-ci.yml` ของ 02 ไม่กระทบใคร, กรองด้วย `paths:`) จนกว่าจะมีการรวมจริง | ให้แต่ละโมดูลดูแล CI ของตัวเองแยกกันถาวร | Accepted (2026-09-20) |
 
 ## 13. Open Questions (Phase 4)
 
 1. `FEEDBACK_RETENTION_DAYS` ของ Module 08 = 90 วัน vs P-23 = 180 วัน — ใช้ค่าไหน
 2. ทีมจะมี root `docker-compose.yml` ไฟล์เดียวหรือให้แต่ละโมดูลมีของตัวเอง (D-19) — **ตอบไปบางส่วน:** มี root compose แล้วแต่ตอนนี้เก็บเฉพาะ infra ที่ใช้ร่วมกัน (Keycloak, D-101); ยังไม่ได้ตัดสินว่าจะ `include:` stack ของแต่ละโมดูลหรือไม่
-3. ~~CI ใช้ GitHub Actions ได้ไหม~~ — ใช้แล้ว (D-99, `.github/workflows/api-backend-ci.yml`, กรองด้วย `paths:`); ที่ยังไม่ตอบคือใครดูแล workflow กลางถ้าทีมอยากรวมของ 8 โมดูลเข้าด้วยกันทีหลัง
+3. ~~CI ใช้ GitHub Actions ได้ไหม~~ — ใช้แล้ว (D-99, `.github/workflows/api-backend-ci.yml`, กรองด้วย `paths:`) ~~ที่ยังไม่ตอบคือใครดูแล workflow กลางถ้าทีมอยากรวมของ 8 โมดูลเข้าด้วยกันทีหลัง~~ — **ปิดแล้ว (D-102):** ผู้ดูแลการรวมระบบ (เจ้าของ 02) รับเป็นคนดูแล workflow กลางถ้าทีมอยากรวมทีหลัง
 4. `08_monitoring` (Prometheus/Grafana) ใครเป็นเจ้าของ — backend ต้องส่ง scrape config ให้หรือไม่
 
 ## 14. Phase 5 — ลำดับการ Implement ที่เสนอ
@@ -564,6 +565,7 @@ flowchart LR
 
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
+| 0.17 | 2026-09-20 | D-102: ผู้ดูแลการรวมระบบ (เจ้าของ 02) รับดูแล CI กลางถ้าทีมรวม workflow ของ 8 โมดูลทีหลัง — ปิด §13 item 3 |
 | 0.16 | 2026-09-19 | D-04: ปิด Q3 — SSE เป็นช่องทางเดียว, WS (E-07) descoped ก่อนส่งงาน เพราะโจทย์อาจารย์ระบุ "WebSocket/SSE" เป็นทางเลือก; trip live alert อ่านด้วย polling |
 | 0.15 | 2026-09-19 | D-01 → Keycloak (dev), D-101, `docker-compose.keycloak.yml`; root `docker-compose.yml` + `identity/keycloak/realm-travel-safety.json` (repo root) |
 | 0.14 | 2026-09-18 | Step 5.12: D-96..D-99, `app/api/openapi.py` + `app/schemas/v1/common.py` (ProblemResponse แทน HTTPValidationError), `scripts/export_openapi.py` + `openapi.json`, `make openapi`, `tests/contract/test_openapi_schema.py`, `tests/e2e/test_openapi_contract_fuzz.py`, `.github/workflows/api-backend-ci.yml` (repo root) |

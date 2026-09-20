@@ -947,12 +947,13 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 | D-08 | Rate limit แบบ sliding window ใน Redis | fixed window / token bucket | Proposed |
 | D-09 | ตัวเลขทั้งหมดใน §2 | — | Proposed (Q5) |
 | D-10 | Admin endpoints ทำหลัง core flow | ทำพร้อมกัน | Proposed (Q6) |
+| D-11 | พื้นที่ให้บริการ (`coverage_areas`) คือ**ประเทศไทยเท่านั้น** — ตรงกับที่ seed ไว้แล้วใน `reference_data.py` (แถวเดียว, `code="TH"`) และ test ที่ยืนยันอยู่แล้วว่าพิกัดโตเกียวได้ `region_for() is None` (`test_recommendation_repository.py`); origin/destination/waypoint นอกไทย → `422 UNSUPPORTED_REGION` ก่อนสร้าง job เสมอ ไม่มีโมดูลไหนเห็นพิกัดนอกไทย | เปิดรับต่างประเทศ (ต้องหาเบอร์ฉุกเฉินและ knowledge base ของทุกประเทศเพิ่ม ซึ่งขัดกับที่ 06/08 ออกแบบรอบข้อมูลไทยอยู่แล้ว) | Accepted (2026-09-20) — ปิด Open Question 3; ขอบเขตแบบ multi-country เพิ่มทีหลังได้โดยไม่ breaking change (เพิ่มแถวใน `coverage_areas`); กล่องพื้นที่ยังเป็นสี่เหลี่ยมคร่าวๆ ไม่ใช่เขตแดนจริง ยังต้องแก้แยกทีหลัง (ไม่เกี่ยวกับการตัดสินใจนี้) |
 
 ## 15. Open Questions (Phase 2)
 
 1. Module 03 รองรับ NDJSON progress, `X-Deadline` และ `DELETE /runs/{id}` หรือไม่ (D-07)
 2. Module 01 ใช้ `EventSource` ธรรมดา (ต้องใช้ ticket) หรือ fetch-based SSE (D-06)
-3. พื้นที่ให้บริการ (coverage) คือไทยทั้งหมด หรือรวมต่างประเทศ → ใช้กับ `UNSUPPORTED_REGION`
+3. ~~พื้นที่ให้บริการ (coverage) คือไทยทั้งหมด หรือรวมต่างประเทศ → ใช้กับ `UNSUPPORTED_REGION`~~ — **ปิดแล้ว: ไทยเท่านั้น (D-11)**
 4. Emergency contacts ค่า default ตามภูมิภาค ใครเป็นเจ้าของข้อมูล (Module 06 หรือ 08)
 5. ต้องการ live trip alert ผ่านช่องทางอื่นนอกจาก in-app (push/email) หรือไม่
 
@@ -960,6 +961,7 @@ Algorithm: sliding window บน Redis sorted set (Lua + `TIME` ของ Redis)
 
 | Version | วันที่ | รายละเอียด |
 |---|---|---|
+| 0.14 | 2026-09-20 | D-11: ปิด Open Question 3 — พื้นที่ให้บริการคือไทยเท่านั้น (ตรงกับที่ seed ไว้แล้ว ไม่ต้องแก้โค้ด) |
 | 0.1 | 2026-09-17 | Draft แรก ใช้ค่าที่เสนอทั้งหมด |
 | 0.2 | 2026-09-17 | เพิ่ม P-46..P-50 จาก Data Design, ระบุ SSE event id เป็น opaque |
 | 0.3 | 2026-09-17 | เพิ่ม error code `METHOD_NOT_ALLOWED` (405) |
