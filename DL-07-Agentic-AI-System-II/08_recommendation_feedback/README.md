@@ -87,13 +87,15 @@ fixture จำลอง 5 สถานการณ์ (`travel_normally`, `chang
 (เช่น `reco_viewed_total`) ตามหลักที่ว่า metric ความปลอดภัยห้ามถูกกลบด้วยตัวเลข UX
 
 ### `app/main.py`
-ประกอบทุกอย่างเป็น FastAPI app มี endpoint หลัก:
+ประกอบทุกอย่างเป็น FastAPI app มี endpoint หลัก (เน้นเป็น internal service / worker):
 - `GET /health` — เช็คสถานะ service + DB
 - `GET /recommendation/mock/{scenario}` — ดึง fixture จำลอง แล้วบันทึกลง DB จริง
+- `POST /recommendation/generate` — รับผลประเมินจากโมดูล 07 ตัวจริงมาแปลง ตรวจเบอร์ฉุกเฉิน และบันทึกลง DB จริง
 - `GET /recommendation/{request_id}` — ดึงคำแนะนำที่เคยบันทึกไว้ ตรวจ schema ซ้ำก่อนส่ง
   (ถ้าแถวเก่าไม่ตรง schema ปัจจุบัน จะตอบ 500 โดยตั้งใจ ไม่ส่งข้อมูลผิดออกไป)
 - `POST /feedback`, `GET /feedback/safety-queue`, `POST /feedback/{id}/review` —
-  วงจร feedback ทั้งหมด
+  วงจร feedback และ human safety review queue ทั้งหมด
+- `POST /feedback/cleanup` — trigger ลบข้อมูล feedback ที่เก่าเกิน 180 วันตาม retention policy
 
 ### `db_schema.sql`
 DDL ของตาราง `recommendation_log` และ `user_feedback` มี `CHECK` constraint บังคับค่า
@@ -180,30 +182,21 @@ docker compose down
 
 ## งานนี้ยังต้องการอะไรเพิ่มอีก
 
-### ต้องรอทีมอื่นตัดสินใจ (ไม่ใช่งานของ 08 ฝ่ายเดียว)
-- **endpoint คำแนะนำซ้ำกับ 02**: ตอนนี้ 08 มี `GET /recommendation/{id}` ของตัวเอง
-  ส่วน 02 มี `GET /v1/recommendations/{id}` อยู่แล้ว ยังไม่ชัดว่า 01 (Web App) ควรเรียก
-  ที่ไหนเป็นตัวจริง — ถ้าใช้ทั้งคู่จะได้คำแนะนำสองชุดที่อาจไม่ตรงกัน
-- **`confidence` เป็นตัวเลขหรือหมวดหมู่**: 07 ยังส่งเป็น `LOW/MEDIUM/HIGH` (ordinal)
-  ไม่ใช่ float 0–1 ที่ 02 ต้องการ ตอนนี้ 08 รองรับทั้งสองแบบผ่าน `confidence_level`
-  แต่ต้องรอทีมตกลงว่าใครจะเป็นฝ่ายแปลงค่า
-- **`FEEDBACK_RETENTION_DAYS`**: ปรับเป็น 180 วันแล้วใน config/.env ตามข้อกำหนด P-23 ของ 02 (Contract Register v4)
+### ข้อยุติทางสถาปัตยกรรม (Architecture Alignment)
+- **บทบาท 02 vs 08**: 02 (API Backend) ทำหน้าที่เป็น **Single Public Gateway / BFF** หน้าบ้านสำหรับ 01 (Web App) ส่วน 08 ทำหน้าที่เป็น **Internal Domain Service & Worker** (Formatting, Emergency Safety Validation, Feedback Safety Review Queue, และ Live Alert Engine) เพื่อไม่ให้สับสน ไม่มี alias `/v1/` ใน 08
+- **`confidence` เป็นตัวเลขหรือหมวดหมู่**: 07 ยังส่งเป็น `LOW/MEDIUM/HIGH` (ordinal) ตอนนี้ 08 รองรับทั้งสองแบบผ่าน `confidence` และ `confidence_level`
+- **`FEEDBACK_RETENTION_DAYS`**: ปรับเป็น 180 วันตรงกันแล้วทั้งใน 08 และ root `.env.example` ตามข้อกำหนด P-23 ของ 02 (Contract Register v4)
 - **เจ้าของข้อมูล emergency contacts**: 07 สร้างโมดูล `emergency.py` และ `handoff.py` พร้อม catalog เรียบร้อยแล้ว รูปแบบส่งออกตรงกับ `EmergencyContact` ของ 08 เป๊ะ (Contract Register v4)
-- **พื้นที่ให้บริการ (coverage)**: ไทยอย่างเดียว หรือรวมต่างประเทศด้วย — กระทบวิธีตรวจ
-  region ใน `emergency.py` โดยตรง
+- **พื้นที่ให้บริการ (coverage)**: เบื้องต้นรับไทยอย่างเดียว (TH, D-11)
 
-### งานที่ 08 ต้องทำเองต่อ
+### งานที่ 08 ทำเรียบร้อยแล้ว
 - **ต่อกับ 07 ตัวจริง (เรียบร้อยแล้ว)**: เพิ่ม `DecisionEngineClient` (`app/decision_client.py`),
   `adapter.py` และ endpoint `POST /recommendation/generate` ใน `main.py` เพื่อเรียก API
   `POST /v1/decisions` ของ 07 พร้อม mapping ผลลัพธ์และตรวจสอบเบอร์ฉุกเฉินบันทึกลง Postgres เรียบร้อยแล้ว
-- **บังคับใช้ `EMERGENCY_CONTACT_DIRECTORY_VERSION`**: อ่านเข้า config แล้วแต่ยังไม่ได้
-  ใช้จริง เพราะเบอร์แต่ละรายการยังไม่มี directory version ต้องรอ 07 ส่งมาด้วย
-- **ระบบแจ้งเตือนจริง (email/SMS/push)**: `NOTIFICATION_PROVIDER_KEYS` อ่านเข้า config
-  ไว้แล้วแต่ยังไม่ได้ใช้ ต้องเลือก provider ก่อนถึงจะติดตั้ง SDK ได้
-- **ต่อ OpenTelemetry กับ collector จริง**: ตอนนี้ import ไว้เฉย ๆ `monitoring.py`
-  ใช้งานจริงแค่ structlog กับ Prometheus counter
+- **ฟื้นฟู Internal `GET /recommendation/{request_id}` (เรียบร้อยแล้ว)**: สำหรับดึงคำแนะนำที่เคยบันทึกไว้ ตรวจ schema ซ้ำและ validate emergency contacts ตาม region
+- **เขียน job ลบข้อมูลตาม retention policy จริง (เรียบร้อยแล้ว)**: เพิ่ม `purge_expired_feedback()` ใน `app/db.py`, periodic background cleaner ใน FastAPI `lifespan`, และ endpoint `POST /feedback/cleanup`
 - **แก้ deprecation warning 2 จุดเรียบร้อยแล้ว**:
   - `db.py` เปลี่ยน `datetime.utcnow()` เป็น `datetime.now(timezone.utc)` แล้ว
   - `main.py` เปลี่ยน `@app.on_event("startup")` เป็น FastAPI `lifespan` handler แล้ว
-- **เขียน job ลบข้อมูลตาม retention policy จริง**: ตอนนี้มีแค่คอมเมนต์ตัวอย่าง SQL ใน
-  `db_schema.sql` ยังไม่มี scheduled job ที่รันจริง
+- **Dispatcher แจ้งเตือน fallback (เรียบร้อยแล้ว)**: มีฟังก์ชัน `dispatch_notification()` ใน `app/live_update.py` รองรับ fallback structured logging เมื่อยังไม่ได้ใส่ provider keys
+- **ผลทดสอบล่าสุด**: ผ่านครบ 58/58 unit tests (100% pass)
