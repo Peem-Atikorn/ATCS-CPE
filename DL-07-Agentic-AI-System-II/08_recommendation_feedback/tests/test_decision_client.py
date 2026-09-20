@@ -103,7 +103,8 @@ def test_adapter_emergency_contacts_filtered_on_mismatched_region():
     # Region US does not match contact's region TH -> contacts withheld
     reco = decision_to_recommendation(SAMPLE_07_RESPONSE, traveler_region="US")
     assert reco.official_contacts == []
-    assert any("region" in lim.lower() for lim in reco.limitations)
+    assert any("region_mismatch" in (deg.detail or "") for deg in reco.degraded_services)
+    assert any("location" in lim.lower() for lim in reco.limitations)
 
 
 def test_confidence_level_categorization():
