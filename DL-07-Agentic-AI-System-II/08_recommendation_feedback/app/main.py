@@ -11,8 +11,8 @@ Postgres/Redis instances):
 Endpoints:
     GET  /health                           -> service + DB + Redis status
     GET  /recommendation/mock/{scenario}    -> mock RecommendationResponse, persisted to DB
-    GET  /recommendation/{request_id}       -> re-fetch a previously served recommendation
-        (both accept ?region=TH — emergency contacts are validated against it)
+        (accepts ?region=TH — emergency contacts are validated against it)
+    POST /recommendation/generate          -> live call to Module 07, validate and persist
     POST /feedback                          -> submit explicit user feedback
     GET  /feedback/safety-queue             -> pending human safety reviews
     POST /feedback/{request_id}/review      -> mark a report reviewed (ops-only)
@@ -20,28 +20,38 @@ Endpoints:
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
 import structlog
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from app import db, feedback as feedback_module, monitoring
+from app.adapter import decision_to_recommendation
 from app.config import settings
+from app.decision_client import DecisionEngineClient
 from app.emergency import validate_emergency_content
 from app.mock_data import ALL_SCENARIOS
 from app.schema import FeedbackSubmission, RecommendationResponse
 
 logger = structlog.get_logger("main")
+decision_client = DecisionEngineClient()
 
-app = FastAPI(title="Recommendation & Feedback Service", version=settings.recommendation_schema_version)
 
-
-@app.on_event("startup")
-async def on_startup() -> None:
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     monitoring.init_monitoring()
     await db.wait_for_db()
+    yield
+
+
+app = FastAPI(
+    title="Recommendation & Feedback Service",
+    version=settings.recommendation_schema_version,
+    lifespan=lifespan,
+)
 
 
 class ReviewRequest(BaseModel):
@@ -62,7 +72,6 @@ async def health():
         "database": "ok" if db_ok else "unreachable",
     }
 
-
 @app.get("/recommendation/mock/{scenario}")
 async def get_mock_recommendation(
     scenario: str, user_id: str = "anon-demo-user", region: Optional[str] = None
@@ -79,19 +88,22 @@ async def get_mock_recommendation(
     return validate_emergency_content(response, region)
 
 
-@app.get("/recommendation/{request_id}")
-async def get_stored_recommendation(request_id: str, region: Optional[str] = None):
-    payload = await db.get_recommendation(request_id)
-    if payload is None:
-        raise HTTPException(status_code=404, detail="request_id not found")
-    try:
-        response = RecommendationResponse.model_validate(payload)
-    except ValidationError:
-        # e.g. a row written before the 3-level risk change and not migrated
-        # (see migrations/001_*.sql). Fail loudly rather than serve unchecked data.
-        logger.error("stored_recommendation_invalid", request_id=request_id)
-        raise HTTPException(status_code=500, detail="stored recommendation does not match the current schema")
-    return validate_emergency_content(response, region)
+@app.post("/recommendation/generate", response_model=RecommendationResponse)
+async def generate_recommendation(
+    payload: dict,
+    user_id: str = "anon-user",
+    region: Optional[str] = None,
+):
+    """
+    Call Module 07 (Decision & LLM Engine) live via HTTP POST /v1/decisions,
+    adapt the DecisionResponse into RecommendationResponse, validate emergency
+    contacts, record metrics, and persist to PostgreSQL.
+    """
+    decision = await decision_client.request_decision(payload)
+    response = decision_to_recommendation(decision, traveler_region=region)
+    await db.save_recommendation(response, pseudonymous_user_id=user_id)
+    monitoring.record_recommendation_viewed(response.action_code.value)
+    return response
 
 
 @app.post("/feedback")

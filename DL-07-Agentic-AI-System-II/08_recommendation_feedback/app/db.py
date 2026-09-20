@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import structlog
@@ -127,7 +127,7 @@ async def mark_reviewed(request_id: str, reviewer: str, approve_for_training: bo
                 """
             ),
             {
-                "reviewed_at": datetime.utcnow(),
+                "reviewed_at": datetime.now(timezone.utc),
                 "reviewer": reviewer,
                 "approve": approve_for_training,
                 "request_id": request_id,

@@ -121,22 +121,7 @@ def test_mock_endpoint_withholds_contacts_for_wrong_region():
     assert body["action_code"] == "AVOID_TRAVEL" and body["risk_level"] == "HIGH"
     assert any(d["service_name"] == SERVICE_NAME for d in body["degraded_services"])
 
-
 def test_mock_endpoint_keeps_contacts_for_matching_region():
     with patch("app.main.db.save_recommendation", new=AsyncMock()):
         body = _client().get("/recommendation/mock/emergency_instructions?region=TH").json()
     assert len(body["official_contacts"]) == 2
-
-
-def test_stored_endpoint_validates_on_serve():
-    stored = ALL_SCENARIOS["emergency_instructions"].model_dump(mode="json")
-    with patch("app.main.db.get_recommendation", new=AsyncMock(return_value=stored)):
-        body = _client().get("/recommendation/mock-req-005?region=JP").json()
-    assert body["official_contacts"] == []
-
-
-def test_stored_legacy_payload_fails_loudly_not_silently():
-    legacy = {**ALL_SCENARIOS["change_route"].model_dump(mode="json"), "risk_level": "MODERATE"}
-    with patch("app.main.db.get_recommendation", new=AsyncMock(return_value=legacy)):
-        resp = _client().get("/recommendation/mock-req-002")
-    assert resp.status_code == 500

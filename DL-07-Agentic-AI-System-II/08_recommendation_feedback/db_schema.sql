@@ -59,4 +59,4 @@ CREATE INDEX IF NOT EXISTS idx_user_feedback_unreviewed
 
 -- Retention: rows older than FEEDBACK_RETENTION_DAYS (see .env) should be
 -- purged/anonymized by a scheduled job, e.g.:
--- DELETE FROM recommendation_log WHERE created_at < now() - INTERVAL '90 days';
+-- DELETE FROM recommendation_log WHERE created_at < now() - INTERVAL '180 days';

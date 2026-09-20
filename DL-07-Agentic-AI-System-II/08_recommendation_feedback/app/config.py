@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # --- Required configuration (01_env.txt) ---
     recommendation_schema_version: str = "1.0.0"
-    feedback_retention_days: int = 90
+    feedback_retention_days: int = 180
     alert_refresh_interval_seconds: int = 60
     notification_provider_keys: str = ""  # comma-separated; empty = notifications disabled
     emergency_contact_directory_version: str = "1.0.0"
@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # --- Infrastructure ---
     database_url: str = "postgresql+asyncpg://reco_user:change_me@postgres:5432/reco_db"
     redis_url: str = "redis://redis:6379/0"
+
+    # --- Upstream services ---
+    decision_engine_url: str = "http://decision-engine:8050"
+    decision_engine_timeout_seconds: float = 10.0
 
     # --- Service ---
     service_port: int = 8080

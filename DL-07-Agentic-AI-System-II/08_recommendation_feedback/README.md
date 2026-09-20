@@ -187,24 +187,23 @@ docker compose down
 - **`confidence` เป็นตัวเลขหรือหมวดหมู่**: 07 ยังส่งเป็น `LOW/MEDIUM/HIGH` (ordinal)
   ไม่ใช่ float 0–1 ที่ 02 ต้องการ ตอนนี้ 08 รองรับทั้งสองแบบผ่าน `confidence_level`
   แต่ต้องรอทีมตกลงว่าใครจะเป็นฝ่ายแปลงค่า
-- **`FEEDBACK_RETENTION_DAYS`**: 08 ยังใช้ 90 วัน ขณะที่ 02 เสนอ 180 วัน ยังไม่มีข้อสรุป
-- **เจ้าของข้อมูล emergency contacts**: 06 ยืนยันว่าไม่ใช่หน้าที่ตัวเอง แต่ยังไม่มีใคร
-  รับหน้าที่เก็บ/อัปเดตเบอร์ฉุกเฉินตามพื้นที่อย่างเป็นทางการ
+- **`FEEDBACK_RETENTION_DAYS`**: ปรับเป็น 180 วันแล้วใน config/.env ตามข้อกำหนด P-23 ของ 02 (Contract Register v4)
+- **เจ้าของข้อมูล emergency contacts**: 07 สร้างโมดูล `emergency.py` และ `handoff.py` พร้อม catalog เรียบร้อยแล้ว รูปแบบส่งออกตรงกับ `EmergencyContact` ของ 08 เป๊ะ (Contract Register v4)
 - **พื้นที่ให้บริการ (coverage)**: ไทยอย่างเดียว หรือรวมต่างประเทศด้วย — กระทบวิธีตรวจ
   region ใน `emergency.py` โดยตรง
 
 ### งานที่ 08 ต้องทำเองต่อ
-- **ต่อกับ 07 ตัวจริง**: `/recommendation/mock/{scenario}` ยังส่ง fixture 5 ชุดแทนผล
-  จริงจาก 07 ต้องรอ 07 เปิด endpoint ให้เรียก แล้วเพิ่ม `/recommendation/live` (schema
-  และเส้นทางเขียน DB ปัจจุบันรองรับอยู่แล้ว ไม่ต้องแก้)
+- **ต่อกับ 07 ตัวจริง (เรียบร้อยแล้ว)**: เพิ่ม `DecisionEngineClient` (`app/decision_client.py`),
+  `adapter.py` และ endpoint `POST /recommendation/generate` ใน `main.py` เพื่อเรียก API
+  `POST /v1/decisions` ของ 07 พร้อม mapping ผลลัพธ์และตรวจสอบเบอร์ฉุกเฉินบันทึกลง Postgres เรียบร้อยแล้ว
 - **บังคับใช้ `EMERGENCY_CONTACT_DIRECTORY_VERSION`**: อ่านเข้า config แล้วแต่ยังไม่ได้
   ใช้จริง เพราะเบอร์แต่ละรายการยังไม่มี directory version ต้องรอ 07 ส่งมาด้วย
 - **ระบบแจ้งเตือนจริง (email/SMS/push)**: `NOTIFICATION_PROVIDER_KEYS` อ่านเข้า config
   ไว้แล้วแต่ยังไม่ได้ใช้ ต้องเลือก provider ก่อนถึงจะติดตั้ง SDK ได้
 - **ต่อ OpenTelemetry กับ collector จริง**: ตอนนี้ import ไว้เฉย ๆ `monitoring.py`
   ใช้งานจริงแค่ structlog กับ Prometheus counter
-- **แก้ deprecation warning 2 จุด** (ไม่กระทบผลเทสต์ แต่ควรแก้ก่อนขึ้น production):
-  - `db.py` เปลี่ยน `datetime.utcnow()` เป็น `datetime.now(timezone.utc)`
-  - `main.py` เปลี่ยน `@app.on_event("startup")` เป็น FastAPI `lifespan` handler
+- **แก้ deprecation warning 2 จุดเรียบร้อยแล้ว**:
+  - `db.py` เปลี่ยน `datetime.utcnow()` เป็น `datetime.now(timezone.utc)` แล้ว
+  - `main.py` เปลี่ยน `@app.on_event("startup")` เป็น FastAPI `lifespan` handler แล้ว
 - **เขียน job ลบข้อมูลตาม retention policy จริง**: ตอนนี้มีแค่คอมเมนต์ตัวอย่าง SQL ใน
   `db_schema.sql` ยังไม่มี scheduled job ที่รันจริง

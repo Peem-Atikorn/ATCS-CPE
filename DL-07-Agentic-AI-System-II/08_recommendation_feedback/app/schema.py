@@ -161,9 +161,10 @@ class RecommendationResponse(BaseModel):
     @field_validator("emergency_instructions", "official_contacts", mode="before")
     @classmethod
     def null_list_means_empty(cls, v):
-        """03 forwards `emergency_instructions = null` until 07/08 settle who
-        generates it (Contract Register, open question). Accept null as empty
-        instead of rejecting the whole recommendation."""
+        """Module 07 now produces verified emergency instructions and contacts
+        (emergency.py, handoff.py) that strictly match 08's EmergencyContact schema
+        (Contract Register v4). We continue to accept null as an empty list for
+        backwards-compatibility with upstream 03 while it finishes forwarding."""
         return [] if v is None else v
 
     @field_validator("expires_at")
