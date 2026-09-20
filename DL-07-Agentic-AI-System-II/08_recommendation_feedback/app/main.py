@@ -26,7 +26,7 @@ from typing import Optional
 
 import structlog
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app import db, feedback as feedback_module, monitoring
 from app.adapter import decision_to_recommendation
@@ -85,6 +85,25 @@ async def get_mock_recommendation(
     await db.save_recommendation(response, pseudonymous_user_id=user_id)
     monitoring.record_recommendation_viewed(response.action_code.value)
     # Stored as produced (audit); contacts are re-validated every time we serve.
+    return validate_emergency_content(response, region)
+
+
+@app.get("/recommendation/{request_id}", response_model=RecommendationResponse)
+async def get_stored_recommendation(request_id: str, region: Optional[str] = None):
+    """
+    Internal query endpoint: re-fetch a previously served and logged recommendation.
+    Re-validates emergency contacts against the current traveler region.
+    """
+    payload = await db.get_recommendation(request_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="request_id not found")
+    try:
+        response = RecommendationResponse.model_validate(payload)
+    except ValidationError:
+        logger.error("stored_recommendation_invalid", request_id=request_id)
+        raise HTTPException(
+            status_code=500, detail="stored recommendation does not match current schema"
+        )
     return validate_emergency_content(response, region)
 
 
