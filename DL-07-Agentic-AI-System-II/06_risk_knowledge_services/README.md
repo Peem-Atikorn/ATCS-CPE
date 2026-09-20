@@ -37,11 +37,14 @@ imported at runtime or modified.
 - Uses a conservative `MEDIUM` result with an unknown score and low confidence when
   only summary context is present, because `active_restriction=false` is not proof
   that weather, transport, and disaster evidence are complete.
-- Treats `partial` and `freshness_unknown` from Module 05 as data-quality issues.
+- Treats `partial`, `freshness_unknown`, and provider `uncertain` flags from Module 05
+  as data-quality issues.
+- Contract tests exercise Module 05's matched TomTom transport and GDACS disaster
+  records and verify that unmatched evidence is not scored.
 
 The baseline score is **not a calibrated probability**. A trained model must pass the
 documented time/location split, calibration, safety review, and registry process
-before replacing `rule-baseline-v0.1.1`.
+before replacing `rule-baseline-v0.1.2`.
 
 ### Disaster knowledge retrieval
 
@@ -97,7 +100,8 @@ The suite also validates Module 06 outputs against Module 03's current draft sch
 
 - Freeze the detailed `IntegratedTravelContext` field names and feature version.
 - Decide which service owns candidate route geometry and per-segment ETA.
-- Define polygon and time-interval intersection semantics in Module 05.
+- Define polygon intersection semantics in Module 05; point/LineString matching and
+  disaster/transport time intervals are now implemented.
 - Confirm confidence semantics across Modules 02, 03, 06, and 07.
 - Approve risk thresholds, authoritative disaster documents, supported geography,
   and emergency-contact ownership.
