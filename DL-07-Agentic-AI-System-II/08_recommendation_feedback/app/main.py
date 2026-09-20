@@ -20,6 +20,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
@@ -40,11 +41,31 @@ logger = structlog.get_logger("main")
 decision_client = DecisionEngineClient()
 
 
+async def _retention_cleaner_loop(interval_seconds: float = 86400.0):
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            purged = await db.purge_expired_feedback(settings.feedback_retention_days)
+            logger.info("retention_background_cleaner_completed", purged=purged)
+        except asyncio.CancelledError:
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("retention_background_cleaner_error", error=str(exc))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     monitoring.init_monitoring()
     await db.wait_for_db()
-    yield
+    cleaner_task = asyncio.create_task(_retention_cleaner_loop())
+    try:
+        yield
+    finally:
+        cleaner_task.cancel()
+        try:
+            await cleaner_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -150,6 +171,17 @@ async def review_feedback(request_id: str, review: ReviewRequest):
         request_id, reviewer=review.reviewer, approve_for_training=review.approve_for_training
     )
     return {"request_id": request_id, "reviewed": True}
+
+
+@app.post("/feedback/cleanup")
+async def manual_retention_cleanup():
+    """Manual/Cron trigger to purge feedback older than FEEDBACK_RETENTION_DAYS."""
+    count = await db.purge_expired_feedback(settings.feedback_retention_days)
+    return {
+        "status": "completed",
+        "retention_days": settings.feedback_retention_days,
+        "purged_count": count,
+    }
 
 
 @app.get("/")

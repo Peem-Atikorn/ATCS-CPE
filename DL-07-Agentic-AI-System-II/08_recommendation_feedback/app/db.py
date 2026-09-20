@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import structlog
@@ -165,3 +165,19 @@ async def fetch_reviewed_for_training() -> list[dict[str, Any]]:
             )
         )
         return [dict(row._mapping) for row in result.fetchall()]
+
+
+async def purge_expired_feedback(retention_days: int = 180) -> int:
+    """
+    Purge user feedback rows older than the specified retention window (Contract Register v4 / P-23).
+    Returns the number of deleted rows.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+    async with engine.begin() as conn:
+        result = await conn.execute(
+            text("DELETE FROM user_feedback WHERE submitted_at < :cutoff"),
+            {"cutoff": cutoff},
+        )
+        deleted = result.rowcount
+        logger.info("feedback_retention_purged", deleted_count=deleted, cutoff=cutoff.isoformat())
+        return deleted
