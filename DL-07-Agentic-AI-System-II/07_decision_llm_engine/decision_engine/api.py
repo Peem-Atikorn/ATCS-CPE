@@ -19,7 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     audit = AuditStore(settings.audit_log_path)
     app = FastAPI(
         title="Team D — Module 07 Decision Engine",
-        version="0.2.0",
+        version="0.3.0",
         description="Standalone prototype with a draft contract and unapproved mock policy.",
     )
     app.state.settings = settings

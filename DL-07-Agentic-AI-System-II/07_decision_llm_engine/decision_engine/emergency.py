@@ -8,6 +8,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, Field, HttpUrl, model_validator
 
+from .handoff import contact_issues
 from .models import (
     Action,
     Contract,
@@ -42,6 +43,11 @@ class Procedure(Contract):
         ):
             raise ValueError("Catalog source must be credential-free HTTPS")
         for contact in self.instructions.contacts:
+            if contact.metadata and (
+                contact.metadata.region.casefold() != self.region.casefold()
+                or contact.metadata.source_url != self.source_url
+            ):
+                raise ValueError("Contact metadata must match the reviewed procedure scope/source")
             if contact.url and (
                 contact.url.scheme != "https" or contact.url.username or contact.url.password
             ):
@@ -122,15 +128,29 @@ def build_emergency(
     blocked = "conflicting" in decision.issues or "unverified_warning" in decision.issues
     if procedure and eligible and not blocked:
         selected = min(eligible, key=lambda e: e.evidence_id)
+        contacts = []
+        contact_errors = []
+        expiry = min(selected.expires_at, procedure.expires_at)
+        for contact in procedure.instructions.contacts:
+            # Legacy reviewed catalogs remain readable. The optional 08 helper
+            # withholds their contacts until metadata has been supplied.
+            errors = contact_issues(contact, procedure.region, now) if contact.metadata else []
+            if errors:
+                contact_errors.extend(errors)
+                continue
+            contacts.append(contact)
+            if contact.metadata:
+                expiry = min(expiry, contact.metadata.expires_at)
         return (
-            procedure.instructions,
+            procedure.instructions.model_copy(update={"contacts": contacts}),
             EmergencyAssessment(
                 status="grounded",
                 procedure_id=procedure.procedure_id,
                 evidence_ids=[selected.evidence_id],
+                issues=sorted(set(contact_errors)),
                 rejected_evidence=rejected,
             ),
-            min(selected.expires_at, procedure.expires_at),
+            expiry,
         )
     issues = ["emergency_guidance_unavailable"]
     if ctx is None:

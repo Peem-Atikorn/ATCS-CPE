@@ -6,7 +6,7 @@ services:
     ports:
       - "127.0.0.1:${DECISION_HOST_PORT:-8050}:8050"
     environment:
-      DECISION_POLICY_VERSION: "${DECISION_POLICY_VERSION:-prototype-v2}"
+      DECISION_POLICY_VERSION: "${DECISION_POLICY_VERSION:-prototype-v3}"
       POLICY_APPROVED: "${POLICY_APPROVED:-false}"
       PROMPT_VERSION: "${PROMPT_VERSION:-v1}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
@@ -17,7 +17,7 @@ services:
       LLM_TIMEOUT: "${LLM_TIMEOUT:-3}"
       LLM_MAX_ATTEMPTS: "${LLM_MAX_ATTEMPTS:-2}"
       SUPPORTED_LOCALES: "${SUPPORTED_LOCALES:-th-TH,en-US}"
-      ESCALATION_RULES: "${ESCALATION_RULES:-missing,stale,conflicting,incomplete,low_confidence,unverified_warning}"
+      ESCALATION_RULES: "${ESCALATION_RULES:-missing,stale,conflicting,incomplete,low_confidence,unverified_warning,partial,freshness_unknown}"
       AUDIT_LOG_PATH: /app/data/audit.jsonl
       # Mount any custom catalog read-only and use its container path here.
       EMERGENCY_CATALOG_PATH: "${DECISION_EMERGENCY_CATALOG_PATH:-/app/decision_engine/templates/emergency-v1.json}"

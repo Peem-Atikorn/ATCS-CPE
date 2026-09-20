@@ -1,16 +1,18 @@
 # สถานะการทำตาม guide — Module 07
 
-ตรวจเมื่อ 19 กันยายน 2026 รุ่น 0.2.0 / policy `prototype-v2` / output schema `07-draft-v2`
+ตรวจเมื่อ 19 กันยายน 2026 รุ่น 0.3.0 / policy `prototype-v3` / output schema `07-draft-v3`
+
+ตรวจซ้ำ 20 กันยายน 2026: เปิด service 07 กลับขึ้นมาหลัง Docker Engine พร้อมใช้งาน; container healthy และ HTTP smoke ผ่านครบ 14 สถานการณ์ พร้อม health/ready/OpenAPI และ invalid-input 422 อีกครั้ง
 
 | ข้อกำหนด | สิ่งที่มีในต้นแบบ | ขอบเขตที่ยังรอ |
 |---|---|---|
 | Python 3.12, FastAPI, Pydantic | `pyproject.toml`, `uv.lock`, `decision_engine/api.py`, `models.py` | ยืนยัน draft contract กับ 03/06/08 |
 | รับหลักฐาน risk/weather/transport/routes/RAG/quality | `DecisionRequest` มีข้อมูลแต่ละส่วนและ evidence package | ข้อมูลจริงจาก 04–06; RAG excerpt ไม่ถูกใช้สร้างคำสั่งอิสระ |
 | ตรวจ request/route/time | ตรวจทุก scoped input ให้ตรงกับ context กลาง | ความแท้จริงของข้อมูลต้องรับประกันจากระบบต้นทาง |
-| deterministic policy | `policies/prototype-v2.json`, `policy.py`; เก็บไฟล์ v1 เดิมเพื่อประวัติ | อนุมัติลำดับกฎ เกณฑ์ risk และข้อยกเว้น |
+| deterministic policy | `policies/prototype-v3.json`, `policy.py`; เก็บไฟล์ v1/v2 เดิมโดยไม่เปลี่ยน | อนุมัติลำดับกฎ เกณฑ์ risk และข้อยกเว้น |
 | official warnings first | ประกาศปิด/งดเดินทางชนะกฎอื่น; caution ส่งตรวจต่อ | mapping ประกาศจริงกับระดับข้อจำกัด |
-| confidence/escalation | float 0–1 + confidence_details; รับ ordinal input เดิมผ่านเกณฑ์ที่ระบุใน policy v2; threshold < 0.5 | ไม่ใช่ probability calibration |
-| Emergency Instructions | object ตาม field ของ 02; local catalog + URL/hash/scope/time validation; fallback ไทย/อังกฤษ; citations และ audit | ยังไม่มีเอกสาร/เบอร์ฉุกเฉินจริงใน catalog; 03 ต้องส่งต่อ field ใหม่ |
+| confidence/escalation | float 0–1 + confidence_details; รับ ordinal input เดิม; threshold < 0.5; เพิ่ม partial/freshness_unknown และเหตุผลส่งตรวจต่อ | ไม่ใช่ probability calibration; 03 ต้องรับ flags ใหม่ |
+| Emergency Instructions | object ตาม strict schema ของ 02; local catalog + URL/hash/scope/time validation; fallback ไทย/อังกฤษ; optional metadata แยกระดับบน และตัวช่วยแปลงส่วน emergency สำหรับ 08 | ยังไม่มีเอกสาร/เบอร์ฉุกเฉินจริงใน catalog; 03/08 ต้องต่อ field ใหม่และตกลง directory policy |
 | lock action before LLM | `Decision` immutable; provider ได้สำเนาของ package; ตรวจ action ซ้ำ | ประเมินกับ LLM จริง |
 | grounded structured explanation | sentence bank ภาษาไทย/อังกฤษ, schema, allowlist citations | ยังไม่มี live SDK/provider และยังไม่รองรับ free-form explanation |
 | timeout/token/retry/fallback | จำกัดเวลาและ attempts; byte budget; fixed template | ใช้ tokenizer ของ provider เมื่อเชื่อมจริง |
@@ -18,22 +20,25 @@
 | version metadata | policy version + SHA256, prompt/model/data versions | approved policy registry, retention และ rollback workflow เต็มรูปแบบ |
 | audit trace | JSONL เฉพาะ correlation ID, rules, evidence IDs/status, versions และผล validation | PostgreSQL/shared storage, rotation, access control, retention |
 | Redis / PostgreSQL / tracing | แยกขอบเขตไว้ ยังไม่บังคับใช้งานในต้นแบบ | ทำเมื่อออกแบบ infrastructure ร่วมกับทีม |
-| golden/property/red-team tests | 87 tests ครอบคลุม action, precedence, stale/conflict, provider failure, audit | end-to-end กับบริการของเพื่อน |
-| Docker | Dockerfile nonroot, Compose เปิดเฉพาะ 07, healthcheck, audit volume | Docker CLI มีแล้ว; compose config ผ่าน; Engine ไม่ทำงาน จึงยังไม่ได้ build/run container |
+| golden/property/red-team tests | 111 tests ผ่าน รวม quality flags และ emergency metadata/expiry/handoff | end-to-end กับบริการของเพื่อน |
+| Docker | build/run จริงผ่าน; nonroot UID 10001, loopback 8050, healthcheck, audit volume; restart แล้วยังอ่าน audit เดิมได้ | ยังไม่ได้เปิดบริการของเพื่อนหรือทดสอบ network รวม |
 
 ## ผลตรวจที่ทำแล้ว
 
-- ใช้ environment Python 3.12.14 เดิม; อัปเดต lock metadata ของ project เป็น 0.2.0 แบบ offline ไม่เปลี่ยน dependency versions
+- ใช้ environment Python 3.12.14 เดิม; อัปเดต lock metadata ของ project เป็น 0.3.0 แบบ offline ตรวจเทียบแล้วไม่เปลี่ยน dependency versions
 - Ruff lint ผ่าน และ formatting ผ่าน
-- pytest ผ่าน 87 tests; มี deprecation warnings 2 รายการจาก Starlette/httpx/AnyIO ใน dependency ชุดที่ล็อกไว้
-- เปิด Uvicorn จริงบน loopback และส่ง HTTP ผ่าน `/health`, `/ready`, `/v1/decisions` ครบ 10 สถานการณ์จำลอง ผล action/confidence/emergency status ตรงตามคาด; หยุด test server แล้ว
-- `docker compose config --quiet` ผ่าน; `docker version` ติดต่อ Docker Engine ไม่ได้ (ไม่พบ dockerDesktopLinuxEngine pipe) จึงไม่อ้างผล build/container
-- ผล emergency object ผ่าน Pydantic model จริงของ 02; response ผ่าน Pydantic schema ของ 03 ที่อ่านและ compile เฉพาะ declaration (ไม่ได้รัน HTTP client/retry ของ 03 เพราะ environment ของ 07 ไม่มี tenacity) ไม่ใช่ end-to-end ทั้งระบบ
-- ตัวอย่างผลลัพธ์ใหม่อยู่ใน `examples/emergency_fallback_response.json`; request มีตัวอย่าง numeric_confidence และ emergency_fallback
-- ไฟล์ guide เดิมทั้งสามไฟล์ไม่มี diff และไฟล์ใหม่ทั้งหมดอยู่ภายในโมดูล 07
+- pytest ผ่าน 111 tests ไม่มี skip บน checkout นี้; มี deprecation warnings 2 รายการจาก Starlette/httpx/AnyIO ใน dependency ชุดที่ล็อกไว้
+- Docker Engine 29.8.0 และ Compose 5.5.1; `docker compose -p teamd-07 config --quiet` และ `up --build -d --wait` ผ่าน
+- `scripts/smoke_http.py` เรียก HTTP จริงเข้า container ผ่าน `/health`, `/ready`, OpenAPI และ `/v1/decisions` ครบ 14 สถานการณ์จำลอง พร้อมตรวจ numeric confidence, policy digest, fallback และ input ผิดถูกปฏิเสธด้วย 422
+- ตรวจ audit ใน volume ของ container: คำขอที่สำเร็จถูกบันทึก, policy v3 ตรงกัน, รันด้วย UID 10001; SHA256 ของ audit เหมือนเดิมก่อนและหลัง restart และ `/ready` กลับมาตอบ ready
+- อ่านและ compile เฉพาะ model declarations จริงของ 02/08 เพื่อตรวจ emergency object และ contact fragment จากผล grounded สังเคราะห์ ไม่ได้เปิดบริการของเพื่อน และไม่ใช่ end-to-end ทั้งระบบ
+- เพิ่ม request examples: partial, freshness_unknown, summary_only_risk, partial_alternative; สร้าง `examples/emergency_fallback_response.json` จาก container รุ่นปัจจุบัน
+- ตรวจ Git diff: guide ทั้งสามไฟล์และ policy v1/v2 ไม่เปลี่ยน; การเปลี่ยนแปลงทั้งหมดอยู่ภายในโมดูล 07 ไม่มี commit/push/merge
 
-## ข้อจำกัดของเครื่องตรวจ
+## สถานะที่ส่งมอบและข้อจำกัด
 
-Python 3.12 สร้างโฟลเดอร์ temporary แบบ owner-only ทำให้ pytest `tmp_path` ปกติใช้ไม่ได้ภายใต้ Windows sandbox นี้ จึงรันทดสอบด้วย temporary-directory fixture ภายนอก repo ที่สร้างโฟลเดอร์ด้วยสิทธิ์สืบทอดปกติ ไม่มีการข้าม assertions หรือแก้ production code เพื่อให้ tests ผ่าน การรันทั่วไปบนเครื่องผู้ใช้ยังใช้ `uv run pytest` ตาม README
+เปิด container `teamd-07-decision-engine-1` ไว้บน `http://127.0.0.1:8050` พร้อมให้ลอง `/docs` ใช้คำสั่งใน README โดยใส่ `-p teamd-07` ทุกครั้งเพื่อควบคุมชุดเดิม ไม่มีการแตะ container ของงานอื่น
 
-มีโฟลเดอร์ชั่วคราว `pytest-cache-files-12huxshy` และ `pytest-cache-files-mbvpfjts` จากการรันทดสอบครั้งแรกที่ไม่สามารถลบภายใต้สิทธิ์ปัจจุบันได้ ระบบอนุมัติอัตโนมัติปฏิเสธคำสั่งปรับสิทธิ์เพื่อเก็บกวาด จึงเก็บไว้และกันออกจาก Git/Docker ด้วย ignore patterns ไม่ใช่ source code หรือสิ่งที่ติดมากับ guide
+การทดสอบรอบนี้ใช้ pytest/tmp_path ปกติได้แล้ว ไม่ใช้ workaround จากรอบ sandbox เดิม โฟลเดอร์ cache ที่กันออกด้วย ignore ไม่ใช่ไฟล์ guide หรือ artifact ที่จะส่งขึ้น Git
+
+ผลผ่านรับรองเฉพาะต้นแบบ 07 ในขอบเขตที่ทดสอบ ยังต้องให้ 03 ต่อ confidence/emergency/quality flags, 08 ต่อผลจริง และทีมเติม reviewed catalog ก่อนทดสอบรวม ไม่มี live LLM, live RAG retrieval หรือข้อมูลภัย/เบอร์ฉุกเฉินจริงในชุดทดสอบ ดูรายการส่งต่อใน `integration-v3.md`

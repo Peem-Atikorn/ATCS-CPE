@@ -1,5 +1,7 @@
 # Module 07 — contract v2 / release 0.2.0
 
+> เอกสารประวัติรุ่น 0.2.0: การตั้งค่า policy และสถานะ upstream ในหน้านี้อาจเป็นข้อมูลเก่า ดู [integration-v3](integration-v3.md) สำหรับรุ่นปัจจุบัน 0.3.0 สูตร confidence ของ v2 ยังคงใช้โดยเพิ่ม quality flags ตาม v3
+
 วันที่ 19 กันยายน 2026 ขอบเขตการแก้ไขเฉพาะ 07 ตามคำสั่งเจ้าของโมดูล:
 confidence ผลลัพธ์เป็น float 0–1 และ 07 สร้าง Emergency Instructions
 guide .txt ทั้งสามไฟล์ยังเป็นข้อกำหนดหลัก นโยบายยังเป็น prototype ไม่ใช่การรับรองใช้งานจริง

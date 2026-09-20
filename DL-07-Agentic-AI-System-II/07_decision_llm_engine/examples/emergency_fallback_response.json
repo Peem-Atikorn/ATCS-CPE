@@ -20,6 +20,7 @@
     "contacts": [],
     "nearest_support": []
   },
+  "emergency_contact_metadata": {},
   "emergency_assessment": {
     "status": "fallback",
     "procedure_id": null,
@@ -59,9 +60,9 @@
       "evidence_id": "mock-risk",
       "source_name": "SYNTHETIC risk fixture",
       "url": "https://example.org/mock/risk",
-      "observed_at": "2026-09-19T08:26:35.430857Z",
-      "fetched_at": "2026-09-19T08:31:35.430857Z",
-      "expires_at": "2026-09-19T09:36:35.430857Z"
+      "observed_at": "2026-09-19T15:44:48.978736Z",
+      "fetched_at": "2026-09-19T15:49:48.978736Z",
+      "expires_at": "2026-09-19T16:54:48.978736Z"
     }
   ],
   "evidence_status": [
@@ -129,18 +130,18 @@
     "LLM_DISABLED_TEMPLATE_USED"
   ],
   "versions": {
-    "policy": "prototype-v2",
-    "policy_sha256": "b5921e06a797a28926ef295a9c6c5248f4af9788a9d226f8e24ae283aef567bf",
+    "policy": "prototype-v3",
+    "policy_sha256": "f87e7a7311f14210955b8d655cf36a045fbb632d0274ef4e90106219a5c38dec",
     "policy_status": "prototype",
     "prompt": "v1",
     "model": "template-v1",
     "risk_model": "mock-risk-v1",
     "data": "mock-data-v1",
-    "schema_version": "07-draft-v2",
+    "schema_version": "07-draft-v3",
     "emergency_catalog": "emergency-v1",
-    "emergency_catalog_sha256": "c9b7bb1f166ca4d57c6ca1b0b77541cec4e4af9f1e53b356fae15a27cf8e6f23"
+    "emergency_catalog_sha256": "9d2d28c87674b38567353782ef62e221745e99a40baeeff0fb397fb44feb988d"
   },
-  "evaluated_at": "2026-09-19T08:36:35.543103Z",
-  "valid_until": "2026-09-19T09:36:35.430857Z",
+  "evaluated_at": "2026-09-19T15:54:49.055574Z",
+  "valid_until": "2026-09-19T16:54:48.978736Z",
   "prototype_only": true
 }

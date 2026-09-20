@@ -15,10 +15,11 @@ class Policy:
     digest: str
     rules: tuple[tuple[str, Action], ...]
     confidence_config: dict
+    quality_flag_issues: dict[str, str]
 
     @classmethod
     def load(cls, version: str) -> "Policy":
-        if version != "prototype-v2":
+        if version != "prototype-v3":
             raise ValueError("Unsupported policy version")
         raw = (Path(__file__).parent / "policies" / f"{version}.json").read_bytes()
         manifest = json.loads(raw)
@@ -28,6 +29,7 @@ class Policy:
             version=version,
             digest=hashlib.sha256(raw).hexdigest(),
             confidence_config=manifest["confidence"],
+            quality_flag_issues=manifest["quality_flag_issues"],
             rules=tuple((rule["id"], Action(rule["action"])) for rule in manifest["rules"]),
         )
 
@@ -82,6 +84,12 @@ def score_confidence(request: DecisionRequest, now: datetime, policy: Policy, is
 
 def evaluate(request: DecisionRequest, now: datetime, policy: Policy) -> Decision:
     issues = set(request.quality.flags)
+    # Preserve the received flags and add their policy meaning for reviewers.
+    issues.update(
+        policy.quality_flag_issues[flag]
+        for flag in request.quality.flags
+        if flag in policy.quality_flag_issues
+    )
     required = (request.risk, request.weather, request.transport, request.routes)
     if any(part is None for part in required) or not request.evidence:
         issues.add("missing")

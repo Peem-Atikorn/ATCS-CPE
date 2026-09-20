@@ -41,6 +41,11 @@ async def decide(
         confidence=decision.confidence,
         confidence_details=decision.confidence_details,
         emergency_instructions=emergency,
+        emergency_contact_metadata={
+            str(index): contact.metadata
+            for index, contact in enumerate(emergency.contacts if emergency else [])
+            if contact.metadata is not None
+        },
         emergency_assessment=emergency_status,
         escalation_required=decision.escalation_required,
         escalation_reasons=list(decision.issues),

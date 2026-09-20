@@ -11,6 +11,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from decision_engine.api import create_app
 from decision_engine.emergency import EmergencyCatalog
+from decision_engine.handoff import emergency_fragment
 from decision_engine.models import DecisionRequest, DecisionResponse, Score
 from decision_engine.policy import Policy, evaluate
 
@@ -60,7 +61,7 @@ def test_numeric_confidence_bounds_and_monotonic_quality(value):
     now = datetime(2026, 9, 18, 12, tzinfo=UTC)
     payload = scenarios(now)["low_risk"]
     payload["risk"]["confidence"] = payload["quality"]["confidence"] = value
-    policy = Policy.load("prototype-v2")
+    policy = Policy.load("prototype-v3")
     clean = evaluate(DecisionRequest.model_validate(payload), now, policy)
     payload["quality"]["flags"] = ["conflicting"]
     degraded = evaluate(DecisionRequest.model_validate(payload), now, policy)
@@ -241,3 +242,125 @@ def test_catalog_conflict_fails_at_startup(emergency_setup):
 def test_v1_policy_cannot_be_relabelled_as_numeric():
     with pytest.raises(ValueError):
         Policy.load("prototype-v1")
+
+
+def enrich_contact(setup):
+    _, catalog, _, now = setup
+    procedure = catalog["procedures"][0]
+    contact = procedure["instructions"]["contacts"][0]
+    contact["phone"] = "+1 202-555-0100"  # Fictional test number, not operational data.
+    contact["metadata"] = {
+        "contact_type": "test-support",
+        "region": procedure["region"],
+        "effective_date": (now - timedelta(days=1)).isoformat(),
+        "expires_at": (now + timedelta(minutes=5)).isoformat(),
+        "directory_version": "synthetic-directory-v1",
+        "source_url": procedure["source_url"],
+    }
+    return contact
+
+
+def test_contact_metadata_expiry_and_08_fragment(emergency_setup):
+    contact = enrich_contact(emergency_setup)
+    result = DecisionResponse.model_validate(call_emergency(emergency_setup))
+    assert result.valid_until == result.emergency_contact_metadata["0"].expires_at
+    assert "metadata" not in result.emergency_instructions.model_dump()["contacts"][0]
+    fragment = emergency_fragment(result, traveler_region="test-region", now=emergency_setup[3])
+    assert fragment["emergency_instructions"] == [
+        result.emergency_instructions.what_to_do_now,
+        *result.emergency_instructions.safety_steps,
+    ]
+    assert fragment["official_contacts"] == [
+        {
+            "name": contact["name"],
+            "phone": contact["phone"],
+            **{
+                key: contact["metadata"][key]
+                for key in ("contact_type", "region", "effective_date")
+            },
+        }
+    ]
+    assert fragment["contact_provenance"][0]["directory_version"] == "synthetic-directory-v1"
+    assert fragment["limitations"] == []
+    assert contact["phone"] not in emergency_setup[2].audit_log_path.read_text("utf-8")
+
+
+def test_grounded_response_matches_sibling_emergency_models(emergency_setup):
+    from test_sibling_contracts import read_models
+
+    enrich_contact(emergency_setup)
+    result = DecisionResponse.model_validate(call_emergency(emergency_setup))
+    backend = read_models(
+        "02_api_backend/app/schemas/v1/travel.py",
+        [
+            "_Strict",
+            "EmergencyContact",
+            "SupportPlace",
+            "EmergencyInstructions",
+        ],
+    )
+    backend["EmergencyInstructions"].model_validate(
+        result.emergency_instructions.model_dump(mode="json")
+    )
+    display = read_models("08_recommendation_feedback/app/schema.py", ["EmergencyContact"])
+    fragment = emergency_fragment(result, traveler_region="TEST-REGION", now=emergency_setup[3])
+    assert len(fragment["official_contacts"]) == 1
+    display["EmergencyContact"].model_validate(fragment["official_contacts"][0])
+
+
+@pytest.mark.parametrize("case", ["expired", "future", "invalid_phone"])
+def test_invalid_enriched_contacts_withheld_and_escalated(emergency_setup, case):
+    contact = enrich_contact(emergency_setup)
+    now = emergency_setup[3]
+    if case == "expired":
+        contact["metadata"]["expires_at"] = now.isoformat()
+    elif case == "future":
+        contact["metadata"]["effective_date"] = (now + timedelta(seconds=1)).isoformat()
+    else:
+        contact["phone"] = "NOT-A-PHONE"
+    result = call_emergency(emergency_setup)
+    assert result["emergency_assessment"]["status"] == "grounded"
+    assert result["emergency_instructions"]["contacts"] == []
+    assert result["escalation_required"]
+    expected = "contact_phone_invalid" if case == "invalid_phone" else "contact_not_current"
+    assert expected in result["escalation_reasons"]
+
+
+@pytest.mark.parametrize("case", ["region", "source", "naive_time", "bad_period"])
+def test_invalid_contact_metadata_rejected_in_catalog(emergency_setup, case):
+    contact = enrich_contact(emergency_setup)
+    metadata = contact["metadata"]
+    if case == "region":
+        metadata["region"] = "OTHER"
+    elif case == "source":
+        metadata["source_url"] = "https://example.org/other-source"
+    elif case == "naive_time":
+        metadata["effective_date"] = "2026-09-18T00:00:00"
+    else:
+        metadata["effective_date"] = metadata["expires_at"]
+    with pytest.raises(ValidationError):
+        call_emergency(emergency_setup)
+
+
+def test_legacy_contact_not_exported_without_metadata(emergency_setup):
+    result = DecisionResponse.model_validate(call_emergency(emergency_setup))
+    fragment = emergency_fragment(result, traveler_region="TEST-REGION", now=emergency_setup[3])
+    assert fragment["official_contacts"] == []
+    assert fragment["limitations"] == ["contact_metadata_missing"]
+
+
+def test_handoff_scope_time_and_fallback(client, samples, now, emergency_setup):
+    enrich_contact(emergency_setup)
+    result = DecisionResponse.model_validate(call_emergency(emergency_setup))
+    fragment = emergency_fragment(result, traveler_region="OTHER", now=now)
+    assert fragment["official_contacts"] == []
+    assert fragment["limitations"] == ["contact_region_mismatch"]
+    for invalid_now in (now.replace(tzinfo=None), now - timedelta(seconds=1), result.valid_until):
+        with pytest.raises(ValueError):
+            emergency_fragment(result, traveler_region="TEST-REGION", now=invalid_now)
+    fallback = DecisionResponse.model_validate(
+        client.post("/v1/decisions", json=samples["high_risk"]).json()
+    )
+    fragment = emergency_fragment(fallback, traveler_region="TEST-REGION", now=now)
+    assert fragment["official_contacts"] == []
+    assert "emergency_guidance_unavailable" in fragment["limitations"]

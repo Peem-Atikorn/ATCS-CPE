@@ -142,13 +142,21 @@ class TimeAssessment(Scoped):
 
 class DataQuality(Scoped):
     confidence: InputConfidence
-    flags: list[Literal["missing", "stale", "conflicting", "incomplete", "inferred"]] = Field(
-        default_factory=list, max_length=5
-    )
+    flags: list[
+        Literal[
+            "missing",
+            "stale",
+            "conflicting",
+            "incomplete",
+            "inferred",
+            "partial",
+            "freshness_unknown",
+        ]
+    ] = Field(default_factory=list, max_length=7)
     # None means unknown, never equivalent to 'no restriction'.
     active_restriction: bool | None
     data_version: Identifier
-    schema_version: Literal["07-draft-v1", "07-draft-v2"] = "07-draft-v1"
+    schema_version: Literal["07-draft-v1", "07-draft-v2", "07-draft-v3"] = "07-draft-v1"
 
 
 class EmergencyContext(Scoped):
@@ -156,11 +164,36 @@ class EmergencyContext(Scoped):
     hazard: Identifier
 
 
+class EmergencyContactMetadata(Contract):
+    """Proposed handoff metadata; supplied by a reviewed source, never inferred."""
+
+    contact_type: Identifier
+    region: Identifier
+    effective_date: AwareDatetime
+    expires_at: AwareDatetime
+    directory_version: Identifier
+    source_url: HttpUrl
+
+    @field_validator("source_url")
+    @classmethod
+    def verified_url_shape(cls, value: HttpUrl) -> HttpUrl:
+        return Evidence.https_without_credentials(value)
+
+    @model_validator(mode="after")
+    def valid_period(self):
+        if self.effective_date >= self.expires_at:
+            raise ValueError("Contact expiry must follow its effective date")
+        return self
+
+
 class EmergencyContact(Contract):
     name: str = Field(min_length=1, max_length=200)
     phone: str = Field(min_length=1, max_length=80)
     url: HttpUrl | None = None
     available_hours: str | None = Field(default=None, max_length=200)
+    # Local reviewed catalog input only. Public metadata is carried separately
+    # because 02 rejects additional keys inside EmergencyInstructions.contacts.
+    metadata: EmergencyContactMetadata | None = Field(default=None, exclude=True)
 
 
 class EmergencyInstructions(Contract):
@@ -261,7 +294,7 @@ class Versions(Contract):
     model: str
     risk_model: str | None
     data: str
-    schema_version: str = "07-draft-v2"
+    schema_version: str = "07-draft-v3"
     emergency_catalog: str
     emergency_catalog_sha256: str
 
@@ -275,6 +308,7 @@ class DecisionResponse(Contract):
     confidence_kind: Literal["heuristic_policy_score"] = "heuristic_policy_score"
     confidence_details: dict[str, float]
     emergency_instructions: EmergencyInstructions | None = None
+    emergency_contact_metadata: dict[str, EmergencyContactMetadata] = Field(default_factory=dict)
     emergency_assessment: EmergencyAssessment
     escalation_required: bool
     escalation_reasons: list[str]

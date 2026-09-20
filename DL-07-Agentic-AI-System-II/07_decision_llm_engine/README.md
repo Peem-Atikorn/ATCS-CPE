@@ -17,10 +17,11 @@
 
 รุ่นนี้ไม่ได้แก้โค้ดหรือ Compose กลางของงานอื่น ไม่มี dependency ที่บังคับให้ต้องเปิด 02–06 หรือ 08 ก่อน
 
-## รุ่น 0.2.0: confidence และ Emergency Instructions
+## รุ่น 0.3.0: quality flags และ emergency handoff
 
-อ่าน contract, สูตรคะแนน, ตัวอย่าง JSON และรายการส่งต่อใน [integration-v2](docs/integration-v2.md).
-รุ่นนี้ใช้ `DECISION_POLICY_VERSION=prototype-v2`; หากมี `.env` เก่าต้องเปลี่ยนค่านี้ด้วยตนเอง
+อ่าน contract และรายการส่งต่อปัจจุบันใน [integration-v3](docs/integration-v3.md); สูตรคะแนนเดิมมีใน [integration-v2](docs/integration-v2.md).
+เพิ่ม `partial`, `freshness_unknown` และ metadata ของ emergency contact ที่แยกจาก object ของ 02 พร้อมตัวช่วยส่งต่อเฉพาะ emergency ให้ 08
+รุ่นนี้ใช้ `DECISION_POLICY_VERSION=prototype-v3`; หากมี `.env` เก่าต้องเปลี่ยนค่านี้ และเพิ่ม flags ใหม่ใน `ESCALATION_RULES` ตาม `.env.example`
 และแนะนำ `LLM_TIMEOUT=3` เพื่อเหลือเวลาให้ HTTP/audit ภายใน timeout ต่อ tool ของ 03
 ที่ประมาณ 5 วินาที ไม่ใช่งบรวม 60 วินาทีทั้ง Agent
 
@@ -53,10 +54,11 @@ curl.exe --fail-with-body -X POST http://localhost:8050/v1/decisions -H 'Content
 ต้องมี Docker Engine และ Compose plugin ที่ทำงานอยู่ เช่น Docker Desktop บน Windows รันจากโฟลเดอร์ 07:
 
 ```powershell
-docker compose config --quiet
-docker compose up --build -d
-docker compose ps
-docker compose logs --tail 100 decision-engine
+docker compose -p teamd-07 config --quiet
+docker compose -p teamd-07 up --build -d --wait
+docker compose -p teamd-07 ps
+docker compose -p teamd-07 logs --tail 100 decision-engine
+uv run python scripts/smoke_http.py
 ```
 
 Compose มีค่าเริ่มต้นครบ จึงไม่จำเป็นต้องมี `.env` และไม่ต้องมี LLM API key ใช้ `.env` เมื่ออยากเปลี่ยนค่า เช่น `DECISION_HOST_PORT=8051` ค่านี้เปลี่ยนพอร์ตบนเครื่องเท่านั้น พอร์ตภายใน container ยังคงเป็น `8050`
@@ -64,20 +66,20 @@ Compose มีค่าเริ่มต้นครบ จึงไม่จ�
 เปิด [API docs](http://localhost:8050/docs) หรือใช้คำสั่งทดสอบ HTTP ด้านบน หากเปลี่ยน host port ต้องเปลี่ยน URL ให้ตรงกันด้วย การสร้างตัวอย่างใหม่ผ่าน script ต้องมี Python/uv บนเครื่องแยกจากการเปิด service ด้วย Docker
 
 ```powershell
-docker compose stop
-docker compose start
-docker compose down
+docker compose -p teamd-07 stop
+docker compose -p teamd-07 start
+docker compose -p teamd-07 down
 ```
 
-`docker compose down` เก็บ named volume ของ audit ไว้สำหรับเปิดครั้งถัดไป ไฟล์อยู่ที่ `/app/data/audit.jsonl` ภายใน container ดูได้ด้วย:
+ใช้ project name `teamd-07` เดิมทุกครั้งเพื่ออ้าง container/volume ชุดเดียวกัน `docker compose -p teamd-07 down` เก็บ named volume ของ audit ไว้สำหรับเปิดครั้งถัดไป ไฟล์อยู่ที่ `/app/data/audit.jsonl` ภายใน container ดูได้ด้วย:
 
 ```powershell
-docker compose exec decision-engine python -c "from pathlib import Path; p=Path('/app/data/audit.jsonl'); print(p.read_text(encoding='utf-8') if p.exists() else 'No audit records yet')"
+docker compose -p teamd-07 exec decision-engine python -c "from pathlib import Path; p=Path('/app/data/audit.jsonl'); print(p.read_text(encoding='utf-8') if p.exists() else 'No audit records yet')"
 ```
 
 Image ติดตั้ง dependency จาก `uv.lock` ด้วย `uv sync --frozen --no-dev --no-install-project` แล้วรันด้วย user ที่ไม่ใช่ root มี `/health` healthcheck และพื้นที่เขียนเฉพาะ audit volume กับ temporary directory ไม่คัดลอก `.env` หรือข้อมูล audit เข้า image
 
-**สถานะ Docker (19 กันยายน 2026):** พบ Docker CLI และ `docker compose config --quiet` ผ่าน แต่ Docker Engine ไม่ทำงาน (ไม่พบ pipe `dockerDesktopLinuxEngine`) จึงยังไม่ได้ build image หรือรัน container จริง
+**สถานะ Docker (19 กันยายน 2026):** เชื่อม Docker Engine ได้แล้วและ build/run container จริงสำเร็จ ดูผล API/audit และขอบเขตการทดสอบใน [implementation-status](docs/implementation-status.md)
 
 ## API และการต่อกับเพื่อนในอนาคต
 
@@ -92,7 +94,7 @@ Input ของ 07 เป็น draft contract สำหรับรับ risk,
 
 เมื่อรวม Compose ในอนาคต Module 03 ที่อยู่ใน Docker network เดียวกันจะเรียก `http://decision-engine:8050` ส่วนโปรแกรมบนเครื่องเรียก `http://localhost:8050` ชื่อ service และ network ต้องตกลงกับทีมก่อน Compose แยกชุดไม่ได้อยู่ network เดียวกันโดยอัตโนมัติ
 
-ชื่อ action ภายในใช้ตาม guide ของ 07: `NORMAL`, `DELAY`, `AVOID` map เป็น `TRAVEL_NORMALLY`, `DELAY_TRAVEL`, `AVOID_TRAVEL` ของ 02 และ `CHANGE_ROUTE` ใช้ชื่อเดียวกัน การส่งต่อผ่าน 03 มีอยู่แล้ว ส่วน field ใหม่ในรุ่น 0.2.0 ต้องให้เจ้าของ 03/08 ต่อเพิ่มตาม `docs/integration-v2.md`
+ชื่อ action ภายในใช้ตาม guide ของ 07: `NORMAL`, `DELAY`, `AVOID` map เป็น `TRAVEL_NORMALLY`, `DELAY_TRAVEL`, `AVOID_TRAVEL` ของ 02 และ `CHANGE_ROUTE` ใช้ชื่อเดียวกัน การส่งต่อ action ผ่าน 03 มีอยู่แล้ว ส่วน confidence/emergency และ flags ใหม่ต้องให้เจ้าของ 03/08 ต่อเพิ่มตาม `docs/integration-v3.md`
 
 Response มี `action_code` ตาม guide และ `backend_action_code` เป็น mapping ที่เสนอไว้แล้ว แต่ไม่ได้หมายความว่า JSON ทั้งชุดเข้ากับ Backend 02 โดยอัตโนมัติ ต้องยืนยัน contract ร่วมกันก่อน
 
@@ -108,7 +110,7 @@ Response มี `action_code` ตาม guide และ `backend_action_code` �
 
 ลำดับกฎทดลอง: ประกาศงดเดินทาง/ปิดเส้นทาง → ความเสี่ยง HIGH → ไม่มีเส้นทางปลอดภัย → ข้อมูลมีปัญหา → ทางเลือกที่ใช้ได้และมี risk level ต่ำกว่า → เวลาถัดไปที่มีหลักฐานว่าปลอดภัยกว่า → LOW และไม่มีข้อจำกัด → กรณีอื่นให้ตรวจต่อ ความเสี่ยง HIGH จะไม่ถูกลดเป็น CHANGE_ROUTE ในรุ่นนี้ แม้มีทางเลือก เพราะลำดับนี้ยังรอทีมอนุมัติ
 
-ความสดใช้ `expires_at` ของแต่ละหลักฐานเทียบกับเวลาของ service โดยค่าตรงเวลาหมดอายุถือว่า stale ไม่สมมติเกณฑ์อายุเป็นนาทีเพิ่ม confidence เป็น float ตาม policy `prototype-v2`: base = ค่าต่ำสุดของ risk/data-quality; คูณสัดส่วนองค์ประกอบที่ครบและหลักฐานที่ยังสด แล้วจำกัดคะแนนเมื่อมีปัญหา รายละเอียดอยู่ใน `docs/integration-v2.md` ไม่ได้แทน model probability
+ความสดใช้ `expires_at` ของแต่ละหลักฐานเทียบกับเวลาของ service โดยค่าตรงเวลาหมดอายุถือว่า stale และ `freshness_unknown` ยังต้องส่งตรวจต่อ confidence เป็น float ตาม policy `prototype-v3`: base = ค่าต่ำสุดของ risk/data-quality; คูณสัดส่วนองค์ประกอบที่ครบและหลักฐานที่ยังสด แล้วจำกัดคะแนนเมื่อมีปัญหา รายละเอียดอยู่ใน `docs/integration-v3.md` ไม่ได้แทน model probability
 
 Provider seam ในรุ่นนี้ตรวจข้อความเทียบกับ sentence bank ที่อนุญาตอย่างเข้มงวด จึงยังไม่ใช่การเขียนคำอธิบายอิสระด้วย LLM ส่งออกไปเฉพาะ action ที่ล็อก ข้อความที่อนุญาต และ evidence IDs ที่ผ่านการตรวจ ไม่ส่ง raw summary/RAG excerpt งบ token ปัจจุบันใช้จำนวน UTF-8 bytes เป็นขอบเขตแบบระมัดระวัง และต้องเปลี่ยนเป็น tokenizer ของ provider เมื่อเชื่อมจริง
 
@@ -127,7 +129,7 @@ uv run ruff check .
 
 ## งานที่ยังรอการตกลงหรือพัฒนาต่อ
 
-- ให้ 03 ส่งต่อ confidence และ emergency_instructions; ให้ 08 ปรับตัวรับและความหมายคะแนนตาม `docs/integration-v2.md` แล้วทดสอบร่วมกับบริการจริง
+- ให้ 03 ส่งต่อ quality flags, confidence, emergency_instructions และ contact metadata; ให้ 08 ต่อ emergency fragment และความหมายคะแนนตาม `docs/integration-v3.md` แล้วทดสอบร่วมกับบริการจริง
 - เติม catalog คำแนะนำเฉพาะภัยจากเอกสารทางการที่ผ่านการทบทวน และตกลงเจ้าของข้อมูล emergency contacts; catalog ที่แจกยังไม่มีคำแนะนำเฉพาะภัยจริง
 - อนุมัติเกณฑ์ความเสี่ยง ความสดของข้อมูล ความปลอดภัยของทางเลือก และลำดับกฎเมื่อหลายเงื่อนไขเกิดพร้อมกัน
 - เชื่อม LLM SDK ที่รองรับ structured output พร้อมทดสอบ provider จริงและการควบคุม timeout/token/retry

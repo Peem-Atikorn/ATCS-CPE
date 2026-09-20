@@ -11,7 +11,7 @@
       "route_id": "mock-primary",
       "departure_time": "2026-09-19T17:52:31.701812+00:00"
     },
-    "level": "MEDIUM",
+    "level": "LOW",
     "confidence": "HIGH",
     "model_version": "mock-risk-v1",
     "evidence_ids": [
@@ -59,9 +59,12 @@
       "departure_time": "2026-09-19T17:52:31.701812+00:00"
     },
     "confidence": "HIGH",
-    "flags": [],
+    "flags": [
+      "partial"
+    ],
     "active_restriction": false,
-    "data_version": "mock-data-v1"
+    "data_version": "mock-data-v1",
+    "schema_version": "07-draft-v3"
   },
   "alerts": [],
   "evidence": [
@@ -177,17 +180,5 @@
       "expires_at": "2026-09-19T16:52:31.701812+00:00",
       "excerpt": "MOCK DATA ONLY. Not an actual alert or travel assessment."
     }
-  ],
-  "time_assessment": {
-    "context": {
-      "request_id": "00000000-0000-4000-8000-000000000007",
-      "route_id": "mock-primary",
-      "departure_time": "2026-09-19T17:52:31.701812+00:00"
-    },
-    "safer_later": true,
-    "suggested_departure_time": "2026-09-19T20:52:31.701812+00:00",
-    "evidence_ids": [
-      "mock-time"
-    ]
-  }
+  ]
 }

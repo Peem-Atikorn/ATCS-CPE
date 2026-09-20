@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    decision_policy_version: str = "prototype-v2"
+    decision_policy_version: str = "prototype-v3"
     emergency_catalog_path: Path | None = None
     prompt_version: str = "v1"
     policy_approved: bool = False
@@ -19,14 +19,19 @@ class Settings(BaseSettings):
     llm_timeout: float = Field(default=3, gt=0, le=60)
     llm_max_attempts: int = Field(default=2, ge=1, le=3)
     supported_locales: str = "th-TH,en-US"
-    escalation_rules: str = "missing,stale,conflicting,incomplete,low_confidence,unverified_warning"
+    escalation_rules: str = (
+        "missing,stale,conflicting,incomplete,low_confidence,unverified_warning,"
+        "partial,freshness_unknown"
+    )
     audit_log_path: Path = Path("data/audit.jsonl")
 
     @field_validator("decision_policy_version")
     @classmethod
     def bundled_policy_only(cls, value: str) -> str:
-        if value != "prototype-v2":
-            raise ValueError("This release requires prototype-v2; roll back the release to use v1")
+        if value != "prototype-v3":
+            raise ValueError(
+                "This release requires prototype-v3; roll back code and policy together"
+            )
         return value
 
     @field_validator("prompt_version")
@@ -61,6 +66,8 @@ class Settings(BaseSettings):
             "incomplete",
             "low_confidence",
             "unverified_warning",
+            "partial",
+            "freshness_unknown",
         }
         if {v.strip() for v in value.split(",")} != required:
             raise ValueError("Changing escalation rules requires a new reviewed policy")

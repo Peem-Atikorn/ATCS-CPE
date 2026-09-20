@@ -208,7 +208,7 @@ def test_increasing_to_high_never_weakens_decision(scenario, has_closure):
     if has_closure:
         body["alerts"] = data["closure"]["alerts"]
     request = DecisionRequest.model_validate(body)
-    policy = Policy.load("prototype-v2")
+    policy = Policy.load("prototype-v3")
     first = evaluate(request, now, policy)
     assert first.action == Action.AVOID
     assert evaluate(request, now, policy) == first

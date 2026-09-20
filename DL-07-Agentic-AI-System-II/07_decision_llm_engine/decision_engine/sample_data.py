@@ -109,4 +109,14 @@ def scenarios(now: datetime | None = None) -> dict[str, dict]:
         "region": "TEST-REGION",
         "hazard": "TEST-HAZARD",
     }
+    for flag in ("partial", "freshness_unknown"):
+        result[flag] = deepcopy(base)
+        result[flag]["quality"]["flags"] = [flag]
+        result[flag]["quality"]["schema_version"] = "07-draft-v3"
+    result["summary_only_risk"] = deepcopy(base)
+    result["summary_only_risk"]["risk"]["level"] = "MEDIUM"
+    result["summary_only_risk"]["risk"]["confidence"] = "LOW"
+    result["partial_alternative"] = deepcopy(result["safer_route"])
+    result["partial_alternative"]["routes"]["alternatives"][0]["clearly_safer"] = False
+    result["partial_alternative"]["quality"]["flags"] = ["partial"]
     return result
