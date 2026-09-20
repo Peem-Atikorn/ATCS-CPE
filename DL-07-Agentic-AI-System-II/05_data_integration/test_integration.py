@@ -89,6 +89,17 @@ class IntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "source_lineage"):
             build_context(route_query(), [forecast(source_lineage=None)], now=NOW)
 
+    def test_route_label_and_modes_reach_output(self):
+        query = route_query()
+        query["routes"][0]["label"] = "Primary"
+        query["routes"][0]["travel_modes"] = ["CAR"]
+
+        context = build_context(query, [], now=NOW)
+        route = context["routes"][0]
+
+        self.assertEqual(route["label"], "Primary")
+        self.assertEqual(route["travel_modes"], ["CAR"])
+
 
 if __name__ == "__main__":
     unittest.main()
