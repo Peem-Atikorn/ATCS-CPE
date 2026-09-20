@@ -14,6 +14,7 @@ from travel_agent.tools.schemas import (
     IntegratedContext,
     KnowledgeResult,
     RiskResult,
+    RouteCandidatesResult,
     RouteResult,
     TransportResult,
     TravelQuery,
@@ -27,6 +28,8 @@ ALLOWED_TOOLS: dict[str, str] = {
     "weather": "weather",
     "transport": "transport",
     "disasters": "disaster",
+    # Own key: sharing one with 06's "routes" would let a later success hide this failure.
+    "route_candidates": "route_candidates",
     "integrate": "integration",
     "risk": "risk_model",
     "knowledge": "rag",
@@ -49,11 +52,15 @@ class ToolSet(Protocol):
     async def weather(self, query: TravelQuery) -> WeatherResult: ...
     async def transport(self, query: TravelQuery) -> TransportResult: ...
     async def disasters(self, query: TravelQuery) -> DisasterResult: ...
+    async def route_candidates(self, query: TravelQuery) -> RouteCandidatesResult: ...
 
-    # Module 05 — data integration; inputs are None when that source failed.
+    # Module 05 — data integration. `routes` carries each candidate's geometry with the
+    # enter/exit times the agent derived from 04's leg durations; inputs are None when
+    # that source failed.
     async def integrate(
         self,
         query: TravelQuery,
+        routes: list[dict],
         weather: WeatherResult | None,
         transport: TransportResult | None,
         disasters: DisasterResult | None,

@@ -42,7 +42,8 @@ async def test_scenarios_reach_module_07_decision(client, scenario, expected):
     assert result.recommendation.type == expected
     assert result.sources, "every recommendation must cite evidence"
     assert {s.value for s in result.service_status.values()} == {"ok"}
-    assert result.diagnostics.tool_calls == 8
+    # 04 x4 (weather, transport, disasters, route candidates), 05, 06 x3, 07.
+    assert result.diagnostics.tool_calls == 9
 
 
 async def test_service_status_uses_backend_d47_keys(client):

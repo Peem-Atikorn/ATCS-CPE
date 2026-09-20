@@ -20,7 +20,10 @@ from travel_agent.tools.schemas import (
     RecordKind,
     RiskFactorResult,
     RiskResult,
+    RouteCandidate,
+    RouteCandidatesResult,
     RouteInfo,
+    RouteLeg,
     RouteResult,
     TransportResult,
     TravelQuery,
@@ -82,13 +85,92 @@ class MockToolSet:
             )
         return DisasterResult(alerts=alerts, records=[record])
 
-    async def integrate(self, query, weather, transport, disasters) -> IntegratedContext:
+    async def route_candidates(self, query: TravelQuery) -> RouteCandidatesResult:
+        # Two legs so the timed segments Module 05 needs are exercised.
+        lon_a, lat_a = query.origin[1], query.origin[0]
+        lon_b, lat_b = query.destination[1], query.destination[0]
+        middle = [(lon_a + lon_b) / 2, (lat_a + lat_b) / 2]
+        candidates = [
+            RouteCandidate(
+                route_id="mock-primary",
+                label="Synthetic coastal road",
+                travel_modes=["CAR"],
+                geometry={
+                    "type": "LineString",
+                    "coordinates": [[lon_a, lat_a], middle, [lon_b, lat_b]],
+                },
+                legs=[
+                    RouteLeg(start_index=0, end_index=1, duration_minutes=65, mode="CAR"),
+                    RouteLeg(start_index=1, end_index=2, duration_minutes=65, mode="CAR"),
+                ],
+                distance_km=148,
+            )
+        ]
+        if _scenario(query) == "safer_route":
+            candidates.append(
+                RouteCandidate(
+                    route_id="mock-alternative",
+                    label="Synthetic inland road",
+                    travel_modes=["CAR"],
+                    geometry={
+                        "type": "LineString",
+                        "coordinates": [
+                            [lon_a, lat_a],
+                            [middle[0] + 0.2, middle[1]],
+                            [lon_b, lat_b],
+                        ],
+                    },
+                    legs=[
+                        RouteLeg(start_index=0, end_index=1, duration_minutes=75, mode="CAR"),
+                        RouteLeg(start_index=1, end_index=2, duration_minutes=75, mode="CAR"),
+                    ],
+                    distance_km=162,
+                )
+            )
+        return RouteCandidatesResult(candidates=candidates, records=[self._record("route")])
+
+    async def integrate(self, query, routes, weather, transport, disasters) -> IntegratedContext:
+        """Module 05's detailed shape, as the agent now forwards it to 06.
+
+        The real 05 does not yet send `confidence` or `active_restriction`, and its
+        coverage never reads "covered"; those are open cross-team questions. The mock
+        fills them so the scenarios still reach a decision.
+        """
         closure = bool(
             disasters and any(a.active and a.level == "CLOSURE" for a in disasters.alerts)
         )
+        covered = [
+            name
+            for name, part in (
+                ("weather", weather),
+                ("transport", transport),
+                ("disaster", disasters),
+            )
+            if part
+        ]
+        detailed = [
+            {
+                **route,
+                "segments": [
+                    {
+                        **segment,
+                        "matched_record_ids": {},
+                        "coverage": dict.fromkeys(covered, "partial"),
+                    }
+                    for segment in route["segments"]
+                ],
+            }
+            for route in routes
+        ]
         return IntegratedContext(
+            feature_schema_version="integrated-travel-v0.1-proposed",
             data_version="mock-data-v1",
-            primary_route_id="mock-primary",
+            run_id=query.run_id,
+            primary_route_id=detailed[0]["route_id"] if detailed else "mock-primary",
+            routes=detailed,
+            evidence=[],
+            quality_flags=[] if weather and transport and disasters else ["partial"],
+            degraded=not (weather and transport and disasters),
             confidence=RiskLevel.HIGH,
             active_restriction=closure if disasters else None,
         )
@@ -133,7 +215,7 @@ class MockToolSet:
         safer_later = scenario == "safer_time"
         return RouteResult(
             primary=RouteInfo(
-                route_id=context.primary_route_id if context else "mock-primary",
+                route_id=context.resolved_primary_route_id if context else "mock-primary",
                 label="Synthetic coastal road",
                 travel_modes=["CAR"],
                 distance_km=148,

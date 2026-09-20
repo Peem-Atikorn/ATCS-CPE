@@ -11,19 +11,26 @@
 | API ให้ 02 เรียก `POST /v1/agent/runs` | ✅ ตาม contract ใน `02_api_backend/docs/02_api_spec.md` §9 |
 | Progress แบบ NDJSON / ยกเลิก run ด้วย `DELETE` / `X-Deadline` | ✅ |
 | เรียก Module 07 ตัวจริง (`POST /v1/decisions`) | ✅ เทสกับ engine ของ 07 ตัวจริงแบบ in-process |
-| Module 04 / 05 / 06 | 🟡 **mock** (`travel_agent/tools/mocks.py`) เพราะยังไม่มี service จริง |
+| Module 04 / 05 / 06 | 🟡 **mock** (`travel_agent/tools/mocks.py`) แต่ใช้รูปแบบละเอียดแบบเดียวกับของจริงแล้ว |
+| ส่งต่อ emergency instructions จาก 07 ไป 02 | ✅ ส่งต่อตามเดิมทุกตัวอักษร ไม่แก้ข้อความเอง |
 | จำกัด step, tool call และเวลา / ให้ tool ที่ล้มไม่ล้มทั้ง run | ✅ |
 | Intent และ planner ด้วย LLM, LangGraph, checkpoint สำหรับคำถามต่อ | ⏳ ขั้นถัดไป ตอนนี้ใช้ `intent_hint` จาก 02 และลำดับ tool ที่กำหนดไว้ตายตัว |
-| Emergency instructions | ⏳ รอตกลงในทีมว่าเป็นงานของ 07 หรือ 08 |
+| คำแนะนำฉุกเฉินเฉพาะพื้นที่ | ⏳ 07 ยังตอบชุด fallback เพราะยังไม่มีใครส่ง region ที่ยืนยันแล้วให้ 03 |
 
 ## ลำดับการทำงานของหนึ่ง run
 
 ```
-understand ─▶ fetch_external ─▶ integrate ─▶ assess ─────────────▶ decide ─▶ finish
- (intent,      weather ┐          (05)        risk → knowledge →    (07)
-  ถามกลับ)     transport├ ขนาน                 routes (06)
-               disasters┘ (04)
+understand ─▶ fetch_external ─────▶ integrate ─▶ assess ─────────────▶ decide ─▶ finish
+ (intent,      weather ┐            (05)         risk → knowledge →    (07)
+  ถามกลับ)     transport├ ขนาน                    routes (06)
+               disasters│ (04)
+               route_candidates┘
+                    │
+                    └▶ 03 คำนวณ enter_at/exit_at ของแต่ละช่วงจาก departure_time + duration ของ 04
 ```
+
+- **เส้นทางเป็นของ 04** (`RouteCandidate` ตาม `04/02_step.txt`) ส่ง geometry กับ duration ต่อ leg มา ส่วน 03 เป็นคนใส่เวลาเข้าไป เพราะ 03 ถือ `departure_time` ที่ normalize แล้ว
+- **ผลของ 05 ส่งต่อให้ 06 ทั้งก้อน** ไม่ย่อ เพราะ 06 ใช้ `segments`, `coverage` และ `evidence` ในการให้คะแนน (06 รองรับทั้งรูปแบบละเอียดและแบบย่ออยู่แล้ว)
 
 - ถ้าข้อมูลสำคัญผิดหรือขาด เช่น ต้นทางกับปลายทางเป็นจุดเดียวกัน หรือเวลาออกเดินทางผ่านไปแล้ว agent จะตอบ `needs_clarification` และไม่เดาเอง
 - ถ้า tool ใดล้ม, timeout หรือส่งข้อมูลที่ไม่ผ่าน schema service นั้นจะถูกบันทึกเป็น `unavailable` แล้ว run ทำงานต่อ ผลลัพธ์จะเป็น `partial_result` และ 07 จะไม่ถือว่าข้อมูลที่ขาดหมายถึงปลอดภัย
@@ -33,7 +40,9 @@ understand ─▶ fetch_external ─▶ integrate ─▶ assess ─────�
 
 - **02 (sakda):** `travel_agent/contracts.py` คัดลอกมาจาก contract ของ 02 ถ้าฝั่งไหนแก้ ต้องแก้อีกฝั่งด้วย
 - **04 / 05 / 06:** `travel_agent/tools/schemas.py` เป็น**ร่าง** contract ที่ 03 เสนอ ทุก record ต้องมี `source`, `url` (https), `observed_at`, `fetched_at` และ `expires_at` ตามที่ 07 บังคับ
-- **07 (mekmai):** 07 ให้ confidence เป็น LOW/MEDIUM/HIGH ส่วน 02 ต้องการตัวเลข 0–1 ตอนนี้ agent จึงส่ง `risk.confidence = null` เพื่อไม่แต่งตัวเลขขึ้นมาเอง
+- **04 (supawit):** ต้องผลิต `RouteCandidate` (geometry LineString + duration ต่อ leg) และ record ที่มี `observed_at`/`expires_at` ครบ เพราะ 07 บังคับลำดับ `observed_at <= fetched_at < expires_at` ส่วนพยากรณ์ที่มีแต่ `valid_at` ยังส่งเข้า 07 ไม่ได้จนกว่าจะตกลงกัน
+- **05 (supawit):** 03 ส่ง `routes` พร้อม `enter_at`/`exit_at` ให้แล้ว และส่ง context ที่ได้ต่อให้ 06 ทั้งก้อน ยังค้าง: 05 ยังไม่ส่ง `confidence` กับ `active_restriction` และ coverage ไม่เคยขึ้นเป็น "covered" ทำให้ 07 ตอบ AVOID ทุกครั้ง ต้องตกลงเกณฑ์ร่วมกัน
+- **07 (mekmai):** v3 ให้ `confidence` เป็นตัวเลข 0–1 แต่เป็นคะแนนของนโยบาย ไม่ใช่ความมั่นใจของค่าความเสี่ยง ส่วน 02 ใช้ `risk.confidence` เตือนเมื่อต่ำกว่า 0.5 ตอนนี้ 03 จึงส่ง `risk.confidence = null` จนกว่าจะตกลงความหมายกัน; `emergency_contact_metadata` ก็ยังไม่มีช่องรับใน contract ของ 02
 
 ## เริ่มใช้งานด้วย Python
 
@@ -71,6 +80,7 @@ travel_agent/
 ├── api.py          # FastAPI: POST/DELETE /v1/agent/runs, /health, /ready
 ├── pipeline.py     # AgentState + node ต่าง ๆ + การเรียก tool ที่มี budget/timeout
 ├── evidence.py     # สร้าง DecisionRequest ให้ 07
+├── routes.py       # แปลง RouteCandidate ของ 04 เป็น segments พร้อมเวลาให้ 05
 ├── response.py     # แปลงผลของ 07 เป็น AgentRunResponse ให้ 02
 ├── contracts.py    # contract 02 ↔ 03
 ├── budget.py       # จำกัด step/tool call + AgentError

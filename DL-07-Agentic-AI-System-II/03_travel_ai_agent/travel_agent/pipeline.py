@@ -29,6 +29,7 @@ from travel_agent.contracts import (
 )
 from travel_agent.evidence import build_decision_request
 from travel_agent.response import build_response
+from travel_agent.routes import timed_routes as build_timed_routes
 from travel_agent.tools.base import ALLOWED_TOOLS, ToolError, ToolSet
 from travel_agent.tools.decision import DecisionClient, DecisionResult
 from travel_agent.tools.schemas import (
@@ -37,6 +38,7 @@ from travel_agent.tools.schemas import (
     KnowledgeResult,
     Record,
     RiskResult,
+    RouteCandidatesResult,
     RouteResult,
     TransportResult,
     TravelQuery,
@@ -61,6 +63,9 @@ class AgentState:
     weather: WeatherResult | None = None
     transport: TransportResult | None = None
     disasters: DisasterResult | None = None
+    candidates: RouteCandidatesResult | None = None
+    # 04's candidates with the enter/exit times the agent derived; 05's input.
+    timed_routes: list[dict[str, Any]] = field(default_factory=list)
     context: IntegratedContext | None = None
     risk: RiskResult | None = None
     knowledge: KnowledgeResult | None = None
@@ -74,7 +79,7 @@ class AgentState:
 
     def records(self) -> list[Record]:
         found: list[Record] = []
-        for result in (self.weather, self.transport, self.disasters, self.risk):
+        for result in (self.weather, self.transport, self.disasters, self.candidates, self.risk):
             if result:
                 found.extend(result.records)
         if self.disasters:
@@ -143,19 +148,34 @@ class Agent:
         # Module 04: the three sources are independent, so call them in parallel.
         # Reserve the budget up front so a limit cannot stop one call after others started.
         query = state.query
-        state.budget.reserve_tool_calls(3)
-        state.weather, state.transport, state.disasters = await asyncio.gather(
+        state.budget.reserve_tool_calls(4)
+        state.weather, state.transport, state.disasters, state.candidates = await asyncio.gather(
             self._call(state, "weather", lambda: self._tools.weather(query), reserved=True),
             self._call(state, "transport", lambda: self._tools.transport(query), reserved=True),
             self._call(state, "disasters", lambda: self._tools.disasters(query), reserved=True),
+            self._call(
+                state,
+                "route_candidates",
+                lambda: self._tools.route_candidates(query),
+                reserved=True,
+            ),
         )
+        # Module 05 matches evidence to a route by time, so it needs the ETA per stretch.
+        if state.candidates:
+            state.timed_routes = build_timed_routes(
+                state.candidates.candidates, state.run.request.departure_time
+            )
 
     async def _integrate(self, state: AgentState) -> None:
         state.context = await self._call(
             state,
             "integrate",
             lambda: self._tools.integrate(
-                state.query, state.weather, state.transport, state.disasters
+                state.query,
+                state.timed_routes,
+                state.weather,
+                state.transport,
+                state.disasters,
             ),
         )
 

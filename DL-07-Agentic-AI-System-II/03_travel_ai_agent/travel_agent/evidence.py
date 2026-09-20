@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from travel_agent.contracts import RiskLevel
-from travel_agent.tools.schemas import Record
+from travel_agent.tools.schemas import QUALITY_FLAGS, Record
 
 if TYPE_CHECKING:
     from travel_agent.pipeline import AgentState
@@ -30,7 +30,7 @@ def primary_route_id(state: AgentState) -> str:
     if state.routes:
         return state.routes.primary.route_id
     if state.context:
-        return state.context.primary_route_id
+        return state.context.resolved_primary_route_id
     return "primary"
 
 
@@ -118,15 +118,37 @@ def build_decision_request(state: AgentState) -> dict[str, Any]:
 
 def _quality(state: AgentState, context: dict[str, Any]) -> dict[str, Any]:
     integrated = state.context
-    flags = set(integrated.flags) if integrated else {"incomplete"}
-    required = (state.weather, state.transport, state.disasters, state.risk, state.routes)
+    # 05 reports coverage in its own words. Keep the ones 07 defines and drop the rest
+    # instead of translating them into a stronger or weaker claim.
+    flags = (
+        {flag for flag in integrated.all_flags if flag in QUALITY_FLAGS}
+        if integrated
+        else {"incomplete"}
+    )
+    if integrated and integrated.degraded and not flags:
+        flags.add("incomplete")
+    required = (
+        state.weather,
+        state.transport,
+        state.disasters,
+        state.candidates,
+        state.risk,
+        state.routes,
+    )
     if any(result is None for result in required):
         flags.add("missing")
     return {
         "context": context,
-        "confidence": integrated.confidence if integrated else RiskLevel.LOW,
+        "confidence": (
+            integrated.confidence if integrated and integrated.confidence else RiskLevel.LOW
+        ),
         "flags": sorted(flags),
         # Unknown restriction status stays None; it must never read as "no restriction".
         "active_restriction": integrated.active_restriction if integrated else None,
-        "data_version": integrated.data_version if integrated else "unintegrated",
+        "data_version": (
+            integrated.data_version or integrated.feature_schema_version or "unversioned"
+            if integrated
+            else "unintegrated"
+        ),
+        "schema_version": "07-draft-v3",
     }
