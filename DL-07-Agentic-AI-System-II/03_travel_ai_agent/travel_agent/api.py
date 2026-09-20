@@ -30,6 +30,7 @@ from travel_agent.contracts import (
 from travel_agent.pipeline import Agent
 from travel_agent.tools.base import ToolSet
 from travel_agent.tools.decision import DecisionClient
+from travel_agent.tools.live import LiveToolSet
 from travel_agent.tools.mocks import MockToolSet
 
 log = logging.getLogger("travel_agent")
@@ -53,9 +54,11 @@ def create_app(
 ) -> FastAPI:
     settings = settings or Settings()
     if tools is None:
-        if not settings.use_mock_tools:
-            raise RuntimeError("Real 04/05/06 adapters are not implemented yet")
-        tools = MockToolSet()
+        tools = (
+            MockToolSet()
+            if settings.use_mock_tools
+            else LiveToolSet(tomtom_api_key=settings.tomtom_api_key.get_secret_value() or None)
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -112,7 +115,7 @@ def create_app(
     async def ready():
         return {
             "status": "ready",
-            "tools": "mock" if settings.use_mock_tools else "live",
+            "tools": "mock" if settings.use_mock_tools else "live-04-05-hybrid",
             "decision_service": str(settings.decision_service_url),
         }
 

@@ -8,7 +8,7 @@ is only ever passed along as data, never used as instructions.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
@@ -82,6 +82,9 @@ class WeatherResult(ToolModel):
 class TransportResult(ToolModel):
     summary: str = Field(min_length=1, max_length=2000)
     records: list[Record] = Field(min_length=1)
+    # Module 04's canonical payload is kept for Module 05. It is internal plumbing,
+    # not evidence sent directly to Module 07 (the validated `records` are).
+    canonical_records: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
 
 
 class Alert(ToolModel):
@@ -101,6 +104,7 @@ class DisasterResult(ToolModel):
     alerts: list[Alert] = Field(default_factory=list, max_length=20)
     # Proof that the check ran even when there are no alerts.
     records: list[Record] = Field(min_length=1)
+    canonical_records: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
 
 
 class RouteLeg(ToolModel):

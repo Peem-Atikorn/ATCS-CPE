@@ -1,15 +1,18 @@
-# Runs Module 03 together with Module 07 (the only neighbour that exists as code so far).
+# Runs Module 03 together with Module 07. The 03 image also packages the callable
+# Module 04 transport/disaster and Module 05 integration adapters.
 services:
   travel-agent:
     build:
-      context: .
+      context: ..
+      dockerfile: 03_travel_ai_agent/Dockerfile
       target: runtime
     ports:
       - "127.0.0.1:${AGENT_HOST_PORT:-8010}:8010"
     environment:
       AGENT_SERVICE_TOKEN: "${AGENT_SERVICE_TOKEN:-}"
       DECISION_SERVICE_URL: http://decision-engine:8050
-      USE_MOCK_TOOLS: "${USE_MOCK_TOOLS:-true}"
+      USE_MOCK_TOOLS: "${USE_MOCK_TOOLS:-false}"
+      TOMTOM_API_KEY: "${TOMTOM_API_KEY:-}"
       MAX_AGENT_STEPS: "${MAX_AGENT_STEPS:-12}"
       MAX_TOOL_CALLS: "${MAX_TOOL_CALLS:-20}"
       AGENT_TOTAL_TIMEOUT: "${AGENT_TOTAL_TIMEOUT:-60}"

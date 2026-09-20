@@ -14,8 +14,10 @@ class Settings(BaseSettings):
     agent_service_token: SecretStr = SecretStr("")
 
     decision_service_url: HttpUrl = HttpUrl("http://localhost:8050")
-    # Modules 04/05/06 have no services yet; true keeps the pipeline on MockToolSet.
-    use_mock_tools: bool = True
+    # False uses Module 04 transport/disaster adapters and Module 05 integration.
+    # The remaining 04/06 capabilities stay on their explicit synthetic stand-ins.
+    use_mock_tools: bool = False
+    tomtom_api_key: SecretStr = SecretStr("")
 
     # Hard limits on one run (03_process.txt: the agent must not run forever).
     max_agent_steps: int = Field(default=12, ge=1, le=50)
