@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import sys
 import unittest
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from risk_knowledge.service import RiskKnowledgeService
 
 
 NOW = datetime(2026, 9, 19, 6, 0, tzinfo=UTC)
+INTEGRATION_NOW = datetime(2026, 9, 20, 0, 0, tzinfo=UTC)
 
 
 def query() -> dict:
@@ -135,6 +137,66 @@ def alert() -> dict:
     }
 
 
+def module_05_context(records: list[dict]) -> dict:
+    module_root = Path(__file__).resolve().parents[2]
+    path = module_root / "05_data_integration" / "integration.py"
+    spec = importlib.util.spec_from_file_location("module_05_integration_for_06", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("cannot load Module 05 integration contract")
+    integration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(integration)
+    route_input = {
+        "run_id": "run-05-06-contract",
+        "routes": [{
+            "route_id": "primary-route",
+            "label": "Synthetic primary",
+            "travel_modes": ["CAR"],
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[100.0, 13.0], [100.2, 13.0]],
+            },
+            "segments": [{
+                "start_index": 0,
+                "end_index": 1,
+                "enter_at": "2026-09-20T08:00:00+07:00",
+                "exit_at": "2026-09-20T08:20:00+07:00",
+            }],
+        }],
+    }
+    return integration.build_context(route_input, records, now=INTEGRATION_NOW)
+
+
+def interval_record(
+    record_id: str,
+    kind: str,
+    footprint: dict,
+    *,
+    quality_flags: list[str] | None = None,
+    value: dict,
+) -> dict:
+    return {
+        "schema_version": "canonical-record-v0.1-proposed",
+        "record_id": record_id,
+        "record_kind": kind,
+        "status": "available",
+        "source": {"name": "Synthetic Module 04 fixture", "authority": None},
+        "source_lineage": "https://example.org/module-04-fixture",
+        "spatial_footprint": footprint,
+        "observed_at": None,
+        "valid_at": None,
+        "event_time": "2026-09-19T00:00:00Z",
+        "fetched_at": "2026-09-20T00:00:00Z",
+        "expires_at": "2026-09-20T00:30:00Z",
+        "severity": "HIGH",
+        "quality_flags": quality_flags or [],
+        "value": {
+            "starts_at": "2026-09-19T00:00:00Z",
+            "ends_at": "2026-09-21T00:00:00Z",
+            **value,
+        },
+    }
+
+
 class RiskTests(unittest.TestCase):
     def test_official_closure_is_high_risk_override(self):
         result = assess_risk(context(), now=NOW)
@@ -243,6 +305,59 @@ class RouteTests(unittest.TestCase):
         self.assertTrue(result.alternatives[0].usable)
         self.assertEqual(result.alternatives[0].risk_level, Level.MEDIUM)
         self.assertFalse(result.alternatives[0].clearly_safer)
+
+
+class Module05IntegrationTests(unittest.TestCase):
+    def test_matched_transport_and_disaster_are_scored_conservatively(self):
+        transport = interval_record(
+            "tomtom-crossing",
+            "transport_status",
+            {
+                "type": "LineString",
+                "coordinates": [[100.1, 12.9], [100.1, 13.1]],
+            },
+            quality_flags=["uncertain"],
+            value={"status": "CLOSED", "delay_minutes": None},
+        )
+        disaster = interval_record(
+            "gdacs-nearby",
+            "disaster_event",
+            {"type": "Point", "coordinates": [100.1, 13.0]},
+            value={"alert_level": "Red"},
+        )
+        integrated = module_05_context([transport, disaster])
+
+        risk = assess_risk(integrated, now=INTEGRATION_NOW)
+        routes = analyze_routes(query(), integrated, risk, now=INTEGRATION_NOW)
+
+        self.assertEqual(risk.level, Level.HIGH)
+        self.assertEqual(risk.confidence, Level.LOW)
+        self.assertEqual(
+            {factor.type for factor in risk.factors},
+            {"TRANSPORT", "DISASTER_EVENT"},
+        )
+        self.assertEqual(routes.primary.risk_level, Level.HIGH)
+        # TomTom is provider evidence, not an official hard closure.
+        self.assertTrue(routes.primary.usable)
+
+    def test_unmatched_disaster_is_not_scored(self):
+        far_disaster = interval_record(
+            "gdacs-far-away",
+            "disaster_event",
+            {"type": "Point", "coordinates": [101.0, 13.0]},
+            value={"alert_level": "Red"},
+        )
+        integrated = module_05_context([far_disaster])
+
+        risk = assess_risk(integrated, now=INTEGRATION_NOW)
+
+        self.assertEqual(integrated["evidence"], [])
+        self.assertEqual(
+            [record["record_id"] for record in integrated["unmatched_evidence"]],
+            ["gdacs-far-away"],
+        )
+        self.assertEqual(risk.level, Level.MEDIUM)
+        self.assertNotIn("DISASTER_EVENT", {factor.type for factor in risk.factors})
 
 
 class ServiceAndContractTests(unittest.TestCase):

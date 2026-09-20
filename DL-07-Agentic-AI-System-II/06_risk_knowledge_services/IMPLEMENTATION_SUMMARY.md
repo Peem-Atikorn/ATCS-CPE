@@ -25,7 +25,7 @@ Module 06 ทำหน้าที่สร้างหลักฐานเพ�
   `IntegratedTravelContext`
 - ใช้ผลลัพธ์แบบ conservative `MEDIUM`, score ไม่ทราบค่า และ confidence `LOW`
   เมื่อได้รับเพียง summary context ที่ไม่มีหลักฐานรายละเอียด แม้ระบุว่าไม่มีข้อจำกัดก็ตาม
-- รองรับ quality flags `partial` และ `freshness_unknown` จาก Module 05
+- รองรับ quality flags `partial`, `freshness_unknown` และ `uncertain` จาก Module 05
 - ปฏิเสธ feature schema version ที่ระบบยังไม่รองรับ
 - ระบุชัดเจนว่าคะแนนจาก baseline ยังไม่ใช่ calibrated probability
 
@@ -98,8 +98,10 @@ Module 06 ทำหน้าที่สร้างหลักฐานเพ�
 - summary context ที่ไม่มี detailed evidence ต้องไม่ถูกประเมินเป็นความเสี่ยงต่ำ
 - weather aliases และ quality flags ตาม contract ล่าสุดของ Module 05
 - partial route coverage ต้องไม่ถูกประกาศว่าปลอดภัยกว่าอย่างชัดเจน
+- transport ของ TomTom และ disaster ของ GDACS ที่ Module 05 จับคู่กับเส้นทางแล้ว
+  ต้องถูกประเมิน ขณะที่ `unmatched_evidence` ต้องไม่ถูกนำมาคิดความเสี่ยง
 
-ผลการทดสอบล่าสุด: **ผ่าน 13 จาก 13 tests**
+ผลการทดสอบล่าสุด: **ผ่าน 15 จาก 15 tests**
 
 รันการทดสอบจากโฟลเดอร์ Module 06 ด้วยคำสั่ง:
 
@@ -131,7 +133,7 @@ route analysis, service facade, documentation และ contract-focused tests
 
 - กำหนด `IntegratedTravelContext` ฉบับสุดท้ายร่วมกับ Module 05
 - ตกลงผู้รับผิดชอบ candidate route geometry และ per-segment ETA
-- กำหนด semantics ของ polygon และ hazard time interval
+- กำหนด semantics ของ polygon (time interval ของ disaster/transport รองรับแล้ว)
 - ตกลงความหมายของ confidence ระหว่าง Modules 02, 03, 06 และ 07
 - อนุมัติ risk thresholds และชุดเอกสารภัยพิบัติที่จะใช้จริง
 - ตกลงพื้นที่ให้บริการและผู้ดูแล emergency contacts

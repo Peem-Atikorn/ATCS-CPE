@@ -21,7 +21,7 @@ from .models import (
 )
 
 
-MODEL_VERSION = "rule-baseline-v0.1.1"
+MODEL_VERSION = "rule-baseline-v0.1.2"
 KNOWN_FEATURE_SCHEMAS = {None, "integrated-travel-v0.1-proposed"}
 SEVERITY_SCORE = {"LOW": 0.2, "MEDIUM": 0.55, "HIGH": 0.85, "CRITICAL": 1.0}
 BAD_QUALITY_FLAGS = {
@@ -32,6 +32,7 @@ BAD_QUALITY_FLAGS = {
     "unavailable",
     "partial",
     "freshness_unknown",
+    "uncertain",
 }
 
 
