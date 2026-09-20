@@ -242,11 +242,17 @@ def _record(record: Any, now: datetime) -> dict[str, Any]:
 
     footprint = record.get("spatial_footprint")
     point = None
+    incident_line = None
     if footprint is not None:
         if not isinstance(footprint, dict):
             raise ContractError("spatial_footprint must be GeoJSON or null")
         if footprint.get("type") == "Point":
             point = _point(footprint.get("coordinates"), "record point")
+        elif footprint.get("type") == "LineString":
+            raw_line = footprint.get("coordinates")
+            if not isinstance(raw_line, list) or len(raw_line) < 2:
+                raise ContractError("record line needs at least two coordinates")
+            incident_line = [_point(item, "record line coordinate") for item in raw_line]
     flags = record.get("quality_flags", [])
     if not isinstance(flags, list) or not all(isinstance(flag, str) for flag in flags):
         raise ContractError("quality_flags must be a list of strings")
@@ -265,6 +271,7 @@ def _record(record: Any, now: datetime) -> dict[str, Any]:
         "source_lineage": record.get("source_lineage"),
         "spatial_footprint": footprint,
         "point": point,
+        "line": incident_line,
         "valid_at": valid_at,
         "observed_at": observed_at,
         "issued_at": issued_at,
@@ -302,6 +309,45 @@ def _distance_to_line_m(
     return best
 
 
+def _segments_intersect(
+    a: tuple[float, float],
+    b: tuple[float, float],
+    c: tuple[float, float],
+    d: tuple[float, float],
+) -> bool:
+    """Check whether two straight GeoJSON stretches cross or touch."""
+    def cross(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    epsilon = 0.0
+    if (
+        max(min(a[0], b[0]), min(c[0], d[0]))
+        > min(max(a[0], b[0]), max(c[0], d[0])) + epsilon
+        or max(min(a[1], b[1]), min(c[1], d[1]))
+        > min(max(a[1], b[1]), max(c[1], d[1])) + epsilon
+    ):
+        return False
+    return (
+        cross(a, b, c) * cross(a, b, d) <= epsilon
+        and cross(c, d, a) * cross(c, d, b) <= epsilon
+    )
+
+
+def _distance_between_lines_m(
+    route_line: list[tuple[float, float]],
+    incident_line: list[tuple[float, float]],
+) -> float:
+    """Minimum local distance; crossings count even without nearby vertices."""
+    for start, end in zip(route_line, route_line[1:]):
+        for other_start, other_end in zip(incident_line, incident_line[1:]):
+            if _segments_intersect(start, end, other_start, other_end):
+                return 0.0
+    return min(
+        *(_distance_to_line_m(point, route_line) for point in incident_line),
+        *(_distance_to_line_m(point, incident_line) for point in route_line),
+    )
+
+
 def _record_time(record: dict[str, Any]) -> datetime | None:
     return (
         record["valid_at"]
@@ -315,15 +361,15 @@ def _matches_segment_time(
     record: dict[str, Any], segment: dict[str, Any]
 ) -> bool:
     """Match an event interval, or a single timestamp when no interval exists."""
-    if record["record_kind"] == "disaster_event" and isinstance(
+    if record["record_kind"] in {"disaster_event", "transport_status"} and isinstance(
         record["value"], dict
     ):
         start_raw = record["value"].get("starts_at")
         end_raw = record["value"].get("ends_at")
         if start_raw is not None and end_raw is not None:
             try:
-                start = _time(start_raw, "disaster.starts_at")
-                end = _time(end_raw, "disaster.ends_at")
+                start = _time(start_raw, "event.starts_at")
+                end = _time(end_raw, "event.ends_at")
             except ContractError:
                 return False
             return (
@@ -347,9 +393,9 @@ def build_context(
 ) -> dict[str, Any]:
     """Build a conservative provisional context for every candidate route.
 
-    Match fresh point records near a route at the time of travel. Disaster
-    intervals can overlap a segment; other records use their source time.
-    Polygon intersection awaits the final cross-team contract.
+    Match fresh point or LineString records near a route at travel time.
+    Disaster and transport intervals can overlap a segment. Polygon
+    intersection awaits the final cross-team contract.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -387,11 +433,16 @@ def build_context(
                 if (
                     record["status"] != "available"
                     or record["freshness"] != "fresh"
-                    or record["point"] is None
+                    or (record["point"] is None and record["line"] is None)
                     or not _matches_segment_time(record, segment)
                 ):
                     continue
-                if _distance_to_line_m(record["point"], line) <= corridor_m:
+                distance = (
+                    _distance_to_line_m(record["point"], line)
+                    if record["point"] is not None
+                    else _distance_between_lines_m(line, record["line"])
+                )
+                if distance <= corridor_m:
                     segment["matched_record_ids"][record["record_kind"]].append(
                         record["record_id"]
                     )
@@ -449,7 +500,8 @@ def build_context(
     for record in normalized:
         all_flags.update(record["quality_flags"])
         if record["status"] == "available" and (
-            record["point"] is None or _record_time(record) is None
+            (record["point"] is None and record["line"] is None)
+            or _record_time(record) is None
         ):
             all_flags.add("incomplete")
         if record["freshness"] == "unknown":
@@ -467,7 +519,7 @@ def build_context(
         serialized = {
             key: value.isoformat() if isinstance(value, datetime) else value
             for key, value in record.items()
-            if key != "point"
+            if key not in {"point", "line"}
         }
         if record["record_id"] in matched_ids or record["status"] == "unavailable":
             evidence.append(serialized)
