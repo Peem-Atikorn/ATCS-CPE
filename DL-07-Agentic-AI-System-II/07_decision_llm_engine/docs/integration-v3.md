@@ -67,12 +67,25 @@ fragment = emergency_fragment(decision, traveler_region=verified_region, now=dat
 
 | เจ้าของ | สิ่งที่ยังต้องทำร่วมกัน |
 |---|---|
-| 03 | ส่ง quality flags ใหม่ผ่าน schema/adapter, รับและส่งต่อ numeric confidence, emergency object และ metadata; ปัจจุบัน DecisionResult ยังไม่เก็บ field เหล่านี้ |
-| 06/03 | ยืนยัน mapping risk summary, evidence provenance, freshness และ coverage โดยไม่เติมหลักฐานหรือค่าความปลอดภัยเอง |
-| 08 | ใช้ backend_action_code; รับ emergency list/contact fragment, เก็บ limitations/provenance/expiry และยืนยัน region/directory policy; comments ที่บอกว่า 07 ส่ง ordinal confidence เป็นข้อมูลรุ่นเก่า |
+| 03 | ส่ง quality flags และ emergency object ได้แล้ว และต่อ 05/06 จริงแล้ว; ยังต้องตกลงผู้ผลิต quality confidence/active_restriction, ส่ง emergency_context จาก region ที่ยืนยันแล้ว และตกลงว่าจะส่ง policy confidence ไปปลายทางอย่างไร |
+| 05/06/03 | 05 ส่ง `covered` ได้และ 06 รับผลพร้อมประเมิน LOW/HIGH ได้แล้ว; ยังต้องยืนยัน semantics ของ quality confidence/active restriction และต่อ weather/route candidates จริงโดยไม่เติมหลักฐานหรือค่าความปลอดภัยเอง |
+| 08 | ต่อ 07 โดยตรงได้แล้ว; หากใช้งานเส้นทางนี้ต้องเก็บ limitations/provenance/expiry และยืนยัน region/directory policy ส่วน D-12 ล่าสุดกำหนดว่า 02 ไม่เรียก 08 |
 | ทีม | reviewed emergency sources, policy approval, service authentication และ Compose network ร่วม |
 
 รอบนี้อ่าน schema ของเพื่อนเพื่อตรวจความเข้ากันได้เท่านั้น ไม่แก้ไฟล์ของเพื่อนและไม่อ้างว่าระบบรวมทำงานครบแล้ว
+
+## ผลตรวจ contract หลังอัปเดต 21 กันยายน 2026
+
+ชุดทดสอบของ 07 เรียก implementation จริงของ 05/06 และ `build_decision_request` ของ 03 ด้วยข้อมูล canonical สังเคราะห์ที่ควบคุมเวลา/พื้นที่ได้ ผลที่ต้องรักษาไว้คือ:
+
+| ผลต้นทาง | ผลของ 07 |
+|---|---|
+| coverage ครบ, risk LOW แต่ quality confidence/active restriction ยังไม่ยืนยัน | AVOID, escalation มี `low_confidence` และ `restriction_unknown` |
+| coverage ครบ, risk LOW, quality HIGH, active_restriction=false | NORMAL, confidence 0.9, ไม่ escalation |
+| 06 ให้ risk HIGH | AVOID ด้วย `HIGH_RISK` และไม่ถูกลดระดับ |
+| coverage ขาดบางหมวด | AVOID; ไม่เลือก route จากข้อมูล partial |
+
+นี่เป็น contract integration test ใน process เดียว ไม่ใช่ live-provider/end-to-end test ทุก service และไม่ได้เปลี่ยนกฎให้ demo แสดง NORMAL เมื่อข้อมูลยังไม่ยืนยัน
 
 ## ทดสอบซ้ำ
 

@@ -129,7 +129,7 @@ uv run ruff check .
 
 ## งานที่ยังรอการตกลงหรือพัฒนาต่อ
 
-- ให้ 03 ส่งต่อ quality flags, confidence, emergency_instructions และ contact metadata; ให้ 08 ต่อ emergency fragment และความหมายคะแนนตาม `docs/integration-v3.md` แล้วทดสอบร่วมกับบริการจริง
+- 03 ส่ง quality flags และ emergency_instructions แล้ว รวมถึงต่อ 05/06 จริง; ยังต้องตกลงผู้ผลิต quality confidence/active_restriction และ emergency_context จาก region ที่ยืนยันแล้ว ตาม `docs/integration-v3.md`
 - เติม catalog คำแนะนำเฉพาะภัยจากเอกสารทางการที่ผ่านการทบทวน และตกลงเจ้าของข้อมูล emergency contacts; catalog ที่แจกยังไม่มีคำแนะนำเฉพาะภัยจริง
 - อนุมัติเกณฑ์ความเสี่ยง ความสดของข้อมูล ความปลอดภัยของทางเลือก และลำดับกฎเมื่อหลายเงื่อนไขเกิดพร้อมกัน
 - เชื่อม LLM SDK ที่รองรับ structured output พร้อมทดสอบ provider จริงและการควบคุม timeout/token/retry
