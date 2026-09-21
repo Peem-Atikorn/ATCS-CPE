@@ -15,7 +15,8 @@ from travel_agent.tools.schemas import QUALITY_FLAGS, Record
 if TYPE_CHECKING:
     from travel_agent.pipeline import AgentState
 
-MAX_EVIDENCE_IDS = 32  # per item, 07's EvidenceIds limit
+MAX_EVIDENCE_IDS = 12  # per item, within 07's EvidenceIds limit (1..32)
+MAX_EVIDENCE_PACKAGE = 64  # 07's DecisionRequest.evidence limit
 
 
 def _ids(records: list[Record]) -> list[str]:
@@ -51,10 +52,6 @@ def build_decision_request(state: AgentState) -> dict[str, Any]:
         },
         "quality": _quality(state, context),
         "alerts": [],
-        "evidence": [
-            {"context": context, "evidence_id": r.id, **r.model_dump(mode="json", exclude={"id"})}
-            for r in state.records()
-        ],
     }
 
     if state.risk:
@@ -118,6 +115,29 @@ def build_decision_request(state: AgentState) -> dict[str, Any]:
                 "suggested_departure_time": later.isoformat() if safer_later else None,
                 "evidence_ids": time_ids,
             }
+
+    referenced: set[str] = set()
+    if "risk" in payload:
+        referenced.update(payload["risk"]["evidence_ids"])
+    for key in ("weather", "transport"):
+        if key in payload:
+            referenced.update(payload[key]["evidence_ids"])
+    for alert in payload.get("alerts", []):
+        referenced.update(alert["evidence_ids"])
+    if "routes" in payload:
+        referenced.update(payload["routes"]["evidence_ids"])
+        for alt in payload["routes"].get("alternatives", []):
+            referenced.update(alt["evidence_ids"])
+    if "time_assessment" in payload:
+        referenced.update(payload["time_assessment"]["evidence_ids"])
+
+    all_records = {r.id: r for r in state.records() if r.id}
+    selected_ids = list(dict.fromkeys([*referenced, *all_records.keys()]))[:MAX_EVIDENCE_PACKAGE]
+    payload["evidence"] = [
+        {"context": context, "evidence_id": r_id, **all_records[r_id].model_dump(mode="json", exclude={"id"})}
+        for r_id in selected_ids
+        if r_id in all_records
+    ]
     return payload
 
 

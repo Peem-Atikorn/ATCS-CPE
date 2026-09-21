@@ -207,7 +207,7 @@ class RiskTests(unittest.TestCase):
     def test_missing_context_uses_conservative_degraded_result(self):
         result = assess_risk(None, now=NOW)
         self.assertEqual(result.level, Level.HIGH)
-        self.assertEqual(result.confidence, Level.LOW)
+        self.assertEqual(result.confidence, 0.10)
         self.assertIsNone(result.score)
 
     def test_unknown_feature_schema_is_rejected(self):
@@ -225,7 +225,7 @@ class RiskTests(unittest.TestCase):
         }
         result = assess_risk(summary, now=NOW)
         self.assertEqual(result.level, Level.MEDIUM)
-        self.assertEqual(result.confidence, Level.LOW)
+        self.assertEqual(result.confidence, 0.25)
         self.assertIsNone(result.score)
         self.assertIn("DATA_INCOMPLETE", {factor.type for factor in result.factors})
 
@@ -247,7 +247,7 @@ class RiskTests(unittest.TestCase):
         payload["degraded"] = True
         result = assess_risk(payload, now=NOW)
         self.assertEqual(result.level, Level.HIGH)
-        self.assertEqual(result.confidence, Level.MEDIUM)
+        self.assertEqual(result.confidence, 0.65)
         self.assertIn("WEATHER", {factor.type for factor in result.factors})
 
     def test_unknown_freshness_is_not_counted_as_usable_evidence(self):
@@ -256,7 +256,7 @@ class RiskTests(unittest.TestCase):
         payload["evidence"][1]["quality_flags"] = ["freshness_unknown"]
         payload["evidence"] = [payload["evidence"][1]]
         result = assess_risk(payload, now=NOW)
-        self.assertEqual(result.confidence, Level.LOW)
+        self.assertEqual(result.confidence, 0.25)
 
 
 class KnowledgeTests(unittest.TestCase):
@@ -354,7 +354,7 @@ class Module05IntegrationTests(unittest.TestCase):
         self.assertEqual(coverage, {kind: "covered" for kind in coverage})
         self.assertEqual(integrated["quality_flags"], [])
         self.assertFalse(integrated["degraded"])
-        self.assertEqual(risk.confidence, Level.HIGH)
+        self.assertEqual(risk.confidence, 0.90)
         self.assertEqual(routes.primary.risk_level, Level.LOW)
         self.assertTrue(routes.primary.usable)
 
@@ -381,7 +381,7 @@ class Module05IntegrationTests(unittest.TestCase):
         routes = analyze_routes(query(), integrated, risk, now=INTEGRATION_NOW)
 
         self.assertEqual(risk.level, Level.HIGH)
-        self.assertEqual(risk.confidence, Level.LOW)
+        self.assertEqual(risk.confidence, 0.25)
         self.assertEqual(
             {factor.type for factor in risk.factors},
             {"TRANSPORT", "DISASTER_EVENT"},

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 from travel_agent.contracts import RiskLevel
 
@@ -226,10 +226,19 @@ class RiskResult(ToolModel):
     level: RiskLevel
     # Model output probability, if the model is calibrated; shown to the backend as score.
     score: float | None = Field(default=None, ge=0, le=1)
-    confidence: RiskLevel
+    confidence: float = Field(ge=0, le=1)
     model_version: Identifier
     factors: list[RiskFactorResult] = Field(default_factory=list)
     records: list[Record] = Field(min_length=1)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, value: Any) -> Any:
+        if isinstance(value, RiskLevel):
+            return {"LOW": 0.25, "MEDIUM": 0.65, "HIGH": 0.90}[value.value]
+        if isinstance(value, str) and value.upper() in {"LOW", "MEDIUM", "HIGH"}:
+            return {"LOW": 0.25, "MEDIUM": 0.65, "HIGH": 0.90}[value.upper()]
+        return value
 
 
 class KnowledgeResult(ToolModel):

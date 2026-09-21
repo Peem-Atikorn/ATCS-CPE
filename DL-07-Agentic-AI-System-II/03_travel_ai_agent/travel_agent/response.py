@@ -78,11 +78,7 @@ def build_response(
         risk = AgentRisk(
             level=risk_level,
             score=state.risk.score if state.risk else None,
-            # 06 gives ordinal confidence; 07 v3 now returns a numeric policy score,
-            # but that scores the decision rules, not the risk estimate, and 02 uses
-            # this field to warn about low confidence. Left unset until the team
-            # agrees what 02's risk.confidence means (07 integration-v3, open item).
-            confidence=None,
+            confidence=state.risk.confidence if state.risk else None,
             factors=[
                 RiskFactor(type=f.type, level=f.level, description=f.description)
                 for f in (state.risk.factors if state.risk else [])
