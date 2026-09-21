@@ -234,7 +234,7 @@ def test_current_complete_coverage_stays_conservative_until_quality_is_confirmed
 ):
     integrated, risk, payload = pipeline_payload(upstream_ready=False)
     assert risk.level.value == "LOW"
-    assert risk.confidence.value == "HIGH"
+    assert risk.confidence == 0.9
     assert integrated.get("confidence") is None
     assert integrated.get("active_restriction") is None
     assert payload["quality"]["confidence"] == "LOW"
