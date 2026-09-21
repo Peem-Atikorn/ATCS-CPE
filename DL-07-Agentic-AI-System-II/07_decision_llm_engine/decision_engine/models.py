@@ -77,6 +77,9 @@ class Evidence(Scoped):
     expires_at: AwareDatetime
     # Untrusted reference text: never interpolated into instructions or the fallback.
     excerpt: str = Field(default="", max_length=4000)
+    # Hash of the passage content, computed by the module that holds the source
+    # (decision_engine/hashing.py). Absent for evidence whose owner has not adopted it.
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("url")
     @classmethod

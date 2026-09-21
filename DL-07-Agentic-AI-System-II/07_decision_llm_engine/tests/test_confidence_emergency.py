@@ -1,5 +1,6 @@
 import hashlib
 import json
+import unicodedata
 from copy import deepcopy
 from datetime import timedelta
 
@@ -12,6 +13,7 @@ from pydantic import TypeAdapter, ValidationError
 from decision_engine.api import create_app
 from decision_engine.emergency import EmergencyCatalog
 from decision_engine.handoff import emergency_fragment
+from decision_engine.hashing import content_sha256
 from decision_engine.models import DecisionRequest, DecisionResponse, Score
 from decision_engine.policy import Policy, evaluate
 
@@ -364,3 +366,71 @@ def test_handoff_scope_time_and_fallback(client, samples, now, emergency_setup):
     fragment = emergency_fragment(fallback, traveler_region="TEST-REGION", now=now)
     assert fragment["official_contacts"] == []
     assert "emergency_guidance_unavailable" in fragment["limitations"]
+
+
+# --- content hash matching (Modules 06 <-> 07) -------------------------------------
+
+
+def _content_catalog(setup):
+    """Move the synthetic procedure onto the content hash Module 06 reports."""
+    payload, catalog, settings, now = setup
+    evidence = next(e for e in payload["evidence"] if e["kind"] == "knowledge")
+    passage = "ข้อความสังเคราะห์สำหรับทดสอบ ไม่ใช่คำแนะนำจริง"
+    evidence["content_sha256"] = content_sha256(passage)
+    # 06 may lay the excerpt out however it likes; the review no longer depends on it.
+    evidence["excerpt"] = f"[document_id=SYN; page=1; section=1] {passage}"
+    procedure = catalog["procedures"][0]
+    procedure.pop("excerpt_sha256", None)
+    procedure["content_sha256"] = content_sha256(passage)
+    return payload, catalog, settings, now, evidence, passage
+
+
+def test_content_hash_grounds_regardless_of_excerpt_layout(emergency_setup):
+    setup = _content_catalog(emergency_setup)
+    payload, catalog, settings, now, evidence, passage = setup
+    # A different layout of the same passage still matches the reviewed procedure.
+    evidence["excerpt"] = f"[document_id=SYN; page=unknown; section=1]   {passage}  "
+
+    result = call_emergency((payload, catalog, settings, now))
+
+    assert result["emergency_assessment"]["status"] == "grounded"
+    assert result["emergency_instructions"]["what_to_do_now"].startswith("SYNTHETIC")
+
+
+def test_changed_source_text_is_reported_as_drift_not_as_unreviewed(emergency_setup):
+    setup = _content_catalog(emergency_setup)
+    payload, catalog, settings, now, evidence, _ = setup
+    evidence["content_sha256"] = content_sha256("ข้อความสังเคราะห์ที่ถูกแก้ภายหลัง")
+
+    result = call_emergency((payload, catalog, settings, now))
+    assessment = result["emergency_assessment"]
+
+    assert assessment["status"] == "fallback"
+    # The reason says the reviewed text changed, not that the scope was never reviewed.
+    assert assessment["rejected_evidence"][evidence["evidence_id"]] == ["emergency_source_changed"]
+
+
+def test_producer_without_a_content_hash_is_named_explicitly(emergency_setup):
+    setup = _content_catalog(emergency_setup)
+    payload, catalog, settings, now, evidence, _ = setup
+    del evidence["content_sha256"]
+
+    result = call_emergency((payload, catalog, settings, now))
+    rejected = result["emergency_assessment"]["rejected_evidence"][evidence["evidence_id"]]
+
+    assert rejected == ["emergency_content_hash_missing"]
+
+
+def test_a_procedure_needs_at_least_one_hash(emergency_setup):
+    payload, catalog, settings, now = emergency_setup
+    catalog["procedures"][0].pop("excerpt_sha256")
+    settings.emergency_catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+
+    with pytest.raises(ValidationError):
+        EmergencyCatalog.load(settings.emergency_catalog_path)
+
+
+def test_normalisation_ignores_whitespace_and_unicode_spelling():
+    composed = "เ" + "ก" + "ิ" + "ด"  # same text, decomposed spelling
+    assert content_sha256("  a\n b  ") == content_sha256("a b")
+    assert content_sha256(unicodedata.normalize("NFD", composed)) == content_sha256(composed)
