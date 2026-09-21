@@ -66,8 +66,10 @@ later replace the text scorer without bypassing the metadata filters.
 - Calculates duration from timed route segments.
 - Scores evidence matched to each route.
 - Treats official closures and `AVOID` instructions as hard constraints.
-- Identifies a clearly safer usable alternative only when every supplied coverage
-  status for that route is `covered`.
+- Identifies a clearly safer usable alternative only when essential coverage statuses
+  (`current_weather`, `weather_forecast`, `transport_status`, `disaster_event`) for
+  that route are `covered`, aligned with Contract Register Issue #2 (allowing `closure`
+  and `official_alert` to remain optional when no live providers publish them).
 - Does not claim a safe route when route context is unavailable.
 - Does not currently infer `safer_later`; that requires an agreed hazard-validity
   interval contract.

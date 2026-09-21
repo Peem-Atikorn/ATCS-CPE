@@ -21,6 +21,16 @@ KINDS = (
     "disaster_event",
     "official_alert",
 )
+# Same essential set as Module 06 routing.py (Contract Register issue #2). Optional
+# kinds have no live provider yet: their absence is reported per segment but does not
+# degrade quality. A provider that exists and fails (unavailable/stale) still does.
+ESSENTIAL_KINDS = (
+    "current_weather",
+    "weather_forecast",
+    "transport_status",
+    "disaster_event",
+)
+OPTIONAL_KINDS = tuple(kind for kind in KINDS if kind not in ESSENTIAL_KINDS)
 STATUSES = {"available", "unavailable"}
 EARTH_RADIUS_M = 6_371_000.0
 
@@ -473,11 +483,12 @@ def build_context(
                     if kind in stale
                     else "missing"
                 )
-                if coverage[kind] != "covered":
+                if coverage[kind] == "covered":
+                    continue
+                if kind in ESSENTIAL_KINDS or coverage[kind] != "missing":
                     all_flags.add(coverage[kind])
-            if "covered" in coverage.values() and any(
-                status != "covered" for status in coverage.values()
-            ):
+            essential = [coverage[kind] for kind in ESSENTIAL_KINDS]
+            if "covered" in essential and any(status != "covered" for status in essential):
                 all_flags.add("partial")
             output_segments.append(
                 {
@@ -501,15 +512,6 @@ def build_context(
                 "segments": output_segments,
             }
         )
-    for record in normalized:
-        all_flags.update(record["quality_flags"])
-        if record["status"] == "available" and (
-            (record["point"] is None and record["line"] is None)
-            or _record_time(record) is None
-        ):
-            all_flags.add("incomplete")
-        if record["freshness"] == "unknown":
-            all_flags.add("freshness_unknown")
     matched_ids = {
         record_id
         for route in routes
@@ -527,8 +529,45 @@ def build_context(
         }
         if record["record_id"] in matched_ids or record["status"] == "unavailable":
             evidence.append(serialized)
+            all_flags.update(record["quality_flags"])
+            if record["status"] == "available" and (
+                (record["point"] is None and record["line"] is None)
+                or _record_time(record) is None
+            ):
+                all_flags.add("incomplete")
+            if record["freshness"] == "unknown":
+                all_flags.add("freshness_unknown")
         else:
             unmatched_evidence.append(serialized)
+
+    if not all_flags:
+        confidence = "HIGH"
+    elif any(f in all_flags for f in ("unavailable", "missing", "incomplete", "stale", "partial")):
+        confidence = "LOW"
+    else:
+        confidence = "MEDIUM"
+
+    has_active_block = any(
+        r.get("severity") in ("HIGH", "CRITICAL")
+        or (
+            isinstance(r.get("value"), dict)
+            and (
+                r["value"].get("status") == "CLOSED"
+                or (
+                    r["value"].get("active") is True
+                    and r["value"].get("severity") in ("HIGH", "CRITICAL")
+                )
+            )
+        )
+        for r in normalized
+        if r.get("record_id") in matched_ids
+    )
+
+    if confidence == "LOW":
+        active_restriction = None
+    else:
+        active_restriction = bool(has_active_block)
+
     return {
         "feature_schema_version": FEATURE_SCHEMA_VERSION,
         "run_id": query["run_id"],
@@ -539,4 +578,6 @@ def build_context(
         "quality_flags": sorted(all_flags),
         "degraded": bool(all_flags),
         "risk_score": None,
+        "confidence": confidence,
+        "active_restriction": active_restriction,
     }

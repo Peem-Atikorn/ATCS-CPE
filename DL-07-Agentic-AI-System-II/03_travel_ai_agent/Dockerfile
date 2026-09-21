@@ -23,6 +23,10 @@ COPY 03_travel_ai_agent/travel_agent ./travel_agent
 # runtime files Module 03 calls, under the same sibling names used in the repo.
 COPY 04_external_data_services/tomtom_transport.py \
      04_external_data_services/gdacs_adapter.py \
+     04_external_data_services/weather_service.py \
+     04_external_data_services/open_meteo_adapter.py \
+     04_external_data_services/weather_to_canonical.py \
+     04_external_data_services/route_candidates.py \
      ./04_external_data_services/
 COPY 05_data_integration/integration.py ./05_data_integration/integration.py
 COPY 06_risk_knowledge_services/risk_knowledge ./06_risk_knowledge_services/risk_knowledge

@@ -14,10 +14,13 @@ class Settings(BaseSettings):
     agent_service_token: SecretStr = SecretStr("")
 
     decision_service_url: HttpUrl = HttpUrl("http://localhost:8050")
-    # False uses Module 04 transport/disaster, Module 05 integration, and Module 06.
-    # Weather and route candidates remain explicit synthetic stand-ins.
+    # False uses Module 04 (weather, transport, disaster, routing), Module 05
+    # integration, and Module 06 for real.
     use_mock_tools: bool = False
     tomtom_api_key: SecretStr = SecretStr("")
+    # Public demo server: no key, but rate limited. Point this at a self-hosted OSRM
+    # instance for production traffic.
+    osrm_base_url: HttpUrl = HttpUrl("https://router.project-osrm.org")
 
     # Hard limits on one run (03_process.txt: the agent must not run forever).
     max_agent_steps: int = Field(default=12, ge=1, le=50)
@@ -25,5 +28,5 @@ class Settings(BaseSettings):
     # Our own cap only. Module 02 sends X-Deadline (60 s for jobs, P-04) and the run stops
     # at the earliest deadline, so this must not be shorter than 02's budget.
     agent_total_timeout: float = Field(default=60, gt=0, le=300)
-    tool_timeout_seconds: float = Field(default=5, gt=0, le=60)
+    tool_timeout_seconds: float = Field(default=15, gt=0, le=60)
     decision_max_attempts: int = Field(default=2, ge=1, le=5)

@@ -1,3 +1,4 @@
+import sys
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -198,3 +199,238 @@ async def test_live_module_06_accepts_module_05_context_and_returns_agent_contra
     assert knowledge.records == []
     assert routes.primary.route_id == "route-1"
     assert routes.primary.clearly_safer is False
+
+
+@pytest.mark.asyncio
+async def test_live_integrate_includes_canonical_weather_records():
+    calls = []
+    weather_record = canonical("current_weather", "open-meteo:current:1")
+    transport_record = canonical("transport_status", "tomtom:incident-1")
+    disaster_record = canonical("disaster_event", "gdacs:FL:1:1")
+
+    tools = LiveToolSet(
+        clock=lambda: NOW,
+        context_builder=context_builder_spy(calls),
+    )
+
+    from travel_agent.tools.schemas import DisasterResult, Record, TransportResult, WeatherResult
+
+    rec = Record(
+        kind="weather",
+        source_name="Open-Meteo",
+        url="https://open-meteo.com",
+        official_source=False,
+        observed_at=NOW,
+        fetched_at=NOW,
+        expires_at=NOW + timedelta(hours=1),
+        excerpt="Clear",
+    )
+
+    weather = WeatherResult(
+        summary="Clear skies",
+        records=[rec],
+        canonical_records=[weather_record],
+    )
+    transport = TransportResult(
+        summary="Normal traffic",
+        records=[rec],
+        canonical_records=[transport_record],
+    )
+    disasters = DisasterResult(
+        alerts=[],
+        records=[rec],
+        canonical_records=[disaster_record],
+    )
+
+    routes = [
+        {
+            "route_id": "route-1",
+            "label": "Route 1",
+            "travel_modes": ["CAR"],
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[100.5018, 13.7563], [99.9577, 12.5684]],
+            },
+            "segments": [
+                {
+                    "start_index": 0,
+                    "end_index": 1,
+                    "enter_at": (NOW + timedelta(minutes=10)).isoformat(),
+                    "exit_at": (NOW + timedelta(hours=2)).isoformat(),
+                }
+            ],
+        }
+    ]
+
+    context = await tools.integrate(query(), routes, weather, transport, disasters)
+
+    assert context.run_id == "run-live-1"
+    assert len(calls) == 1
+    forwarded_records = calls[0][1]
+    assert weather_record in forwarded_records
+    assert transport_record in forwarded_records
+    assert disaster_record in forwarded_records
+
+
+@pytest.mark.asyncio
+async def test_live_weather_produces_canonical_records():
+    current_rec = canonical("current_weather", "open-meteo:current:test")
+    forecast_rec = canonical("weather_forecast", "open-meteo:forecast:test")
+
+    tools = LiveToolSet(
+        clock=lambda: NOW,
+        # Same (latitude, longitude) signature as Module 04's weather_service.
+        current_weather_fetcher=lambda lat, lon: current_rec,
+        forecast_fetcher=lambda lat, lon: [forecast_rec],
+    )
+
+    result = await tools.weather(query())
+    # Origin and destination both fetched (1 current + 1 forecast each = 4 total)
+    assert len(result.canonical_records) == 4
+    assert result.canonical_records[0] == current_rec
+    assert result.canonical_records[1] == forecast_rec
+    assert result.summary != ""
+
+
+@pytest.mark.asyncio
+async def test_live_weather_calls_real_module_04_entry_points(monkeypatch):
+    """Stubs cannot hide a signature mismatch: drive the real 04 functions offline."""
+    from urllib.error import URLError
+
+    from travel_agent.tools import live
+
+    *_, fetch_current, fetch_forecast, _fetch_routes = live._dependencies()
+    adapter = sys.modules["open_meteo_adapter"]
+
+    def offline(*args, **kwargs):
+        raise URLError("offline test")
+
+    monkeypatch.setattr(adapter, "urlopen", offline)
+    tools = LiveToolSet(
+        clock=lambda: NOW,
+        transport_fetcher=lambda bbox, *, now, api_key: [],
+        disaster_fetcher=lambda *, now: [],
+        context_builder=context_builder_spy([]),
+        risk_knowledge_service=object(),
+        current_weather_fetcher=fetch_current,
+        forecast_fetcher=fetch_forecast,
+    )
+
+    # Real 04 turns the provider failure into explicit unavailable records, which the
+    # agent reports as a weather tool failure; a TypeError would surface differently.
+    with pytest.raises(ToolError) as caught:
+        await tools.weather(query())
+    assert caught.value.tool == "weather"
+    assert caught.value.reason == "PROVIDER_UNAVAILABLE"
+
+
+
+@pytest.mark.asyncio
+async def test_live_weather_cites_a_bounded_subset_but_forwards_every_hour_to_05():
+    # Open-Meteo returns 48 hourly forecasts per location; 07 accepts at most 64 evidence
+    # items in total, so citing every hour would get the whole decision rejected.
+    def hourly(lat, lon):
+        records = []
+        for hour in range(48):
+            record = canonical("weather_forecast", f"open-meteo:{lat}:{hour}")
+            record["spatial_footprint"] = {"type": "Point", "coordinates": [lon, lat]}
+            record["valid_at"] = (NOW + timedelta(hours=hour)).isoformat()
+            record["value"] = {"description": f"{lat} hour {hour}"}
+            records.append(record)
+        return records
+
+    def current(lat, lon):
+        record = canonical("current_weather", f"open-meteo:{lat}:now")
+        record["spatial_footprint"] = {"type": "Point", "coordinates": [lon, lat]}
+        record["value"] = {"description": f"{lat} current"}
+        return record
+
+    tools = LiveToolSet(
+        clock=lambda: NOW,
+        current_weather_fetcher=current,
+        forecast_fetcher=hourly,
+    )
+    result = await tools.weather(query())
+
+    assert len(result.canonical_records) == 2 + 2 * 48
+    assert len(result.records) == 4
+    # Departure is NOW+10min, so the first hour at or after it is NOW+1h.
+    assert {record.excerpt for record in result.records} == {
+        "13.7563 current",
+        "13.7563 hour 1",
+        "12.5684 current",
+        "12.5684 hour 1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_live_route_candidates_uses_module_04_osrm_wrapper():
+    captured = {}
+
+    def fetch_routes(origin, destination, *, base_url):
+        captured.update(origin=origin, destination=destination, base_url=base_url)
+        return [
+            {
+                "route_id": "osrm-route-1",
+                "label": None,
+                "travel_modes": ["CAR"],
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": [[100.5018, 13.7563], [99.9577, 12.5684]],
+                },
+                "legs": [
+                    {"start_index": 0, "end_index": 1, "duration_minutes": 90, "mode": "CAR"}
+                ],
+                "distance_km": 200.0,
+            }
+        ]
+
+    tools = LiveToolSet(
+        clock=lambda: NOW,
+        osrm_base_url="https://osrm.example.org",
+        route_fetcher=fetch_routes,
+    )
+
+    result = await tools.route_candidates(query())
+
+    assert captured == {
+        "origin": (13.7563, 100.5018),
+        "destination": (12.5684, 99.9577),
+        "base_url": "https://osrm.example.org",
+    }
+    assert len(result.candidates) == 1
+    assert result.candidates[0].route_id == "osrm-route-1"
+    assert result.records[0].source_name == "OSRM routing"
+    assert result.records[0].kind == "route"
+
+
+@pytest.mark.asyncio
+async def test_live_route_candidates_calls_real_module_04_entry_point(monkeypatch):
+    """Stubs cannot hide a signature mismatch: drive the real 04 function offline."""
+    from urllib.error import URLError
+
+    from travel_agent.tools import live
+
+    *_, fetch_routes = live._dependencies()
+
+    def offline(*args, **kwargs):
+        raise URLError("offline test")
+
+    # route_candidates.py is loaded via exec_module, not registered in sys.modules;
+    # patch the function's own module globals instead.
+    monkeypatch.setitem(fetch_routes.__globals__, "urlopen", offline)
+    tools = LiveToolSet(
+        clock=lambda: NOW,
+        transport_fetcher=lambda bbox, *, now, api_key: [],
+        disaster_fetcher=lambda *, now: [],
+        context_builder=context_builder_spy([]),
+        risk_knowledge_service=object(),
+        current_weather_fetcher=lambda lat, lon: None,
+        forecast_fetcher=lambda lat, lon: [],
+        route_fetcher=fetch_routes,
+    )
+
+    with pytest.raises(ToolError) as caught:
+        await tools.route_candidates(query())
+    assert caught.value.tool == "route_candidates"
+    assert "OSRM network error" in caught.value.reason

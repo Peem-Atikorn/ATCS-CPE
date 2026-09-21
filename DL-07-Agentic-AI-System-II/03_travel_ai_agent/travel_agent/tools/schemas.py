@@ -77,6 +77,7 @@ class TravelQuery(ToolModel):
 class WeatherResult(ToolModel):
     summary: str = Field(min_length=1, max_length=2000)
     records: list[Record] = Field(min_length=1)
+    canonical_records: list[dict[str, Any]] = Field(default_factory=list, exclude=True)
 
 
 class TransportResult(ToolModel):

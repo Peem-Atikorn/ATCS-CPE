@@ -44,6 +44,11 @@ def build_decision_request(state: AgentState) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "context": context,
         "locale": locale_for(state.run.request.language),
+        "emergency_context": {
+            "context": context,
+            "region": "TH",
+            "hazard": "GENERAL",
+        },
         "quality": _quality(state, context),
         "alerts": [],
         "evidence": [

@@ -59,19 +59,109 @@ class MockToolSet:
     async def weather(self, query: TravelQuery) -> WeatherResult:
         if _scenario(query) == "weather_down":
             raise ToolError("weather", "mock provider unavailable")
+        now = self._clock()
+        lon_a, lat_a = query.origin[1], query.origin[0]
+        lon_b, lat_b = query.destination[1], query.destination[0]
+        canonical = [
+            {
+                "schema_version": "canonical-record-v0.1-proposed",
+                "record_id": f"mock-weather-cur-{int(now.timestamp())}",
+                "record_kind": "current_weather",
+                "status": "available",
+                "source": {"name": "Synthetic weather mock (Module 03)", "authority": None},
+                "source_lineage": "https://example.org/mock/weather",
+                "spatial_footprint": {
+                    "type": "LineString",
+                    "coordinates": [[lon_a, lat_a], [lon_b, lat_b]],
+                },
+                "observed_at": (now - timedelta(minutes=10)).isoformat(),
+                "valid_at": (now + timedelta(hours=1)).isoformat(),
+                "fetched_at": (now - timedelta(minutes=1)).isoformat(),
+                "expires_at": (now + timedelta(hours=2)).isoformat(),
+                "severity": "LOW",
+                "quality_flags": [],
+                "value": {
+                    "temperature_c": 28.0,
+                    "rain_mm": 0.0,
+                    "rain_probability_percent": 10.0,
+                    "wind_speed_kmh": 12.0,
+                    "weather_code": 0,
+                },
+            },
+            {
+                "schema_version": "canonical-record-v0.1-proposed",
+                "record_id": f"mock-weather-fore-{int(now.timestamp())}",
+                "record_kind": "weather_forecast",
+                "status": "available",
+                "source": {"name": "Synthetic weather mock (Module 03)", "authority": None},
+                "source_lineage": "https://example.org/mock/weather",
+                "spatial_footprint": {
+                    "type": "LineString",
+                    "coordinates": [[lon_a, lat_a], [lon_b, lat_b]],
+                },
+                "observed_at": None,
+                "valid_at": (now + timedelta(hours=1)).isoformat(),
+                "fetched_at": (now - timedelta(minutes=1)).isoformat(),
+                "expires_at": (now + timedelta(hours=3)).isoformat(),
+                "severity": "LOW",
+                "quality_flags": [],
+                "value": {
+                    "temperature_c": 29.0,
+                    "rain_mm": 0.0,
+                    "rain_probability_percent": 10.0,
+                    "wind_speed_kmh": 14.0,
+                    "weather_code": 0,
+                },
+            },
+        ]
         return WeatherResult(
-            summary="Synthetic weather: light rain", records=[self._record("weather")]
+            summary="Synthetic weather: light rain",
+            records=[self._record("weather")],
+            canonical_records=canonical,
         )
 
     async def transport(self, query: TravelQuery) -> TransportResult:
+        now = self._clock()
+        lon_a, lat_a = query.origin[1], query.origin[0]
+        lon_b, lat_b = query.destination[1], query.destination[0]
+        canonical = [
+            {
+                "schema_version": "canonical-record-v0.1-proposed",
+                "record_id": f"mock-transport-{int(now.timestamp())}",
+                "record_kind": "transport_status",
+                "status": "available",
+                "source": {"name": "Synthetic transport mock (Module 03)", "authority": None},
+                "source_lineage": "https://example.org/mock/transport",
+                "spatial_footprint": {
+                    "type": "LineString",
+                    "coordinates": [[lon_a, lat_a], [lon_b, lat_b]],
+                },
+                "observed_at": (now - timedelta(minutes=2)).isoformat(),
+                "valid_at": (now + timedelta(hours=2)).isoformat(),
+                "fetched_at": (now - timedelta(minutes=1)).isoformat(),
+                "expires_at": (now + timedelta(hours=2)).isoformat(),
+                "severity": "LOW",
+                "quality_flags": [],
+                "value": {
+                    "status": "NORMAL",
+                    "active": False,
+                },
+            }
+        ]
         return TransportResult(
-            summary="Synthetic transport: services running", records=[self._record("transport")]
+            summary="Synthetic transport: services running",
+            records=[self._record("transport")],
+            canonical_records=canonical,
         )
 
     async def disasters(self, query: TravelQuery) -> DisasterResult:
+        now = self._clock()
+        lon_a, lat_a = query.origin[1], query.origin[0]
+        lon_b, lat_b = query.destination[1], query.destination[0]
         record = self._record("official", official=True)
         alerts = []
-        if _scenario(query) == "closure":
+        is_closure = _scenario(query) == "closure"
+        if is_closure:
             alerts.append(
                 Alert(
                     hazard_id="mock-flood-1",
@@ -83,7 +173,33 @@ class MockToolSet:
                     record=record,
                 )
             )
-        return DisasterResult(alerts=alerts, records=[record])
+        canonical = [
+            {
+                "schema_version": "canonical-record-v0.1-proposed",
+                "record_id": f"mock-disaster-{int(now.timestamp())}",
+                "record_kind": "disaster_event",
+                "status": "available",
+                "source": {"name": "Synthetic disaster mock (Module 03)", "authority": None},
+                "source_lineage": "https://example.org/mock/disasters",
+                "spatial_footprint": {
+                    "type": "LineString",
+                    "coordinates": [[lon_a, lat_a], [lon_b, lat_b]],
+                },
+                "observed_at": (now - timedelta(minutes=2)).isoformat(),
+                "valid_at": (now + timedelta(hours=2)).isoformat(),
+                "fetched_at": (now - timedelta(minutes=1)).isoformat(),
+                "expires_at": (now + timedelta(hours=2)).isoformat(),
+                "severity": "HIGH" if is_closure else "LOW",
+                "quality_flags": [],
+                "value": {
+                    "event_type": "FLOOD" if is_closure else "NONE",
+                    "status": "CLOSED" if is_closure else "NORMAL",
+                    "active": is_closure,
+                    "severity": "HIGH" if is_closure else "LOW",
+                },
+            }
+        ]
+        return DisasterResult(alerts=alerts, records=[record], canonical_records=canonical)
 
     async def route_candidates(self, query: TravelQuery) -> RouteCandidatesResult:
         # Two legs so the timed segments Module 05 needs are exercised.

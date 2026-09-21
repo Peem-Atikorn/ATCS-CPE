@@ -6,7 +6,9 @@ are not made: synthetic canonical records exercise their real integration/adapte
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
+import json
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -18,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from decision_engine.api import create_app
 from decision_engine.config import Settings
+from decision_engine.emergency import EmergencyCatalog
 
 MODULES = Path(__file__).resolve().parents[2]
 MODULE_03 = MODULES / "03_travel_ai_agent"
@@ -31,6 +34,7 @@ for path in (MODULE_03, MODULE_06):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
+from risk_knowledge.knowledge import retrieve_knowledge  # noqa: E402
 from risk_knowledge.risk import assess_risk  # noqa: E402
 from risk_knowledge.routing import analyze_routes  # noqa: E402
 from travel_agent.evidence import build_decision_request  # noqa: E402
@@ -90,7 +94,7 @@ def route_query():
     }
 
 
-def canonical_records(*, high_transport=False, omit_kind=None):
+def canonical_records(*, high_transport=False, omit_kind=None, omit_kinds=()):
     records = []
     for kind in (
         "current_weather",
@@ -100,7 +104,7 @@ def canonical_records(*, high_transport=False, omit_kind=None):
         "disaster_event",
         "official_alert",
     ):
-        if kind == omit_kind:
+        if kind == omit_kind or kind in omit_kinds:
             continue
         high = high_transport and kind == "transport_status"
         records.append(
@@ -158,13 +162,16 @@ class PipelineState(SimpleNamespace):
         return found
 
 
-def pipeline_payload(*, upstream_ready, high_transport=False, omit_kind=None):
+def pipeline_payload(*, upstream_ready, high_transport=False, omit_kind=None, omit_kinds=()):
+    """upstream_ready: True/False pins 05's quality fields; None keeps what 05 computed."""
     integrated = load_module_05().build_context(
         route_query(),
-        canonical_records(high_transport=high_transport, omit_kind=omit_kind),
+        canonical_records(
+            high_transport=high_transport, omit_kind=omit_kind, omit_kinds=omit_kinds
+        ),
         now=NOW,
     )
-    if omit_kind is None:
+    if omit_kind is None and not omit_kinds:
         assert all(
             status == "covered"
             for segment in integrated["routes"][0]["segments"]
@@ -172,8 +179,11 @@ def pipeline_payload(*, upstream_ready, high_transport=False, omit_kind=None):
         )
         assert integrated["quality_flags"] == []
 
-    if upstream_ready:
+    if upstream_ready is True:
         integrated.update(confidence="HIGH", active_restriction=False)
+    elif upstream_ready is False:
+        integrated.pop("confidence", None)
+        integrated.pop("active_restriction", None)
     risk_06 = assess_risk(integrated, now=NOW)
     routes_06 = analyze_routes(
         {
@@ -269,9 +279,10 @@ def test_high_risk_from_module_06_cannot_be_weakened_by_module_07(pipeline_clien
 
 
 def test_partial_coverage_from_module_05_cannot_select_a_safe_action(pipeline_client):
-    integrated, risk, payload = pipeline_payload(upstream_ready=True, omit_kind="official_alert")
+    # An essential kind (Contract Register issue #2); official_alert is now optional.
+    integrated, risk, payload = pipeline_payload(upstream_ready=True, omit_kind="transport_status")
     coverage = integrated["routes"][0]["segments"][0]["coverage"]
-    assert coverage["official_alert"] == "missing"
+    assert coverage["transport_status"] == "missing"
     assert {"missing", "partial"} <= set(integrated["quality_flags"])
     assert risk.level.value == "LOW"
 
@@ -282,3 +293,157 @@ def test_partial_coverage_from_module_05_cannot_select_a_safe_action(pipeline_cl
     assert body["action_code"] == "AVOID"
     assert body["selected_route_id"] is None
     assert {"missing", "partial", "incomplete"} <= set(body["escalation_reasons"])
+
+
+def test_kinds_module_04_can_produce_reach_normal_on_module_05_quality(pipeline_client):
+    # No live provider publishes closure/official_alert. Keep 05's own confidence and
+    # active_restriction (no override) so this exercises the real 05 -> 03 -> 07 wire.
+    integrated, risk, payload = pipeline_payload(
+        upstream_ready=None, omit_kinds=("closure", "official_alert")
+    )
+    coverage = integrated["routes"][0]["segments"][0]["coverage"]
+    assert coverage["closure"] == coverage["official_alert"] == "missing"
+    assert integrated["quality_flags"] == []
+    assert integrated["confidence"] == "HIGH"
+    assert integrated["active_restriction"] is False
+    assert payload["quality"]["confidence"] == "HIGH"
+    assert payload["quality"]["active_restriction"] is False
+
+    result = pipeline_client.post("/v1/decisions", json=payload)
+    assert result.status_code == 200, result.text
+    body = result.json()
+    assert body["risk_level"] == "LOW"
+    assert body["action_code"] == "NORMAL"
+    assert not body["escalation_required"]
+
+
+def _flood_passage() -> dict:
+    return {
+        "document_id": "ddpm-flood-1",
+        "authority": "Department of Disaster Prevention and Mitigation",
+        "title": "Flood safety guide",
+        "url": "https://example.org/contract/flood-guide",
+        "language": "th-TH",
+        "geography": ["*"],
+        "hazard_types": ["GENERAL"],
+        "effective_at": (NOW - timedelta(days=1)).isoformat(),
+        "expires_at": (NOW + timedelta(days=1)).isoformat(),
+        "page": 1,
+        "section": "Evacuation",
+        "text": "Synthetic contract passage; not travel advice.",
+        "approved": True,
+    }
+
+
+def _contract_query() -> dict:
+    return {
+        "run_id": "contract-run",
+        "origin": [13.0, 100.0],
+        "destination": [13.0, 100.2],
+        "departure_time": DEPARTURE.isoformat(),
+        "language": "th-TH",
+    }
+
+
+def test_grounded_emergency_reachable_via_real_module_06_knowledge(tmp_path):
+    """06's excerpt no longer embeds a per-query score, so 07 can verify a real
+    retrieval result against a reviewed catalog entry by hash. Before that fix,
+    "grounded" was structurally unreachable through the live 06 -> 07 wire: a
+    catalog authored once against one alert wording would never match a live
+    request phrased differently, because the embedded score differed too.
+    """
+    _, _, payload = pipeline_payload(upstream_ready=True, high_transport=True)
+    passage = _flood_passage()
+
+    # The reviewer authors the catalog once, against whatever alert wording 06
+    # happened to retrieve with at review time.
+    review_time_alert = {
+        "hazard_id": "review-hazard",
+        "hazard_type": "GENERAL",
+        "severity": "HIGH",
+        # Shares tokens with the passage text, unlike live_alert below: this and
+        # live_alert deliberately produce different BM25 lexical scores.
+        "title": "Flood safety advisory",
+        "level": "AVOID",
+        "active": True,
+    }
+    reviewed = retrieve_knowledge(_contract_query(), [review_time_alert], [passage], now=NOW)
+    assert len(reviewed.records) == 1
+    catalog_excerpt = reviewed.records[0].excerpt
+
+    # The live request comes in with an unrelated, differently-worded alert for the
+    # same passage. Only the excerpt's stability (not its content matching byte for
+    # byte) is under test here.
+    live_alert = {
+        "hazard_id": "contract-hazard",
+        "hazard_type": "GENERAL",
+        "severity": "HIGH",
+        # No shared tokens with the passage text or review_time_alert above.
+        "title": "Storm bulletin update",
+        "level": "AVOID",
+        "active": True,
+    }
+    knowledge = retrieve_knowledge(_contract_query(), [live_alert], [passage], now=NOW)
+    assert len(knowledge.records) == 1
+    record = knowledge.records[0]
+    # This is the property the fix guarantees: what gets reviewed and what gets
+    # verified at request time are byte-identical for the same passage.
+    assert record.excerpt == catalog_excerpt
+
+    payload["evidence"].append(
+        {
+            "context": payload["context"],
+            "evidence_id": "contract-knowledge",
+            "kind": "knowledge",
+            "source_name": record.source_name,
+            "url": str(record.url),
+            "official_source": record.official_source,
+            "observed_at": record.observed_at.isoformat(),
+            "fetched_at": record.fetched_at.isoformat(),
+            "expires_at": record.expires_at.isoformat(),
+            "excerpt": record.excerpt,
+        }
+    )
+
+    catalog = EmergencyCatalog.load().content.model_dump(mode="json")
+    catalog["version"] = "contract-test-v1"
+    catalog["procedures"] = [
+        {
+            "procedure_id": "contract-procedure",
+            "status": "reviewed",
+            "region": "TH",
+            "hazard": "GENERAL",
+            "locale": "th-TH",
+            "source_url": str(record.url),
+            # Baked in once at review time, from catalog_excerpt, not from the live
+            # request's own excerpt.
+            "excerpt_sha256": hashlib.sha256(catalog_excerpt.encode()).hexdigest(),
+            "reviewed_at": (NOW - timedelta(days=1)).isoformat(),
+            "expires_at": (NOW + timedelta(hours=3)).isoformat(),
+            "instructions": {
+                "what_to_do_now": "SYNTHETIC: consult the test bulletin.",
+                "safety_steps": ["SYNTHETIC: follow the test procedure."],
+                "contacts": [],
+                "nearest_support": [],
+            },
+        }
+    ]
+    catalog_path = tmp_path / "catalog.json"
+    catalog_path.write_text(json.dumps(catalog), encoding="utf-8")
+
+    app = create_app(
+        Settings(
+            _env_file=None,
+            audit_log_path=tmp_path / "audit.jsonl",
+            emergency_catalog_path=catalog_path,
+        )
+    )
+    app.state.clock = lambda: NOW
+    with TestClient(app) as client:
+        response = client.post("/v1/decisions", json=payload)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["action_code"] == "AVOID"
+    assert body["emergency_assessment"]["status"] == "grounded"
+    assert body["emergency_assessment"]["evidence_ids"] == ["contract-knowledge"]

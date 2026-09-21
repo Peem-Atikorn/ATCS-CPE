@@ -280,6 +280,20 @@ class KnowledgeTests(unittest.TestCase):
         result = retrieve_knowledge(query(), [inactive], [passage()], now=NOW)
         self.assertEqual(result.records, [])
 
+    def test_excerpt_is_stable_across_queries_so_07_can_verify_it_by_hash(self):
+        # Module 07's emergency catalog matches a reviewed procedure to evidence by
+        # hashing this excerpt verbatim. If the excerpt embedded a per-query ranking
+        # score (as it once did), two different alert wordings for the same passage
+        # would hash differently and "grounded" guidance could never be verified,
+        # even for a passage a reviewer genuinely approved.
+        first = retrieve_knowledge(query(), [alert()], [passage()], now=NOW)
+        reworded = alert() | {"title": "Different wording entirely", "level": "CLOSURE"}
+        second = retrieve_knowledge(query(), [reworded], [passage()], now=NOW)
+        self.assertEqual(len(first.records), 1)
+        self.assertEqual(len(second.records), 1)
+        self.assertEqual(first.records[0].excerpt, second.records[0].excerpt)
+        self.assertNotIn("retrieval_score", first.records[0].excerpt)
+
 
 class RouteTests(unittest.TestCase):
     def test_closure_blocks_primary_and_marks_alternative_safer(self):
@@ -425,11 +439,35 @@ class ServiceAndContractTests(unittest.TestCase):
             risk_result = assess_risk(context(), now=NOW)
             knowledge_result = retrieve_knowledge(query(), [alert()], [passage()], now=NOW)
             route_result = analyze_routes(query(), context(), risk_result, now=NOW)
+
             AgentRiskResult.model_validate(risk_result.model_dump())
             AgentKnowledgeResult.model_validate(knowledge_result.model_dump())
             AgentRouteResult.model_validate(route_result.model_dump())
         finally:
             sys.path.remove(str(agent_root))
+
+    def test_complete_coverage_with_essential_kinds(self):
+        from risk_knowledge.routing import _has_complete_coverage
+        from risk_knowledge.models import IntegratedRoute, RouteSegment
+        seg = RouteSegment(
+            start_index=0,
+            end_index=1,
+            enter_at=NOW,
+            exit_at=NOW,
+            coverage={
+                "current_weather": "covered",
+                "weather_forecast": "covered",
+                "transport_status": "covered",
+                "disaster_event": "covered",
+                "closure": "missing",
+                "official_alert": "missing",
+            }
+        )
+        route = IntegratedRoute(
+            route_id="r1",
+            segments=[seg]
+        )
+        self.assertTrue(_has_complete_coverage(route))
 
 
 if __name__ == "__main__":

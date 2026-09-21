@@ -164,6 +164,7 @@ class EmergencyContact(_Response):
     phone: str
     url: str | None = None
     available_hours: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class SupportPlace(_Response):
