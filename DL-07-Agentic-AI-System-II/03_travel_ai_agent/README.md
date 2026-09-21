@@ -44,7 +44,7 @@ understand ─▶ fetch_external ─────▶ integrate ─▶ assess ─�
 - **04 / 05 / 06:** `travel_agent/tools/schemas.py` เป็น**ร่าง** contract ที่ 03 เสนอ ทุก record ต้องมี `source`, `url` (https), `observed_at`, `fetched_at` และ `expires_at` ตามที่ 07 บังคับ
 - **04 (supawit):** ต้องผลิต `RouteCandidate` (geometry LineString + duration ต่อ leg) และ record ที่มี `observed_at`/`expires_at` ครบ เพราะ 07 บังคับลำดับ `observed_at <= fetched_at < expires_at` ส่วนพยากรณ์ที่มีแต่ `valid_at` ยังส่งเข้า 07 ไม่ได้จนกว่าจะตกลงกัน
 - **05 (supawit):** 03 ส่ง `routes` พร้อม `enter_at`/`exit_at` และ canonical records เข้า `build_context()` แล้ว จากนั้นส่ง context ต่อให้ 06 ทั้งก้อน; `confidence` กับ `active_restriction` ยังต้องตกลงร่วมกัน
-- **07 (mekmai):** v3 ให้ `confidence` เป็นตัวเลข 0–1 แต่เป็นคะแนนของนโยบาย ไม่ใช่ความมั่นใจของค่าความเสี่ยง ส่วน 02 ใช้ `risk.confidence` เตือนเมื่อต่ำกว่า 0.5 ตอนนี้ 03 จึงส่ง `risk.confidence = null` จนกว่าจะตกลงความหมายกัน; `emergency_contact_metadata` ก็ยังไม่มีช่องรับใน contract ของ 02
+- **07 (mekmai):** `confidence` ของ 07 เป็นคะแนนของนโยบาย ไม่ใช่ความมั่นใจของค่าความเสี่ยง 03 จึงส่ง `risk.confidence` ให้ 02 จากค่าของ **06** (ตัวเลข 0–1 ตั้งแต่ 2026-09-21) ซึ่งตรงความหมายกับที่ 02 ใช้เตือนเมื่อต่ำกว่า 0.5 ส่วนคะแนนนโยบายของ 07 ยังไม่ได้ส่งต่อ; `emergency_contact_metadata` ยังไม่มีช่องรับใน contract ของ 02
 
 ## เริ่มใช้งานด้วย Python
 

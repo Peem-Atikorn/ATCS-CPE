@@ -177,8 +177,10 @@ def _evidence_record(record: CanonicalRecord, *, kind: str) -> Record:
         raise ValueError("canonical record needs source.name")
     value = record.get("value")
     description = value.get("description") if isinstance(value, dict) else None
-    excerpt = description if isinstance(description, str) and description else str(
-        record.get("record_kind", "external data")
+    excerpt = (
+        description
+        if isinstance(description, str) and description
+        else str(record.get("record_kind", "external data"))
     )
     return Record(
         kind=kind,
@@ -360,9 +362,7 @@ class LiveToolSet(MockToolSet):
                 api_key=self._tomtom_api_key,
             )
             available = _available(canonical, "transport")
-            evidence = [
-                _evidence_record(record, kind="transport") for record in available
-            ] or [
+            evidence = [_evidence_record(record, kind="transport") for record in available] or [
                 _check_record(
                     kind="transport",
                     source_name="TomTom Orbis Traffic",
@@ -386,9 +386,7 @@ class LiveToolSet(MockToolSet):
         try:
             canonical = await asyncio.to_thread(self._fetch_disasters, now=now)
             available = _available(canonical, "disasters")
-            evidence = [
-                _evidence_record(record, kind="official") for record in available
-            ] or [
+            evidence = [_evidence_record(record, kind="official") for record in available] or [
                 _check_record(
                     kind="official",
                     source_name="Global Disaster Alert and Coordination System, GDACS",
@@ -466,9 +464,7 @@ class LiveToolSet(MockToolSet):
         except Exception as error:
             raise ToolError("integrate", f"invalid Module 05 result: {error}") from error
 
-    async def risk(
-        self, query: TravelQuery, context: IntegratedContext | None
-    ) -> RiskResult:
+    async def risk(self, query: TravelQuery, context: IntegratedContext | None) -> RiskResult:
         try:
             result = await self._risk_knowledge.risk(
                 query.model_dump(mode="python"),
@@ -478,9 +474,7 @@ class LiveToolSet(MockToolSet):
         except Exception as error:
             raise ToolError("risk", f"invalid Module 06 result: {error}") from error
 
-    async def knowledge(
-        self, query: TravelQuery, alerts: list[Alert]
-    ) -> KnowledgeResult:
+    async def knowledge(self, query: TravelQuery, alerts: list[Alert]) -> KnowledgeResult:
         try:
             result = await self._risk_knowledge.knowledge(
                 query.model_dump(mode="python"),

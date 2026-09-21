@@ -134,7 +134,11 @@ def build_decision_request(state: AgentState) -> dict[str, Any]:
     all_records = {r.id: r for r in state.records() if r.id}
     selected_ids = list(dict.fromkeys([*referenced, *all_records.keys()]))[:MAX_EVIDENCE_PACKAGE]
     payload["evidence"] = [
-        {"context": context, "evidence_id": r_id, **all_records[r_id].model_dump(mode="json", exclude={"id"})}
+        {
+            "context": context,
+            "evidence_id": r_id,
+            **all_records[r_id].model_dump(mode="json", exclude={"id"}),
+        }
         for r_id in selected_ids
         if r_id in all_records
     ]

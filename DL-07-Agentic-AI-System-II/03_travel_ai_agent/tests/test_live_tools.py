@@ -163,39 +163,47 @@ async def test_live_module_06_accepts_module_05_context_and_returns_agent_contra
         disaster_fetcher=lambda *, now: [],
         context_builder=context_builder_spy([]),
     )
-    integrated = IntegratedContext.model_validate({
-        "feature_schema_version": "integrated-travel-v0.1-proposed",
-        "run_id": "run-live-1",
-        "created_at": NOW.isoformat(),
-        "routes": [{
-            "route_id": "route-1",
-            "label": "Route 1",
-            "travel_modes": ["CAR"],
-            "geometry": {
-                "type": "LineString",
-                "coordinates": [[100.5018, 13.7563], [99.9577, 12.5684]],
-            },
-            "segments": [{
-                "start_index": 0,
-                "end_index": 1,
-                "enter_at": (NOW + timedelta(minutes=10)).isoformat(),
-                "exit_at": (NOW + timedelta(hours=2)).isoformat(),
-                "matched_record_ids": {},
-                "coverage": {"weather_observation": "missing"},
-            }],
-        }],
-        "evidence": [],
-        "quality_flags": ["missing"],
-        "degraded": True,
-        "risk_score": None,
-    })
+    integrated = IntegratedContext.model_validate(
+        {
+            "feature_schema_version": "integrated-travel-v0.1-proposed",
+            "run_id": "run-live-1",
+            "created_at": NOW.isoformat(),
+            "routes": [
+                {
+                    "route_id": "route-1",
+                    "label": "Route 1",
+                    "travel_modes": ["CAR"],
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[100.5018, 13.7563], [99.9577, 12.5684]],
+                    },
+                    "segments": [
+                        {
+                            "start_index": 0,
+                            "end_index": 1,
+                            "enter_at": (NOW + timedelta(minutes=10)).isoformat(),
+                            "exit_at": (NOW + timedelta(hours=2)).isoformat(),
+                            "matched_record_ids": {},
+                            "coverage": {"weather_observation": "missing"},
+                        }
+                    ],
+                }
+            ],
+            "evidence": [],
+            "quality_flags": ["missing"],
+            "degraded": True,
+            "risk_score": None,
+        }
+    )
 
     risk = await tools.risk(query(), integrated)
     knowledge = await tools.knowledge(query(), [])
     routes = await tools.routes(query(), integrated, risk)
 
     assert risk.model_version == "rule-baseline-v0.1.2"
-    assert risk.confidence.value == "LOW"
+    # 06 reports confidence as a number now (LOW/MEDIUM/HIGH map to 0.25/0.65/0.90).
+    # This context carries no usable evidence, so it must stay in the lowest band.
+    assert risk.confidence == pytest.approx(0.25)
     assert knowledge.records == []
     assert routes.primary.route_id == "route-1"
     assert routes.primary.clearly_safer is False
@@ -324,7 +332,6 @@ async def test_live_weather_calls_real_module_04_entry_points(monkeypatch):
     assert caught.value.reason == "PROVIDER_UNAVAILABLE"
 
 
-
 @pytest.mark.asyncio
 async def test_live_weather_cites_a_bounded_subset_but_forwards_every_hour_to_05():
     # Open-Meteo returns 48 hourly forecasts per location; 07 accepts at most 64 evidence
@@ -378,9 +385,7 @@ async def test_live_route_candidates_uses_module_04_osrm_wrapper():
                     "type": "LineString",
                     "coordinates": [[100.5018, 13.7563], [99.9577, 12.5684]],
                 },
-                "legs": [
-                    {"start_index": 0, "end_index": 1, "duration_minutes": 90, "mode": "CAR"}
-                ],
+                "legs": [{"start_index": 0, "end_index": 1, "duration_minutes": 90, "mode": "CAR"}],
                 "distance_km": 200.0,
             }
         ]
