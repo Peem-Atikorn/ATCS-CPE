@@ -47,6 +47,9 @@ class Record(ToolModel):
     fetched_at: AwareDatetime
     expires_at: AwareDatetime
     excerpt: str = Field(default="", max_length=4000)
+    # Set by the module that owns the source (06 for knowledge passages). The agent
+    # forwards it to 07 and never computes or edits it.
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def provenance_is_usable(self):
