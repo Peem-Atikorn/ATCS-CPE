@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any, Iterable
 
+from .hashing import content_sha256
 from .models import (
     AlertInput,
     KnowledgePassage,
@@ -149,5 +150,8 @@ def retrieve_knowledge(
             fetched_at=current,
             expires_at=passage.expires_at,
             excerpt=excerpt,
+            # Identity of the content itself, so a change to the line above cannot
+            # invalidate a reviewed procedure, and edited source text is detected.
+            content_sha256=content_sha256(passage.text),
         ))
     return KnowledgeResult(records=records)

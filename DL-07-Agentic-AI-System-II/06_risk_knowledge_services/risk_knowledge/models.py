@@ -143,6 +143,9 @@ class Record(StrictModel):
     fetched_at: AwareDatetime
     expires_at: AwareDatetime
     excerpt: str = Field(default="", max_length=4000)
+    # Hash of the passage content (risk_knowledge/hashing.py). Module 07 matches a
+    # reviewed emergency procedure on this instead of on the excerpt's layout.
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def provenance_is_usable(self):
