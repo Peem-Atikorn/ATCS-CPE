@@ -1,4 +1,4 @@
-import type { GeoPoint } from "@/lib/geocode";
+import { haversineKm, type GeoPoint } from "@/lib/geocode";
 import type {
   EmergencyInstructions,
   RecommendationResponse,
@@ -52,7 +52,7 @@ export function buildMockRecommendation(input: {
         route_id: "demo-primary",
         label: `${input.origin.name} → ${input.destination.name}`,
         travel_modes: [input.mode],
-        distance_km: haversineKm(input.origin, input.destination),
+        distance_km: Math.round(haversineKm(input.origin, input.destination)),
         duration_minutes: Math.round((haversineKm(input.origin, input.destination) / 70) * 60),
         risk_level: level,
         geometry: {
@@ -127,17 +127,6 @@ function jitter(seed: string, scale: number): number {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (hash * 17 + seed.charCodeAt(i)) >>> 0;
   return ((hash % 1000) / 1000 - 0.5) * scale;
-}
-
-function haversineKm(a: GeoPoint, b: GeoPoint): number {
-  const R = 6371;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lon - a.lon);
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
-  return Math.round(R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h)));
 }
 
 const SCENARIOS: Record<

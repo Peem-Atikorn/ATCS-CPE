@@ -4,7 +4,11 @@ import { requestRecommendation } from "@/lib/api";
 import { toUserMessage } from "@/lib/api/problem";
 import { geocode, type GeoPoint } from "@/lib/geocode";
 import { buildMockRecommendation } from "@/lib/mock-recommendation";
+import { fetchDrivingRoute, type DrivingRoute } from "@/lib/routing";
 import type { RecommendationResponse, TravelMode } from "@/lib/types";
+
+/** Travel modes OSRM's public driving profile can approximate with a real road route. */
+const ROAD_MODES = new Set<TravelMode>(["CAR", "BUS"]);
 
 export type TripStatus = "idle" | "geocoding" | "submitting" | "streaming" | "success" | "error";
 
@@ -24,6 +28,8 @@ type TripContextValue = {
   usingMock: boolean;
   progressMessage: string | null;
   errorMessage: string | null;
+  /** Real road-following geometry for CAR/BUS, fetched independently of the recommendation. */
+  roadRoute: DrivingRoute | null;
   submit: (input: TripFormInput) => Promise<void>;
 };
 
@@ -37,6 +43,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [usingMock, setUsingMock] = useState(false);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [roadRoute, setRoadRoute] = useState<DrivingRoute | null>(null);
   const requestSeq = useRef(0);
 
   const submit = useCallback(async (input: TripFormInput) => {
@@ -46,6 +53,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setStatus("geocoding");
     setErrorMessage(null);
     setProgressMessage(null);
+    setRoadRoute(null);
 
     let origin: GeoPoint;
     let destination: GeoPoint;
@@ -62,6 +70,12 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setOriginPoint(origin);
     setDestinationPoint(destination);
     setStatus("submitting");
+
+    if (ROAD_MODES.has(input.mode)) {
+      fetchDrivingRoute(origin, destination).then((route) => {
+        if (!isStale()) setRoadRoute(route);
+      });
+    }
 
     const departureTime = `${input.date}T08:00:00+07:00`;
 
@@ -109,6 +123,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         usingMock,
         progressMessage,
         errorMessage,
+        roadRoute,
         submit,
       }}
     >
