@@ -2,21 +2,25 @@
 import { createContext, useCallback, useContext, useRef, useState } from "react";
 import { requestRecommendation } from "@/lib/api";
 import { toUserMessage } from "@/lib/api/problem";
-import { geocode, type GeoPoint } from "@/lib/geocode";
+import { geocode, reverseGeocode, type GeoPoint } from "@/lib/geocode";
 import { buildMockRecommendation } from "@/lib/mock-recommendation";
 import { fetchDrivingRoute, type DrivingRoute } from "@/lib/routing";
-import type { RecommendationResponse, TravelMode } from "@/lib/types";
+import type { AvoidOption, RecommendationResponse, TravelMode } from "@/lib/types";
 
 /** Travel modes OSRM's public driving profile can approximate with a real road route. */
 const ROAD_MODES = new Set<TravelMode>(["CAR", "BUS"]);
 
 export type TripStatus = "idle" | "geocoding" | "submitting" | "streaming" | "success" | "error";
+export type PinningMode = "origin" | "destination" | null;
 
 export type TripFormInput = {
   origin: string;
   destination: string;
   date: string;
+  time?: string;
   mode: TravelMode;
+  avoid?: AvoidOption[];
+  travelerCount?: number;
   note?: string;
 };
 
@@ -28,25 +32,85 @@ type TripContextValue = {
   usingMock: boolean;
   progressMessage: string | null;
   errorMessage: string | null;
+  selectedRouteIndex: number;
+  setSelectedRouteIndex: (index: number) => void;
   /** Real road-following geometry for CAR/BUS, fetched independently of the recommendation. */
   roadRoute: DrivingRoute | null;
+  lastInput: TripFormInput | null;
   submit: (input: TripFormInput) => Promise<void>;
+  applyAssistantChanges: (changes: Partial<TripFormInput>) => Promise<void>;
+  pinningMode: PinningMode;
+  setPinningMode: (mode: PinningMode) => void;
+  pinLocation: (type: "origin" | "destination", coords: { lat: number; lon: number }) => Promise<void>;
+  resetPins: () => void;
 };
 
 const TripContext = createContext<TripContextValue | null>(null);
 
 export function TripProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<TripStatus>("idle");
+  const [lastInput, setLastInput] = useState<TripFormInput | null>(null);
   const [originPoint, setOriginPoint] = useState<GeoPoint | null>(null);
   const [destinationPoint, setDestinationPoint] = useState<GeoPoint | null>(null);
+  const [pinningMode, setPinningMode] = useState<PinningMode>(null);
   const [recommendation, setRecommendation] = useState<RecommendationResponse | null>(null);
   const [usingMock, setUsingMock] = useState(false);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [roadRoute, setRoadRoute] = useState<DrivingRoute | null>(null);
+  const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const requestSeq = useRef(0);
 
+  const resetPins = useCallback(() => {
+    setOriginPoint(null);
+    setDestinationPoint(null);
+    setRoadRoute(null);
+    setPinningMode(null);
+  }, []);
+
+  const pinLocation = useCallback(async (type: "origin" | "destination", coords: { lat: number; lon: number }) => {
+    const initialName = `พิกัด (${coords.lat.toFixed(4)}, ${coords.lon.toFixed(4)})`;
+    const newPoint: GeoPoint = {
+      lat: coords.lat,
+      lon: coords.lon,
+      name: initialName,
+      source: "nominatim",
+    };
+
+    if (type === "origin") {
+      setOriginPoint(newPoint);
+    } else {
+      setDestinationPoint(newPoint);
+    }
+
+    // Resolve human-readable name in background
+    reverseGeocode(coords.lat, coords.lon).then((resolvedName) => {
+      const updatedPoint: GeoPoint = {
+        lat: coords.lat,
+        lon: coords.lon,
+        name: resolvedName,
+        source: "nominatim",
+      };
+      if (type === "origin") {
+        setOriginPoint((prev) => (prev && prev.lat === coords.lat && prev.lon === coords.lon ? updatedPoint : prev));
+      } else {
+        setDestinationPoint((prev) => (prev && prev.lat === coords.lat && prev.lon === coords.lon ? updatedPoint : prev));
+      }
+    });
+
+    // Update road route if both endpoints exist
+    const otherPoint = type === "origin" ? destinationPoint : originPoint;
+    if (otherPoint) {
+      const start = type === "origin" ? newPoint : otherPoint;
+      const end = type === "origin" ? otherPoint : newPoint;
+      fetchDrivingRoute(start, end).then((route) => {
+        setRoadRoute(route);
+      });
+    }
+  }, [originPoint, destinationPoint]);
+
   const submit = useCallback(async (input: TripFormInput) => {
+    setLastInput(input);
     const seq = ++requestSeq.current;
     const isStale = () => seq !== requestSeq.current;
 
@@ -54,11 +118,18 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setErrorMessage(null);
     setProgressMessage(null);
     setRoadRoute(null);
+    setSelectedRouteIndex(0);
 
     let origin: GeoPoint;
     let destination: GeoPoint;
     try {
-      [origin, destination] = await Promise.all([geocode(input.origin), geocode(input.destination)]);
+      const originPromise = originPoint && originPoint.name === input.origin
+        ? Promise.resolve(originPoint)
+        : geocode(input.origin);
+      const destPromise = destinationPoint && destinationPoint.name === input.destination
+        ? Promise.resolve(destinationPoint)
+        : geocode(input.destination);
+      [origin, destination] = await Promise.all([originPromise, destPromise]);
     } catch {
       // geocode() already falls back internally; this only triggers on a thrown bug.
       if (isStale()) return;
@@ -77,7 +148,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       });
     }
 
-    const departureTime = `${input.date}T08:00:00+07:00`;
+    const departureTime = `${input.date}T${input.time || "08:00"}:00+07:00`;
 
     try {
       const result = await requestRecommendation(
@@ -86,7 +157,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
           destination: { name: destination.name, lat: destination.lat, lon: destination.lon },
           departure_time: departureTime,
           timezone: "Asia/Bangkok",
-          preferences: { travel_modes: [input.mode] },
+          preferences: {
+            travel_modes: [input.mode],
+            avoid: input.avoid && input.avoid.length > 0 ? input.avoid : undefined,
+            traveler_count: input.travelerCount,
+          },
           question: input.note || null,
         },
         {
@@ -111,7 +186,26 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
       setUsingMock(true);
       setStatus("success");
     }
-  }, []);
+  }, [originPoint, destinationPoint]);
+
+  const applyAssistantChanges = useCallback(
+    async (changes: Partial<TripFormInput>) => {
+      const fallback: TripFormInput = {
+        origin: originPoint?.name || "Bangkok",
+        destination: destinationPoint?.name || "Chiang Mai",
+        date: new Date().toISOString().split("T")[0],
+        time: "08:00",
+        mode: "CAR",
+      };
+      const merged: TripFormInput = {
+        ...(lastInput || fallback),
+        ...changes,
+      };
+      setLastInput(merged);
+      await submit(merged);
+    },
+    [lastInput, originPoint, destinationPoint, submit]
+  );
 
   return (
     <TripContext.Provider
@@ -123,8 +217,16 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         usingMock,
         progressMessage,
         errorMessage,
+        selectedRouteIndex,
+        setSelectedRouteIndex,
         roadRoute,
+        lastInput,
         submit,
+        applyAssistantChanges,
+        pinningMode,
+        setPinningMode,
+        pinLocation,
+        resetPins,
       }}
     >
       {children}

@@ -34,11 +34,11 @@ for path in (MODULE_03, MODULE_06):
     if str(path) not in sys.path:
         sys.path.insert(0, str(path))
 
-from risk_knowledge.knowledge import retrieve_knowledge  # noqa: E402
-from risk_knowledge.risk import assess_risk  # noqa: E402
-from risk_knowledge.routing import analyze_routes  # noqa: E402
-from travel_agent.evidence import build_decision_request  # noqa: E402
-from travel_agent.tools.schemas import (  # noqa: E402
+from risk_knowledge.knowledge import retrieve_knowledge  # noqa: E402 # type: ignore
+from risk_knowledge.risk import assess_risk  # noqa: E402 # type: ignore
+from risk_knowledge.routing import analyze_routes  # noqa: E402 # type: ignore
+from travel_agent.evidence import build_decision_request  # noqa: E402 # type: ignore
+from travel_agent.tools.schemas import (  # noqa: E402 # type: ignore
     DisasterResult,
     IntegratedContext,
     Record,

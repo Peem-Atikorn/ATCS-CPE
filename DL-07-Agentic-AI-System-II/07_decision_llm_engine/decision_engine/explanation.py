@@ -60,6 +60,7 @@ async def explain(
     if provider is None:
         return fallback, ["LLM_DISABLED_TEMPLATE_USED"]
     ids = sorted(citation_ids)
+    is_nl = getattr(provider, "is_natural_language", False)
     package = {
         "system": "Explain the locked action using only the supplied sentence bank. "
         "Never change its meaning, numbers, instructions or evidence IDs.",
@@ -70,6 +71,15 @@ async def explain(
         "evidence_ids": ids,
         "output_schema": Candidate.model_json_schema(),
     }
+    if is_nl:
+        package["context_summary"] = {
+            "route_id": request.context.route_id,
+            "departure_time": request.context.departure_time.isoformat(),
+            "weather_summary": request.weather.text if request.weather else None,
+            "transport_summary": request.transport.text if request.transport else None,
+            "risk_level": request.risk.level.value if request.risk and hasattr(request.risk.level, "value") else str(request.risk.level) if request.risk else None,
+            "alerts": [alert.headline for alert in request.alerts] if request.alerts else [],
+        }
     # Byte length is a conservative upper bound for byte-level tokenizer input.
     # Real provider integrations must replace this with that provider's token counter.
     packed = json.dumps(package, ensure_ascii=False).encode("utf-8")
@@ -78,6 +88,7 @@ async def explain(
     failures = []
 
     async def attempts():
+        is_nl = getattr(provider, "is_natural_language", False)
         for _ in range(settings.llm_max_attempts):
             try:
                 # Each attempt gets a fresh copy; it cannot mutate the locked decision.
@@ -88,14 +99,23 @@ async def explain(
                     failures.append("LLM_OUTPUT_BUDGET")
                     continue
                 candidate = Candidate.model_validate(raw)
-                valid = (
-                    candidate.action_code == decision.action
-                    and candidate.summary == fallback.summary
-                    and sorted(candidate.reasons) == sorted(fallback.reasons)
-                    and sorted(candidate.instructions) == sorted(fallback.instructions)
-                    and sorted(candidate.uncertainty) == sorted(fallback.uncertainty)
-                    and sorted(candidate.evidence_ids) == ids
-                )
+                if is_nl:
+                    valid = (
+                        candidate.action_code == decision.action
+                        and bool(candidate.summary and candidate.summary.strip())
+                        and bool(candidate.reasons)
+                        and bool(candidate.instructions)
+                        and set(candidate.evidence_ids).issubset(set(ids))
+                    )
+                else:
+                    valid = (
+                        candidate.action_code == decision.action
+                        and candidate.summary == fallback.summary
+                        and sorted(candidate.reasons) == sorted(fallback.reasons)
+                        and sorted(candidate.instructions) == sorted(fallback.instructions)
+                        and sorted(candidate.uncertainty) == sorted(fallback.uncertainty)
+                        and sorted(candidate.evidence_ids) == ids
+                    )
                 if not valid:
                     failures.append("LLM_UNGROUNDED_OUTPUT")
                     continue

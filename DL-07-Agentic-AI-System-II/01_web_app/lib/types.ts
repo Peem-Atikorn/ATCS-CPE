@@ -200,5 +200,20 @@ export function isJobAccepted(
   return (value as JobAccepted).status === "queued" && "events_url" in value;
 }
 
+export type FeedbackCreate = {
+  rating?: number | null;
+  helpful?: boolean | null;
+  outcome?: "UNKNOWN" | "FOLLOWED" | "PARTIALLY_FOLLOWED" | "IGNORED";
+  report_type?: "INACCURATE" | "OUTDATED" | "UNSAFE" | "OTHER" | null;
+  comment?: string | null;
+};
+
+export type FeedbackCreated = {
+  feedback_id: string;
+  created_at: string;
+  review_status: string;
+};
+
 /** Legacy alias kept so any lingering imports keep compiling. */
 export type Recommendation = RecommendationResponse;
+

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import socket
 from datetime import datetime, timedelta, timezone
@@ -201,13 +202,7 @@ def _unavailable(fetched_at: datetime, code: str) -> dict:
     }
 
 
-def fetch_canonical_disasters(*, now: datetime | None = None) -> list[dict]:
-    """Fetch recent events; an empty list means the check found no events."""
-    now = now or datetime.now(timezone.utc)
-    if now.tzinfo is None or now.utcoffset() is None:
-        raise ValueError("now must have a timezone")
-    now = now.astimezone(timezone.utc)
-
+def _fetch_gdacs(now: datetime) -> list[dict]:
     records = []
     seen_ids = set()
     for page in range(1, MAX_PAGES + 1):
@@ -228,7 +223,7 @@ def fetch_canonical_disasters(*, now: datetime | None = None) -> list[dict]:
         )
 
         try:
-            with urlopen(request, timeout=10) as response:
+            with urlopen(request, timeout=20) as response:
                 payload = json.load(response)
         except HTTPError:
             return [_unavailable(now, "PROVIDER_HTTP_ERROR")]
@@ -253,3 +248,39 @@ def fetch_canonical_disasters(*, now: datetime | None = None) -> list[dict]:
             return records
 
     return [_unavailable(now, "PROVIDER_RESULT_LIMIT")]
+
+
+def fetch_canonical_disasters(*, now: datetime | None = None) -> list[dict]:
+    """Fetch recent events from configured provider (Thai provider or GDACS)."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("now must have a timezone")
+    now = now.astimezone(timezone.utc)
+
+    provider = os.getenv("DISASTER_PROVIDER", "gdacs").lower()
+
+    if provider in ("thai", "dpm", "tmd"):
+        try:
+            from thai_disaster_adapter import fetch_canonical_disasters as fetch_thai
+            return fetch_thai(now=now)
+        except Exception:
+            return _fetch_gdacs(now)
+
+    if provider in ("both", "all", "merged"):
+        results = []
+        try:
+            from thai_disaster_adapter import fetch_canonical_disasters as fetch_thai
+            thai_records = fetch_thai(now=now)
+            results.extend([r for r in thai_records if r.get("status") == "available"])
+        except Exception:
+            pass
+
+        gdacs_records = _fetch_gdacs(now)
+        results.extend([r for r in gdacs_records if r.get("status") == "available"])
+        if results:
+            return results
+        if not any(r.get("status") == "unavailable" for r in gdacs_records):
+            return []
+        return gdacs_records
+
+    return _fetch_gdacs(now)

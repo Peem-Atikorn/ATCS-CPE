@@ -22,7 +22,9 @@ COPY 03_travel_ai_agent/travel_agent ./travel_agent
 # 04/05/06 currently expose Python adapters, not network services. Keep only the
 # runtime files Module 03 calls, under the same sibling names used in the repo.
 COPY 04_external_data_services/tomtom_transport.py \
+     04_external_data_services/longdo_traffic_adapter.py \
      04_external_data_services/gdacs_adapter.py \
+     04_external_data_services/thai_disaster_adapter.py \
      04_external_data_services/weather_service.py \
      04_external_data_services/open_meteo_adapter.py \
      04_external_data_services/weather_to_canonical.py \

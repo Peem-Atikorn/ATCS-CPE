@@ -90,7 +90,7 @@ WeatherForecastFetcher = Callable[[float, float], list[CanonicalRecord]]
 RouteFetcher = Callable[..., list[dict[str, Any]]]
 
 
-def _dependencies() -> tuple[
+def _dependencies(transport_provider: str = "tomtom") -> tuple[
     TransportFetcher,
     DisasterFetcher,
     ContextBuilder,
@@ -99,9 +99,14 @@ def _dependencies() -> tuple[
     WeatherForecastFetcher,
     RouteFetcher,
 ]:
+    transport_file = (
+        "longdo_traffic_adapter.py"
+        if transport_provider.lower() == "longdo"
+        else "tomtom_transport.py"
+    )
     transport = _load_module(
         "teamd_module04_transport",
-        _dependency_path("04_external_data_services", "tomtom_transport.py"),
+        _dependency_path("04_external_data_services", transport_file),
     )
     disaster = _load_module(
         "teamd_module04_disaster",
@@ -161,21 +166,32 @@ def _evidence_record(record: CanonicalRecord, *, kind: str) -> Record:
     expires_at = _aware(record.get("expires_at"))
     if fetched_at is None or expires_at is None:
         raise ValueError("canonical record needs fetched_at and expires_at")
-    # This is the time Module 03 actually observed the provider record. Prefer the
-    # source event/report time when it is usable, but never invent a future observation.
-    observed_at = next(
-        (
-            value
-            for field in ("observed_at", "event_time", "issued_at")
-            if (value := _aware(record.get(field))) is not None and value <= fetched_at
-        ),
-        fetched_at,
+    value = record.get("value")
+    time_validity = (
+        value.get("time_validity")
+        if isinstance(value, dict)
+        else record.get("time_validity")
     )
+    # When an incident is active/ongoing (time_validity: present), the live query verified
+    # its presence at fetched_at. Use fetched_at as the observation time so long-running
+    # closures/incidents do not falsely appear stale based on an old event start time.
+    if isinstance(time_validity, str) and time_validity.lower() == "present":
+        observed_at = fetched_at
+    else:
+        # This is the time Module 03 actually observed the provider record. Prefer the
+        # source event/report time when it is usable, but never invent a future observation.
+        observed_at = next(
+            (
+                v
+                for field in ("observed_at", "event_time", "issued_at")
+                if (v := _aware(record.get(field))) is not None and v <= fetched_at
+            ),
+            fetched_at,
+        )
     source = record.get("source")
     source_name = source.get("name") if isinstance(source, dict) else None
     if not isinstance(source_name, str) or not source_name:
         raise ValueError("canonical record needs source.name")
-    value = record.get("value")
     description = value.get("description") if isinstance(value, dict) else None
     excerpt = (
         description
@@ -264,6 +280,8 @@ class LiveToolSet(MockToolSet):
     def __init__(
         self,
         *,
+        transport_provider: str = "tomtom",
+        longdo_api_key: str | None = None,
         tomtom_api_key: str | None = None,
         osrm_base_url: str = "https://router.project-osrm.org",
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
@@ -289,8 +307,10 @@ class LiveToolSet(MockToolSet):
                 route_fetcher,
             )
         ):
-            defaults = _dependencies()
+            defaults = _dependencies(transport_provider=transport_provider)
 
+        self._transport_provider = transport_provider.lower()
+        self._longdo_api_key = longdo_api_key
         self._tomtom_api_key = tomtom_api_key
         # No API key required: OSRM's public demo server has no auth, but it is rate
         # limited and unsuitable for production load; point this at a self-hosted
@@ -354,19 +374,34 @@ class LiveToolSet(MockToolSet):
 
     async def transport(self, query: TravelQuery) -> TransportResult:
         now = self._now()
+        api_key = (
+            self._longdo_api_key
+            if self._transport_provider == "longdo"
+            else self._tomtom_api_key
+        )
         try:
             canonical = await asyncio.to_thread(
                 self._fetch_transport,
                 _bbox(query),
                 now=now,
-                api_key=self._tomtom_api_key,
+                api_key=api_key,
             )
             available = _available(canonical, "transport")
+            fallback_source = (
+                "Longdo Traffic (iTIC)"
+                if self._transport_provider == "longdo"
+                else "TomTom Orbis Traffic"
+            )
+            fallback_url = (
+                "https://event.longdo.com/feed/json"
+                if self._transport_provider == "longdo"
+                else "https://api.tomtom.com/maps/orbis/traffic/incidents/details"
+            )
             evidence = [_evidence_record(record, kind="transport") for record in available] or [
                 _check_record(
                     kind="transport",
-                    source_name="TomTom Orbis Traffic",
-                    url="https://api.tomtom.com/maps/orbis/traffic/incidents/details",
+                    source_name=fallback_source,
+                    url=fallback_url,
                     now=now,
                 )
             ]
@@ -375,8 +410,13 @@ class LiveToolSet(MockToolSet):
         except Exception as error:
             raise ToolError("transport", f"invalid Module 04 result: {error}") from error
         count = len(available)
+        provider_name = (
+            "Longdo Traffic (iTIC)"
+            if self._transport_provider == "longdo"
+            else "TomTom"
+        )
         return TransportResult(
-            summary=f"TomTom returned {count} active transport incident(s).",
+            summary=f"{provider_name} returned {count} active transport incident(s).",
             records=evidence,
             canonical_records=canonical,
         )

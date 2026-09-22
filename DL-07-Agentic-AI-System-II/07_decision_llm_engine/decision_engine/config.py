@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,12 +11,16 @@ class Settings(BaseSettings):
     emergency_catalog_path: Path | None = None
     prompt_version: str = "v1"
     policy_approved: bool = False
-    llm_api_key: SecretStr = SecretStr("")
+    llm_api_key: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices("llm_api_key", "gemini_api_key"),
+    )
     llm_model_explainer: str = "disabled"
+    gemini_api_base: str = "https://generativelanguage.googleapis.com/v1beta"
     temperature: float = Field(default=0, ge=0, le=0)
     max_input_tokens: int = Field(default=8000, ge=256, le=32000)
     max_output_tokens: int = Field(default=1500, ge=64, le=8000)
-    llm_timeout: float = Field(default=3, gt=0, le=60)
+    llm_timeout: float = Field(default=5.0, gt=0, le=60)
     llm_max_attempts: int = Field(default=2, ge=1, le=3)
     supported_locales: str = "th-TH,en-US"
     escalation_rules: str = (
@@ -37,7 +41,7 @@ class Settings(BaseSettings):
     @field_validator("prompt_version")
     @classmethod
     def bundled_prompt_only(cls, value: str) -> str:
-        if value != "v1":
+        if value not in {"v1", "rules-v1"}:
             raise ValueError("Only prompt v1 is implemented")
         return value
 

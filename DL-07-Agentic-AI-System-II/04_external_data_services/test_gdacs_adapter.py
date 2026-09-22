@@ -96,6 +96,13 @@ class GDACSAdapterTests(unittest.TestCase):
         self.assertIsNone(records[0]["value"])
         self.assertIsNone(records[0]["severity"])
 
+    def test_disaster_provider_env_routes_to_thai_adapter(self):
+        with patch.dict(gdacs_adapter.os.environ, {"DISASTER_PROVIDER": "thai"}):
+            with patch("thai_disaster_adapter.fetch_canonical_disasters", return_value=[{"record_id": "mock-thai", "status": "available"}]) as mock_thai:
+                records = fetch_canonical_disasters(now=NOW)
+                mock_thai.assert_called_once_with(now=NOW)
+                self.assertEqual(records, [{"record_id": "mock-thai", "status": "available"}])
+
 
 if __name__ == "__main__":
     unittest.main()

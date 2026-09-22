@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # False uses Module 04 (weather, transport, disaster, routing), Module 05
     # integration, and Module 06 for real.
     use_mock_tools: bool = False
+    transport_provider: str = "longdo"  # "longdo" | "tomtom"
+    longdo_api_key: SecretStr = SecretStr("")
     tomtom_api_key: SecretStr = SecretStr("")
     # Public demo server: no key, but rate limited. Point this at a self-hosted OSRM
     # instance for production traffic.

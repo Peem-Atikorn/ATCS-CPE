@@ -439,3 +439,63 @@ async def test_live_route_candidates_calls_real_module_04_entry_point(monkeypatc
         await tools.route_candidates(query())
     assert caught.value.tool == "route_candidates"
     assert "OSRM network error" in caught.value.reason
+
+
+@pytest.mark.asyncio
+async def test_live_transport_ongoing_incident_uses_fetched_at_for_freshness():
+    """Incidents with time_validity 'present' must use fetched_at so long-term closures are not marked stale."""
+    incident = canonical("transport_status", "tomtom:incident-ongoing")
+    # Simulate a long-running closure from 2 years ago without lastReportTime
+    incident["observed_at"] = None
+    incident["event_time"] = (NOW - timedelta(days=700)).isoformat()
+    incident["fetched_at"] = NOW.isoformat()
+    incident["value"] = {
+        "status": "CLOSED",
+        "category": "roadClosed",
+        "description": "Long-term closure",
+        "time_validity": "present",
+        "starts_at": (NOW - timedelta(days=700)).isoformat(),
+    }
+
+    tools = LiveToolSet(
+        tomtom_api_key="test-key",
+        clock=lambda: NOW,
+        transport_fetcher=lambda bbox, *, now, api_key: [incident],
+        disaster_fetcher=lambda *, now: [],
+        context_builder=context_builder_spy([]),
+    )
+
+    transport = await tools.transport(query())
+    assert len(transport.records) == 1
+    # Must use NOW (fetched_at), not the 700-days-old event_time
+    assert transport.records[0].observed_at == NOW
+
+
+@pytest.mark.asyncio
+async def test_live_transport_longdo_provider():
+    captured = {}
+
+    def fetch_longdo(bbox, *, now, api_key):
+        captured.update(bbox=bbox, now=now, api_key=api_key)
+        return []
+
+    tools = LiveToolSet(
+        transport_provider="longdo",
+        longdo_api_key="longdo-secret-key",
+        clock=lambda: NOW,
+        transport_fetcher=fetch_longdo,
+        disaster_fetcher=lambda *, now: [],
+        context_builder=context_builder_spy([]),
+    )
+
+    transport = await tools.transport(query())
+    assert captured == {
+        "bbox": (99.9577, 12.5684, 100.5018, 13.7563),
+        "now": NOW,
+        "api_key": "longdo-secret-key",
+    }
+    assert transport.canonical_records == []
+    assert transport.records[0].source_name == "Longdo Traffic (iTIC)"
+    assert str(transport.records[0].url) == "https://event.longdo.com/feed/json"
+
+
