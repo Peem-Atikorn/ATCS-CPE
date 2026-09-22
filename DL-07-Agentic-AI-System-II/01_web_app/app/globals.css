@@ -23,7 +23,7 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; }
 ::selection { background: #b9ddf0; color: #071d35; }
 .paper-grid { background-image: linear-gradient(rgba(248,251,255,.92),rgba(248,251,255,.92)), linear-gradient(90deg,rgba(7,29,53,.045) 1px,transparent 1px),linear-gradient(rgba(7,29,53,.045) 1px,transparent 1px); background-size:auto,32px 32px,32px 32px; }
 .editorial-line { height: 1px; background: linear-gradient(90deg,transparent,rgba(7,29,53,.3),transparent); }
-.hero-photo { background-image: url('https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=2400&q=92'); background-position:center; background-size:cover; }
+.hero-photo { background-image: url('/my-background.webp'); background-position:center; background-size:cover; }
 .map-landscape { background-image: linear-gradient(120deg,rgba(3,20,42,.28),rgba(3,20,42,.04)),url('https://images.unsplash.com/photo-1520637836862-4d197d17c55a?auto=format&fit=crop&w=1700&q=85'); background-position:center; background-size:cover; }
 .destination-a { background-image:url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1000&q=85') }
 .destination-b { background-image:url('https://images.unsplash.com/photo-1544550285-f813152fb2fd?auto=format&fit=crop&w=1000&q=85') }
