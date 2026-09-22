@@ -87,7 +87,44 @@ export function TravelAssistantDrawer() {
     setInputMessage("");
     setIsLoading(true);
 
-    // Build context summary
+    // Build context summary strictly based on verified evidence and service status
+    let weatherSummary: string | undefined = undefined;
+    const weatherStatus = recommendation?.service_status?.weather;
+
+    if (weatherStatus === "unavailable") {
+      weatherSummary = "ระบบไม่สามารถดึงข้อมูลสภาพอากาศได้เนื่องจากบริการสภาพอากาศภายนอกไม่พร้อมใช้งาน (Service Unavailable)";
+    } else if (weatherStatus === "degraded") {
+      weatherSummary = "ข้อมูลสภาพอากาศอาจไม่สมบูรณ์เนื่องจากบริการสภาพอากาศทำงานได้จำกัด (Degraded)";
+    } else if (weatherStatus === "ok") {
+      const weatherFactors = (recommendation?.risk?.factors ?? []).filter(
+        (f) => f.type.toUpperCase() === "WEATHER"
+      );
+      if (weatherFactors.length > 0) {
+        weatherSummary = weatherFactors.map((f) => f.description).join("; ");
+      } else {
+        weatherSummary = "บริการสภาพอากาศ (Open-Meteo) ตรวจสอบแล้ว ไม่พบปัจจัยเสี่ยงหรือสภาวะอากาศแปรปรวนบนเส้นทางนี้";
+      }
+    } else if (recommendation) {
+      const weatherFactors = (recommendation?.risk?.factors ?? []).filter(
+        (f) => f.type.toUpperCase() === "WEATHER"
+      );
+      if (weatherFactors.length > 0) {
+        weatherSummary = weatherFactors.map((f) => f.description).join("; ");
+      } else {
+        weatherSummary = "ไม่พบรายงานปัจจัยเสี่ยงด้านสภาพอากาศในผลประเมินปัจจุบัน";
+      }
+    }
+
+    let transportHazard: string | undefined = undefined;
+    const transportStatus = recommendation?.service_status?.transport;
+    if (transportStatus === "unavailable") {
+      transportHazard = "ระบบไม่สามารถดึงข้อมูลจราจรสดได้เนื่องจากบริการข้อมูลจราจรไม่พร้อมใช้งาน (Service Unavailable)";
+    } else if (recommendation?.hazards && recommendation.hazards.length > 0) {
+      transportHazard = recommendation.hazards.map((h) => h.title).join("; ");
+    } else if (transportStatus === "ok") {
+      transportHazard = "ตรวจสอบข้อมูลจราจรแล้ว ไม่พบรายงานอุบัติเหตุร้ายแรงหรือการปิดถนนบนเส้นทางนี้";
+    }
+
     const tripContext = {
       origin: lastInput?.origin || originPoint?.name || undefined,
       destination: lastInput?.destination || destinationPoint?.name || undefined,
@@ -104,6 +141,8 @@ export function TravelAssistantDrawer() {
               reasons: recommendation.recommendation?.reasons,
               instructions: recommendation.emergency_instructions?.safety_steps,
             },
+            weather: weatherSummary ? { summary: weatherSummary } : undefined,
+            transport: transportHazard ? { hazard: transportHazard } : undefined,
           }
         : undefined,
     };

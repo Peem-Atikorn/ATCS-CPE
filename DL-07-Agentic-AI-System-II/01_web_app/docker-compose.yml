@@ -20,9 +20,12 @@ services:
     build:
       context: .
       target: dev
-    image: tsa-webapp:dev
+    env_file:
+      - .env
     environment:
       <<: *web-env
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_MODEL_EXPLAINER: ${LLM_MODEL_EXPLAINER:-gemini-3.6-flash}
     ports:
       - "${WEB_HOST_PORT:-3000}:3000"
     volumes:
