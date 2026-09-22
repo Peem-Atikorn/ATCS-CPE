@@ -43,19 +43,19 @@ export function AdminAuditTab() {
       case "success":
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-bold text-emerald-700">
-            <CheckCircle2 size={11} /> Success
+            <CheckCircle2 size={11} /> สำเร็จ
           </span>
         );
       case "denied":
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">
-            <AlertCircle size={11} /> Denied
+            <AlertCircle size={11} /> ถูกปฏิเสธ
           </span>
         );
       case "error":
         return (
           <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-bold text-red-700">
-            <XCircle size={11} /> Error
+            <XCircle size={11} /> ข้อผิดพลาด
           </span>
         );
       default:
@@ -67,31 +67,38 @@ export function AdminAuditTab() {
     }
   };
 
+  const FILTER_OPTIONS = [
+    { key: "ALL", label: "ทั้งหมด" },
+    { key: "SUCCESS", label: "สำเร็จ" },
+    { key: "DENIED", label: "ถูกปฏิเสธ" },
+    { key: "ERROR", label: "ข้อผิดพลาด" },
+  ] as const;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="font-display text-2xl text-slate-900">Audit Trail & Access Logs</h2>
+          <h2 className="font-display text-2xl text-slate-900">บันทึกประวัติการตรวจสอบและความปลอดภัย</h2>
           <p className="mt-1 text-xs text-slate-500">
-            Immutable security log of administrative actions, authorizations, and data access.
+            บันทึกความปลอดภัยที่ไม่สามารถแก้ไขได้ แสดงการกระทำของผู้ดูแล สิทธิ์ และการเข้าถึงข้อมูล
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-1 text-xs">
             <Filter size={14} className="ml-2 text-slate-400" />
-            {(["ALL", "SUCCESS", "DENIED", "ERROR"] as const).map((opt) => (
+            {FILTER_OPTIONS.map((opt) => (
               <button
-                key={opt}
+                key={opt.key}
                 type="button"
-                onClick={() => setResultFilter(opt)}
+                onClick={() => setResultFilter(opt.key)}
                 className={`rounded-lg px-2.5 py-1 font-bold transition ${
-                  resultFilter === opt
+                  resultFilter === opt.key
                     ? "bg-slate-900 text-white"
                     : "text-slate-600 hover:bg-slate-100"
                 }`}
               >
-                {opt}
+                {opt.label}
               </button>
             ))}
           </div>
@@ -106,7 +113,7 @@ export function AdminAuditTab() {
               size={13}
               className={auditQuery.isFetching ? "animate-spin text-pine" : ""}
             />
-            Refresh
+            รีเฟรช
           </button>
         </div>
       </div>
@@ -116,13 +123,13 @@ export function AdminAuditTab() {
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-100 bg-slate-50/50 text-[11px] uppercase tracking-wider text-slate-400">
               <tr>
-                <th className="px-5 py-3.5 font-bold">ID / Timestamp</th>
-                <th className="px-5 py-3.5 font-bold">Actor Type</th>
-                <th className="px-5 py-3.5 font-bold">Action</th>
-                <th className="px-5 py-3.5 font-bold">Target</th>
-                <th className="px-5 py-3.5 font-bold">Result</th>
-                <th className="px-5 py-3.5 font-bold">Correlation ID</th>
-                <th className="px-5 py-3.5 font-bold text-right">Meta</th>
+                <th className="px-5 py-3.5 font-bold">รหัส / เวลา</th>
+                <th className="px-5 py-3.5 font-bold">ประเภทผู้กระทำ</th>
+                <th className="px-5 py-3.5 font-bold">การกระทำ</th>
+                <th className="px-5 py-3.5 font-bold">เป้าหมาย</th>
+                <th className="px-5 py-3.5 font-bold">ผลลัพธ์</th>
+                <th className="px-5 py-3.5 font-bold">รหัสความสัมพันธ์ (Correlation ID)</th>
+                <th className="px-5 py-3.5 font-bold text-right">ข้อมูลเพิ่มเติม</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -130,20 +137,20 @@ export function AdminAuditTab() {
                 <tr>
                   <td colSpan={7} className="py-16 text-center text-slate-400">
                     <Loader2 size={24} className="mx-auto mb-2 animate-spin text-pine" />
-                    Loading audit trail...
+                    กำลังโหลดบันทึกการตรวจสอบ...
                   </td>
                 </tr>
               ) : auditQuery.isError ? (
                 <tr>
                   <td colSpan={7} className="py-16 text-center text-red-500">
                     <AlertCircle size={24} className="mx-auto mb-2 text-red-400" />
-                    Failed to fetch audit logs: Check admin:read scope permissions.
+                    ไม่สามารถดึงข้อมูลบันทึกได้: กรุณาตรวจสอบว่าโทเค็นมีสิทธิ์ admin:read หรือไม่
                   </td>
                 </tr>
               ) : !auditQuery.data?.items || auditQuery.data.items.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-16 text-center text-slate-400">
-                    No audit records matching filter.
+                    ไม่พบบันทึกการตรวจสอบที่ตรงกับตัวกรองที่เลือก
                   </td>
                 </tr>
               ) : (
@@ -226,7 +233,7 @@ export function AdminAuditTab() {
               <div className="flex items-center gap-2">
                 <Database size={18} className="text-pine" />
                 <h3 className="font-display text-lg text-slate-900">
-                  Audit Metadata #{selectedItem.id}
+                  ข้อมูลเมทาดาต้าการตรวจสอบ #{selectedItem.id}
                 </h3>
               </div>
               <button
@@ -248,7 +255,7 @@ export function AdminAuditTab() {
                 onClick={() => setSelectedItem(null)}
                 className="rounded-xl bg-slate-100 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-200"
               >
-                Close
+                ปิด
               </button>
             </div>
           </div>

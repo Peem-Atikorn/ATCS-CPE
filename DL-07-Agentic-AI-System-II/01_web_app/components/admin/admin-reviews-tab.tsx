@@ -64,31 +64,37 @@ export function AdminReviewsTab() {
     });
   };
 
+  const FILTER_OPTIONS: { key: ReviewStatus; label: string }[] = [
+    { key: "pending", label: "รอตรวจทาน" },
+    { key: "approved", label: "อนุมัติแล้ว" },
+    { key: "rejected", label: "ปฏิเสธแล้ว" },
+  ];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="font-display text-2xl text-slate-900">Safety Feedback Review</h2>
+          <h2 className="font-display text-2xl text-slate-900">คิวตรวจทานรายงานความปลอดภัย</h2>
           <p className="mt-1 text-xs text-slate-500">
-            Review user-reported recommendations, inaccuracies, and safety flags.
+            ตรวจสอบข้อเสนอแนะความปลอดภัย รายงานความคลาดเคลื่อน และสัญญาณเตือนจากผู้ใช้
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white p-1 text-xs">
             <Filter size={14} className="ml-2 text-slate-400" />
-            {(["pending", "approved", "rejected"] as const).map((opt) => (
+            {FILTER_OPTIONS.map((opt) => (
               <button
-                key={opt}
+                key={opt.key}
                 type="button"
-                onClick={() => setStatusFilter(opt)}
-                className={`rounded-lg px-2.5 py-1 font-bold capitalize transition ${
-                  statusFilter === opt
+                onClick={() => setStatusFilter(opt.key)}
+                className={`rounded-lg px-2.5 py-1 font-bold transition ${
+                  statusFilter === opt.key
                     ? "bg-slate-900 text-white"
                     : "text-slate-600 hover:bg-slate-100"
                 }`}
               >
-                {opt}
+                {opt.label}
               </button>
             ))}
           </div>
@@ -103,7 +109,7 @@ export function AdminReviewsTab() {
               size={13}
               className={reviewsQuery.isFetching ? "animate-spin text-pine" : ""}
             />
-            Refresh
+            รีเฟรช
           </button>
         </div>
       </div>
@@ -113,12 +119,12 @@ export function AdminReviewsTab() {
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-100 bg-slate-50/50 text-[11px] uppercase tracking-wider text-slate-400">
               <tr>
-                <th className="px-5 py-3.5 font-bold">Feedback ID</th>
-                <th className="px-5 py-3.5 font-bold">Rating / Signal</th>
-                <th className="px-5 py-3.5 font-bold">Report Type</th>
-                <th className="px-5 py-3.5 font-bold">User Comment</th>
-                <th className="px-5 py-3.5 font-bold">Submitted At</th>
-                <th className="px-5 py-3.5 font-bold text-right">Actions</th>
+                <th className="px-5 py-3.5 font-bold">รหัสข้อเสนอแนะ (Feedback ID)</th>
+                <th className="px-5 py-3.5 font-bold">คะแนน / สัญญาณ</th>
+                <th className="px-5 py-3.5 font-bold">ประเภทรายงาน</th>
+                <th className="px-5 py-3.5 font-bold">ความคิดเห็นของผู้ใช้</th>
+                <th className="px-5 py-3.5 font-bold">ส่งเมื่อ</th>
+                <th className="px-5 py-3.5 font-bold text-right">การจัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-xs">
@@ -126,20 +132,20 @@ export function AdminReviewsTab() {
                 <tr>
                   <td colSpan={6} className="py-16 text-center text-slate-400">
                     <Loader2 size={24} className="mx-auto mb-2 animate-spin text-pine" />
-                    Loading review queue...
+                    กำลังโหลดคิวตรวจทาน...
                   </td>
                 </tr>
               ) : reviewsQuery.isError ? (
                 <tr>
                   <td colSpan={6} className="py-16 text-center text-red-500">
                     <AlertCircle size={24} className="mx-auto mb-2 text-red-400" />
-                    Unable to fetch review queue: Ensure your token has the safety:review scope.
+                    ไม่สามารถดึงข้อมูลคิวตรวจทานได้: กรุณาตรวจสอบว่าโทเค็นมีสิทธิ์ safety:review หรือไม่
                   </td>
                 </tr>
               ) : !reviewsQuery.data?.items || reviewsQuery.data.items.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-16 text-center text-slate-400">
-                    No feedback items in {statusFilter} state.
+                    ไม่พบรายการข้อเสนอแนะในสถานะนี้
                   </td>
                 </tr>
               ) : (
@@ -169,7 +175,7 @@ export function AdminReviewsTab() {
                             ) : (
                               <ThumbsDown size={10} />
                             )}
-                            {item.helpful ? "Helpful" : "Not Helpful"}
+                            {item.helpful ? "มีประโยชน์" : "ไม่มีประโยชน์"}
                           </span>
                         )}
                       </div>
@@ -180,11 +186,11 @@ export function AdminReviewsTab() {
                           {item.report_type}
                         </span>
                       ) : (
-                        <span className="text-slate-400">Standard Feedback</span>
+                        <span className="text-slate-400">ข้อเสนอแนะทั่วไป</span>
                       )}
                     </td>
                     <td className="max-w-xs truncate px-5 py-3.5 text-slate-700">
-                      {item.comment || <span className="text-slate-300">No comment</span>}
+                      {item.comment || <span className="text-slate-300">ไม่มีข้อคิดเห็นเพิ่มเติม</span>}
                     </td>
                     <td className="px-5 py-3.5 text-slate-500">
                       {new Date(item.created_at).toLocaleString()}
@@ -197,25 +203,25 @@ export function AdminReviewsTab() {
                             onClick={() => handleOpenReview(item, "approved")}
                             className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 hover:bg-emerald-100"
                           >
-                            <CheckCircle2 size={12} /> Approve
+                            <CheckCircle2 size={12} /> อนุมัติ
                           </button>
                           <button
                             type="button"
                             onClick={() => handleOpenReview(item, "rejected")}
                             className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-100"
                           >
-                            <XCircle size={12} /> Reject
+                            <XCircle size={12} /> ปฏิเสธ
                           </button>
                         </div>
                       ) : (
                         <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-bold capitalize ${
+                          className={`rounded-full px-2 py-0.5 text-xs font-bold ${
                             item.review_status === "approved"
                               ? "bg-emerald-50 text-emerald-700"
                               : "bg-red-50 text-red-700"
                           }`}
                         >
-                          {item.review_status}
+                          {item.review_status === "approved" ? "อนุมัติแล้ว" : "ปฏิเสธแล้ว"}
                         </span>
                       )}
                     </td>
@@ -238,11 +244,11 @@ export function AdminReviewsTab() {
             <div className="flex items-center gap-2">
               <MessageSquare size={20} className="text-pine" />
               <h3 className="font-display text-xl text-slate-900">
-                Confirm {activeReviewItem.decision === "approved" ? "Approval" : "Rejection"}
+                ยืนยัน{activeReviewItem.decision === "approved" ? "การอนุมัติ" : "การปฏิเสธ"}
               </h3>
             </div>
             <p className="mt-2 text-xs text-slate-500">
-              Feedback ID:{" "}
+              รหัสข้อเสนอแนะ:{" "}
               <span className="font-mono text-slate-700">
                 {activeReviewItem.item.feedback_id}
               </span>
@@ -256,13 +262,13 @@ export function AdminReviewsTab() {
 
             <div className="mt-4">
               <label className="block text-xs font-bold text-slate-700">
-                Reviewer Note (Optional)
+                บันทึกของผู้ตรวจทาน (ไม่บังคับ)
               </label>
               <textarea
                 rows={3}
                 value={reviewNote}
                 onChange={(e) => setReviewNote(e.target.value)}
-                placeholder="Reason or corrective actions taken..."
+                placeholder="ระบุเหตุผลหรือมาตรการแก้ไขที่ดำเนินการ..."
                 className="mt-1.5 w-full rounded-2xl border border-slate-200 p-3 text-xs focus:border-pine focus:outline-none"
               />
             </div>
@@ -274,7 +280,7 @@ export function AdminReviewsTab() {
                 disabled={mutation.isPending}
                 className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
               >
-                Cancel
+                ยกเลิก
               </button>
               <button
                 type="button"
@@ -289,7 +295,7 @@ export function AdminReviewsTab() {
                 {mutation.isPending && (
                   <Loader2 size={13} className="animate-spin" />
                 )}
-                Submit Decision
+                ส่งผลการตัดสิน
               </button>
             </div>
           </div>

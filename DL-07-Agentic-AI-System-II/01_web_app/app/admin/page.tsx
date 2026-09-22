@@ -23,24 +23,33 @@ import { AdminAuthBar } from "@/components/admin/admin-auth-bar";
 import { AdminExportsTab } from "@/components/admin/admin-exports-tab";
 import { AdminJobsTab } from "@/components/admin/admin-jobs-tab";
 import { AdminReviewsTab } from "@/components/admin/admin-reviews-tab";
+import { UserNav } from "@/components/auth/user-nav";
 import { api, fetchServiceStatus, type ComponentState } from "@/lib/api";
 
 type TabId = "overview" | "jobs" | "reviews" | "audit" | "exports";
 
 const SERVICE_CARD_CONFIG = [
-  { name: "API Gateway", keys: ["api"] },
-  { name: "Agent Core & RAG", keys: ["agent", "rag"] },
-  { name: "Weather service", keys: ["weather"] },
-  { name: "Transport service", keys: ["transport", "traffic"] },
-  { name: "Disaster alerts", keys: ["disaster"] },
-  { name: "Decision engine", keys: ["decision_engine", "risk_model"] },
+  { name: "เกตเวย์ API (API Gateway)", keys: ["api"] },
+  { name: "เอเจนต์หลักและระบบ RAG", keys: ["agent", "rag"] },
+  { name: "บริการข้อมูลสภาพอากาศ", keys: ["weather"] },
+  { name: "บริการข้อมูลการเดินทางและจราจร", keys: ["transport", "traffic"] },
+  { name: "ระบบแจ้งเตือนภัยพิบัติ", keys: ["disaster"] },
+  { name: "เอ็นจินตัดสินใจและโมเดลความเสี่ยง", keys: ["decision_engine", "risk_model"] },
 ];
 
 const STATE_LABEL: Record<ComponentState, string> = {
-  operational: "Operational",
-  degraded: "Degraded",
-  down: "Unavailable",
-  unknown: "Unknown",
+  operational: "พร้อมใช้งานปกติ",
+  degraded: "ประสิทธิภาพลดลง",
+  down: "ไม่พร้อมใช้งาน",
+  unknown: "ไม่ทราบสถานะ",
+};
+
+const TAB_SHORT_LABELS: Record<TabId, string> = {
+  overview: "ภาพรวม",
+  jobs: "คิวงาน",
+  reviews: "ตรวจทาน",
+  audit: "บันทึก",
+  exports: "ส่งออก",
 };
 
 export default function AdminPage() {
@@ -91,9 +100,9 @@ export default function AdminPage() {
         component?.message ??
         (serviceStatus.isError
           ? index === 0
-            ? "API status endpoint unreachable"
-            : "Dependency status unverified"
-          : "Live operational telemetry"),
+            ? "ไม่สามารถเชื่อมต่อปลายทาง API Status ได้"
+            : "ไม่สามารถตรวจสอบคอมโพเนนต์ย่อยได้"
+          : "สตรีมข้อมูลสถานะการทำงานจริง"),
     };
   });
 
@@ -101,14 +110,14 @@ export default function AdminPage() {
     ? "down"
     : (serviceStatus.data?.overall ?? "unknown");
   const overallLabel = serviceStatus.isPending
-    ? "Checking core systems…"
+    ? "กำลังตรวจสอบระบบหลัก…"
     : overallState === "operational"
-      ? "All core systems online"
+      ? "ระบบหลักทั้งหมดทำงานปกติ"
       : overallState === "degraded"
-        ? "Some systems are degraded"
+        ? "บางระบบมีประสิทธิภาพลดลง"
         : overallState === "down"
-          ? "System status unavailable"
-          : "Core status is unknown";
+          ? "ระบบไม่พร้อมให้บริการ"
+          : "ไม่ทราบสถานะระบบหลัก";
 
   return (
     <main className="min-h-screen bg-[#f8fbff] text-ink">
@@ -124,31 +133,31 @@ export default function AdminPage() {
         <nav className="mt-12 space-y-2 text-sm">
           <Nav
             icon={<Gauge size={17} />}
-            label="Overview"
+            label="ภาพรวมระบบ"
             active={activeTab === "overview"}
             onClick={() => setActiveTab("overview")}
           />
           <Nav
             icon={<Activity size={17} />}
-            label="Jobs & streams"
+            label="คิวงานและไปป์ไลน์"
             active={activeTab === "jobs"}
             onClick={() => setActiveTab("jobs")}
           />
           <Nav
             icon={<Users size={17} />}
-            label="Feedback review"
+            label="ตรวจทานความปลอดภัย"
             active={activeTab === "reviews"}
             onClick={() => setActiveTab("reviews")}
           />
           <Nav
             icon={<Database size={17} />}
-            label="Audit logs"
+            label="บันทึกการตรวจสอบสิทธิ์"
             active={activeTab === "audit"}
             onClick={() => setActiveTab("audit")}
           />
           <Nav
             icon={<FileDown size={17} />}
-            label="Data exports"
+            label="ส่งออกชุดข้อมูลฝึกสอน"
             active={activeTab === "exports"}
             onClick={() => setActiveTab("exports")}
           />
@@ -156,10 +165,10 @@ export default function AdminPage() {
 
         <div className="mt-auto rounded-xl border border-white/15 p-4 text-xs text-white/65">
           <span className="flex items-center gap-2 font-bold text-white">
-            <CheckCircle2 size={15} className="text-[#b9e5fb]" /> Operational Integrity
+            <CheckCircle2 size={15} className="text-[#b9e5fb]" /> ความมั่นคงและปลอดภัยของระบบ
           </span>
-          <p className="mt-2 leading-5">
-            Diagnostics never expose user locations, private queries, or identifiable credentials.
+          <p className="mt-2 leading-relaxed">
+            การวินิจฉัยจะไม่เปิดเผยตำแหน่งส่วนบุคคล คำค้นหาเฉพาะ หรือข้อมูลระบุตัวตนของผู้ใช้
           </p>
         </div>
       </aside>
@@ -169,14 +178,14 @@ export default function AdminPage() {
         <header className="flex items-center justify-between border-b border-ink/10 bg-white px-6 py-5 sm:px-10">
           <div>
             <p className="text-xs font-bold tracking-[.18em] text-aqua">
-              CONTROL ROOM
+              ห้องควบคุมส่วนกลาง
             </p>
-            <h1 className="mt-1 font-display text-3xl capitalize">
-              {activeTab === "overview" && "System Pulse & Control"}
-              {activeTab === "jobs" && "Pipeline Jobs"}
-              {activeTab === "reviews" && "Safety Review Queue"}
-              {activeTab === "audit" && "Audit Trail"}
-              {activeTab === "exports" && "Training Data Exports"}
+            <h1 className="mt-1 font-display text-2xl sm:text-3xl">
+              {activeTab === "overview" && "สถานะระบบและการควบคุมส่วนกลาง"}
+              {activeTab === "jobs" && "คิวงานประมวลผลไปป์ไลน์"}
+              {activeTab === "reviews" && "คิวตรวจทานรายงานความปลอดภัย"}
+              {activeTab === "audit" && "บันทึกประวัติการตรวจสอบความปลอดภัย"}
+              {activeTab === "exports" && "ส่งออกชุดข้อมูลสำหรับฝึกสอนโมเดล"}
             </h1>
           </div>
           <div className="flex items-center gap-3">
@@ -188,13 +197,13 @@ export default function AdminPage() {
                     key={tab}
                     type="button"
                     onClick={() => setActiveTab(tab)}
-                    className={`rounded-lg px-2.5 py-1 capitalize font-bold ${
+                    className={`rounded-lg px-2.5 py-1 font-bold ${
                       activeTab === tab
                         ? "bg-slate-900 text-white"
                         : "text-slate-600 hover:bg-slate-100"
                     }`}
                   >
-                    {tab}
+                    {TAB_SHORT_LABELS[tab]}
                   </button>
                 ),
               )}
@@ -204,8 +213,9 @@ export default function AdminPage() {
               href="/"
               className="rounded-full border border-ink/15 px-4 py-2 text-xs font-bold transition hover:bg-slate-50"
             >
-              PUBLIC APP <ArrowUpRight className="ml-1 inline" size={14} />
+              แอปหลัก <ArrowUpRight className="ml-1 inline" size={14} />
             </Link>
+            <UserNav />
           </div>
         </header>
 
@@ -220,9 +230,9 @@ export default function AdminPage() {
               <section>
                 <div className="flex items-end justify-between">
                   <div>
-                    <h2 className="font-display text-3xl">System Pulse</h2>
+                    <h2 className="font-display text-2xl sm:text-3xl">สถานะความพร้อมของระบบ</h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      Live component availability across the real-time decision pipeline.
+                      ความพร้อมในการให้บริการของคอมโพเนนต์ต่างๆ ในไปป์ไลน์การตัดสินใจแบบเรียลไทม์
                     </p>
                   </div>
                   <span
@@ -266,7 +276,7 @@ export default function AdminPage() {
                             <Icon size={18} aria-hidden />
                           </span>
                           <span className="text-[10px] font-bold tracking-wider text-slate-400">
-                            TELEMETRY
+                            ข้อมูลระบบ
                           </span>
                         </div>
                         <h3 className="mt-5 text-sm font-bold text-slate-900">{name}</h3>
@@ -288,16 +298,16 @@ export default function AdminPage() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs font-bold tracking-widest text-aqua">
-                        ASYNC PIPELINE
+                        ไปป์ไลน์อะซิงโครนัส
                       </p>
-                      <h2 className="mt-1 font-display text-2xl">Recent Jobs</h2>
+                      <h2 className="mt-1 font-display text-2xl">งานประมวลผลล่าสุด</h2>
                     </div>
                     <button
                       type="button"
                       onClick={() => setActiveTab("jobs")}
                       className="text-xs font-bold text-pine hover:underline"
                     >
-                      VIEW ALL <ArrowUpRight className="inline" size={14} />
+                      ดูทั้งหมด <ArrowUpRight className="inline" size={14} />
                     </button>
                   </div>
 
@@ -305,29 +315,29 @@ export default function AdminPage() {
                     <table className="w-full text-left text-xs">
                       <thead className="border-b border-slate-100 text-[11px] uppercase tracking-wider text-slate-400">
                         <tr>
-                          <th className="pb-3 font-bold">JOB ID</th>
-                          <th className="pb-3 font-bold">TYPE</th>
-                          <th className="pb-3 font-bold">STATUS</th>
-                          <th className="pb-3 font-bold">STAGE</th>
+                          <th className="pb-3 font-bold">รหัสงาน (JOB ID)</th>
+                          <th className="pb-3 font-bold">ประเภทงาน</th>
+                          <th className="pb-3 font-bold">สถานะ</th>
+                          <th className="pb-3 font-bold">ขั้นตอน</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {jobs.isLoading ? (
                           <tr>
                             <td colSpan={4} className="py-8 text-center text-slate-400">
-                              Loading live jobs...
+                              กำลังโหลดข้อมูลงาน...
                             </td>
                           </tr>
                         ) : jobs.isError ? (
                           <tr>
                             <td colSpan={4} className="py-8 text-center text-slate-400">
-                              Connect admin token above to view live jobs.
+                              กรุณาเชื่อมต่อโทเค็นผู้ดูแลระบบด้านบนเพื่อดูข้อมูลงานสด
                             </td>
                           </tr>
                         ) : !jobs.data?.items || jobs.data.items.length === 0 ? (
                           <tr>
                             <td colSpan={4} className="py-8 text-center text-slate-400">
-                              No recent jobs recorded.
+                              ไม่พบประวัติงานล่าสุด
                             </td>
                           </tr>
                         ) : (
@@ -349,7 +359,15 @@ export default function AdminPage() {
                                           : "bg-slate-100 text-slate-700"
                                   }`}
                                 >
-                                  {job.status}
+                                  {job.status === "succeeded"
+                                    ? "สำเร็จ"
+                                    : job.status === "running"
+                                      ? "กำลังทำงาน"
+                                      : job.status === "failed"
+                                        ? "ล้มเหลว"
+                                        : job.status === "queued"
+                                          ? "รอคิว"
+                                          : job.status}
                                 </span>
                               </td>
                               <td className="py-3 font-mono text-slate-500">{job.stage}</td>
@@ -361,18 +379,17 @@ export default function AdminPage() {
                   </div>
 
                   <p className="mt-5 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-                    <ShieldAlert className="mr-1 inline text-aqua" size={15} /> Real-time
-                    evaluations stream over ticketed Server-Sent Events (SSE).
+                    <ShieldAlert className="mr-1 inline text-aqua" size={15} /> การประเมินแบบเรียลไทม์ส่งผ่านสตรีม Server-Sent Events (SSE) พร้อมระบบตั๋วความปลอดภัย
                   </p>
                 </article>
 
                 <article className="rounded-2xl bg-pine p-6 text-white shadow-sm">
                   <p className="text-xs font-bold tracking-widest text-[#b9e5fb]">
-                    HUMAN IN THE LOOP
+                    การตรวจสอบโดยผู้เชี่ยวชาญ
                   </p>
-                  <h2 className="mt-2 font-display text-3xl">Feedback Review</h2>
-                  <p className="mt-3 text-sm leading-6 text-white/70">
-                    Inspect user safety feedback and route accuracy reports.
+                  <h2 className="mt-2 font-display text-3xl">ตรวจทานความปลอดภัย</h2>
+                  <p className="mt-3 text-sm leading-relaxed text-white/70">
+                    ตรวจสอบรายงานความปลอดภัยและข้อเสนอแนะความแม่นยำของเส้นทางจากผู้ใช้
                   </p>
 
                   <div className="mt-8 rounded-xl bg-white/10 p-5">
@@ -380,7 +397,7 @@ export default function AdminPage() {
                       <span className="font-display text-4xl font-bold">
                         {reviews.data?.items ? reviews.data.items.length : "0"}
                       </span>
-                      <span className="text-sm text-white/70">waiting in review queue</span>
+                      <span className="text-sm text-white/70">รายการที่รอในคิวตรวจทาน</span>
                     </div>
                     <div className="mt-4 h-1.5 overflow-hidden rounded-full bg-white/15">
                       <div
@@ -400,7 +417,7 @@ export default function AdminPage() {
                     onClick={() => setActiveTab("reviews")}
                     className="mt-6 w-full rounded-xl bg-white px-4 py-3 text-sm font-bold text-pine transition hover:bg-slate-100"
                   >
-                    Open Review Queue
+                    เปิดคิวตรวจทานความปลอดภัย
                   </button>
                 </article>
               </section>
@@ -408,24 +425,24 @@ export default function AdminPage() {
               {/* Quick Metrics */}
               <section className="grid gap-4 md:grid-cols-4">
                 <MiniStat
-                  label="Completed Jobs"
+                  label="งานที่สำเร็จ"
                   value={jobs.data?.items ? String(jobs.data.items.length) : "—"}
-                  change={jobs.isError ? "Auth Required" : "Live from database"}
+                  change={jobs.isError ? "ต้องยืนยันตัวตน" : "สดจากฐานข้อมูล"}
                 />
                 <MiniStat
-                  label="Pending Reviews"
+                  label="ข้อเสนอแนะรอตรวจ"
                   value={reviews.data?.items ? String(reviews.data.items.length) : "—"}
-                  change="Awaiting human decision"
+                  change="รอการตัดสินใจของผู้ตรวจ"
                 />
                 <MiniStat
-                  label="Audit Records"
+                  label="บันทึกการตรวจสอบ"
                   value={audit.data?.items ? String(audit.data.items.length) : "—"}
-                  change="Immutable security trail"
+                  change="ประวัติความปลอดภัยถาวร"
                 />
                 <MiniStat
-                  label="System Core"
-                  value={overallState === "operational" ? "100%" : "Degraded"}
-                  change="Live Health Status"
+                  label="สถานะแกนระบบหลัก"
+                  value={overallState === "operational" ? "100%" : "ประสิทธิภาพลดลง"}
+                  change="สถานะความสมบูรณ์สด"
                 />
               </section>
             </div>
@@ -487,7 +504,7 @@ function MiniStat({
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <p className="text-xs font-bold tracking-wider text-slate-400">
-        {label.toUpperCase()}
+        {label}
       </p>
       <div className="mt-3 flex items-end justify-between">
         <b className="font-display text-3xl text-slate-900">{value}</b>

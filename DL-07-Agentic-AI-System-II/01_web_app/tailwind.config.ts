@@ -11,7 +11,25 @@ export default {
         pine: "#123f65",
         sand: "#e9f4fa"
       },
-      fontFamily: { display: ["Georgia", "Times New Roman", "serif"], sans: ["Arial", "Helvetica", "sans-serif"] },
+      fontFamily: {
+        display: ["Georgia", "Times New Roman", "serif"],
+        sans: [
+          "var(--font-noto-sans-thai)",
+          "Noto Sans Thai",
+          "var(--font-inter)",
+          "Inter",
+          "system-ui",
+          "-apple-system",
+          "sans-serif",
+        ],
+        mono: [
+          "var(--font-mono)",
+          "JetBrains Mono",
+          "ui-monospace",
+          "SFMono-Regular",
+          "monospace",
+        ],
+      },
       boxShadow: { float: "0 22px 60px rgba(7, 29, 53, .16)" }
     }
   },

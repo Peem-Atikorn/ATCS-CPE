@@ -55,7 +55,7 @@ export function AdminAuthBar({ onTokenChange }: AdminAuthBarProps) {
       setError(
         err instanceof Error
           ? err.message
-          : "Could not obtain ops-admin token from Keycloak",
+          : "ไม่สามารถรับโทเค็น ops-admin จากระบบยืนยันตัวตนได้",
       );
     } finally {
       setLoading(false);
@@ -116,22 +116,22 @@ export function AdminAuthBar({ onTokenChange }: AdminAuthBarProps) {
           <div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-bold text-slate-900">
-                Admin Authentication
+                การยืนยันตัวตนระดับผู้ดูแลระบบ
               </span>
               <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
                   hasAdmin
                     ? "bg-emerald-100 text-emerald-800"
                     : "bg-amber-100 text-amber-800"
                 }`}
               >
-                {hasAdmin ? "Authenticated (Ops Admin)" : "Admin Token Required"}
+                {hasAdmin ? "ยืนยันตัวตนแล้ว (Ops Admin)" : "จำเป็นต้องใช้โทเค็นผู้ดูแลระบบ"}
               </span>
             </div>
-            <p className="text-xs text-slate-500">
+            <p className="mt-0.5 text-xs text-slate-500">
               {hasAdmin
-                ? `Authorized scopes: ${scopes.join(", ")}`
-                : "A Bearer token with scopes (admin:read, admin:write, safety:review) is required to access system records."}
+                ? `ขอบเขตสิทธิ์ที่ได้รับอนุมัติ (Scopes): ${scopes.join(", ")}`
+                : "จำเป็นต้องใช้ Bearer Token ที่มีสิทธิ์ (admin:read, admin:write, safety:review) เพื่อเข้าถึงข้อมูลระบบ"}
             </p>
           </div>
         </div>
@@ -150,14 +150,14 @@ export function AdminAuthBar({ onTokenChange }: AdminAuthBarProps) {
                 ) : (
                   <Sparkles size={14} className="text-[#b9e5fb]" />
                 )}
-                Connect Ops Admin
+                เชื่อมต่อ Ops Admin
               </button>
               <button
                 type="button"
                 onClick={() => setShowManualInput(!showManualInput)}
                 className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
               >
-                Paste Token
+                ป้อนโทเค็นด้วยตนเอง
               </button>
             </>
           ) : (
@@ -166,18 +166,18 @@ export function AdminAuthBar({ onTokenChange }: AdminAuthBarProps) {
                 type="button"
                 onClick={handleQuickConnect}
                 disabled={loading}
-                title="Refresh token"
+                title="ต่ออายุโทเค็น"
                 className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
               >
                 {loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                Refresh
+                ต่ออายุโทเค็น
               </button>
               <button
                 type="button"
                 onClick={handleClearToken}
                 className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-red-50 hover:text-red-700"
               >
-                <LogOut size={13} /> Disconnect
+                <LogOut size={13} /> ตัดการเชื่อมต่อ
               </button>
             </div>
           )}
@@ -195,7 +195,7 @@ export function AdminAuthBar({ onTokenChange }: AdminAuthBarProps) {
         <div className="mt-3 flex gap-2 border-t border-slate-100 pt-3">
           <input
             type="text"
-            placeholder="Paste Bearer JWT token with admin scopes here..."
+            placeholder="วาง Bearer JWT Token พร้อมสิทธิ์ผู้ดูแลระบบที่นี่..."
             value={manualToken}
             onChange={(e) => setManualToken(e.target.value)}
             className="flex-1 rounded-xl border border-slate-200 px-3 py-1.5 text-xs focus:border-pine focus:outline-none"
@@ -205,7 +205,7 @@ export function AdminAuthBar({ onTokenChange }: AdminAuthBarProps) {
             onClick={handleApplyManualToken}
             className="rounded-xl bg-slate-900 px-4 py-1.5 text-xs font-bold text-white hover:bg-slate-800"
           >
-            Apply
+            นำไปใช้
           </button>
         </div>
       )}

@@ -37,7 +37,7 @@ export function AdminExportsTab() {
       setErrorMsg(
         err instanceof Error
           ? err.message
-          : "Failed to request training data export.",
+          : "ไม่สามารถส่งคำขอส่งออกชุดข้อมูลได้",
       );
     },
   });
@@ -49,7 +49,7 @@ export function AdminExportsTab() {
       setExportDetails(result);
     } catch (err) {
       setErrorMsg(
-        err instanceof Error ? err.message : "Failed to query export status.",
+        err instanceof Error ? err.message : "ไม่สามารถตรวจสอบสถานะการส่งออกได้",
       );
     } finally {
       setChecking(false);
@@ -68,9 +68,9 @@ export function AdminExportsTab() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="font-display text-2xl text-slate-900">Training Data Exports</h2>
+        <h2 className="font-display text-2xl text-slate-900">ส่งออกชุดข้อมูลสำหรับฝึกสอนโมเดล</h2>
         <p className="mt-1 text-xs text-slate-500">
-          Export anonymized, privacy-compliant datasets for fine-tuning and safety evaluations (FR-19, D-92).
+          ส่งออกชุดข้อมูลที่ไม่ระบุตัวตนและเป็นไปตามนโยบายความเป็นส่วนตัวสำหรับการปรับแต่งโมเดลและการประเมินความปลอดภัย (FR-19, D-92)
         </p>
       </div>
 
@@ -82,9 +82,9 @@ export function AdminExportsTab() {
               <FileDown size={18} />
             </div>
             <div>
-              <h3 className="font-display text-lg text-slate-900">Request New Dataset</h3>
+              <h3 className="font-display text-lg text-slate-900">ร้องขอส่งออกชุดข้อมูลใหม่</h3>
               <p className="text-xs text-slate-500">
-                Select an optional time window or export all completed recommendations.
+                เลือกช่วงเวลาที่ต้องการ หรือส่งออกข้อมูลคำแนะนำทั้งหมดที่ประมวลผลเสร็จสิ้น
               </p>
             </div>
           </div>
@@ -92,7 +92,7 @@ export function AdminExportsTab() {
           <form onSubmit={handleRequestExport} className="mt-6 space-y-4">
             <div>
               <label className="block text-xs font-bold text-slate-700">
-                Start Date / Time (Optional)
+                ตั้งแต่วันที่ / เวลา (ไม่บังคับ)
               </label>
               <div className="relative mt-1">
                 <input
@@ -106,7 +106,7 @@ export function AdminExportsTab() {
 
             <div>
               <label className="block text-xs font-bold text-slate-700">
-                End Date / Time (Optional)
+                ถึงวันที่ / เวลา (ไม่บังคับ)
               </label>
               <div className="relative mt-1">
                 <input
@@ -118,10 +118,8 @@ export function AdminExportsTab() {
               </div>
             </div>
 
-            <div className="rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-500">
-              <ShieldAlert className="mr-1 inline text-aqua" size={14} /> Anonymization
-              guarantee: Personal places, exact user questions, and identifiable attributes
-              are stripped out before storage.
+            <div className="rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-500">
+              <ShieldAlert className="mr-1 inline text-aqua" size={14} /> การรับประกันความเป็นส่วนตัว: สถานที่ส่วนตัว คำถามเฉพาะของผู้ใช้ และข้อมูลระบุตัวตนทั้งหมดจะถูกคัดกรองออกอย่างสมบูรณ์ก่อนบันทึกจัดเก็บ
             </div>
 
             {errorMsg && (
@@ -138,7 +136,7 @@ export function AdminExportsTab() {
               ) : (
                 <Sparkles size={14} className="text-[#b9e5fb]" />
               )}
-              Queue Export Task
+              เข้าคิวงานส่งออกข้อมูล
             </button>
           </form>
         </div>
@@ -146,7 +144,7 @@ export function AdminExportsTab() {
         {/* Export Status & Download Card */}
         <div className="flex flex-col rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <h3 className="font-display text-lg text-slate-900">Task Status</h3>
+            <h3 className="font-display text-lg text-slate-900">สถานะงานส่งออก</h3>
             {activeExportId && (
               <button
                 type="button"
@@ -154,7 +152,7 @@ export function AdminExportsTab() {
                 disabled={checking}
                 className="inline-flex items-center gap-1 text-xs font-bold text-pine hover:underline"
               >
-                <RefreshCw size={12} className={checking ? "animate-spin" : ""} /> Check
+                <RefreshCw size={12} className={checking ? "animate-spin" : ""} /> ตรวจสอบสถานะ
               </button>
             )}
           </div>
@@ -163,14 +161,14 @@ export function AdminExportsTab() {
             {exportDetails ? (
               <div className="w-full space-y-4 text-left">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Export ID</span>
+                  <span className="text-xs text-slate-400">รหัสงานส่งออก</span>
                   <span className="font-mono text-xs font-bold text-slate-800">
                     {exportDetails.export_id.slice(0, 12)}...
                   </span>
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Status</span>
+                  <span className="text-xs text-slate-400">สถานะ</span>
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
                       exportDetails.status === "completed"
@@ -180,21 +178,25 @@ export function AdminExportsTab() {
                           : "bg-sky-100 text-sky-800"
                     }`}
                   >
-                    {exportDetails.status.toUpperCase()}
+                    {exportDetails.status === "completed"
+                      ? "เสร็จสมบูรณ์"
+                      : exportDetails.status === "failed"
+                        ? "ล้มเหลว"
+                        : "กำลังประมวลผล"}
                   </span>
                 </div>
 
                 {exportDetails.row_count !== null && (
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-400">Exported Rows</span>
+                    <span className="text-xs text-slate-400">จำนวนแถวที่ส่งออก</span>
                     <span className="font-display text-lg font-bold text-slate-900">
-                      {exportDetails.row_count.toLocaleString()} rows
+                      {exportDetails.row_count.toLocaleString()} แถว
                     </span>
                   </div>
                 )}
 
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Created At</span>
+                  <span className="text-xs text-slate-400">สร้างเมื่อ</span>
                   <span className="text-xs text-slate-600">
                     {new Date(exportDetails.created_at).toLocaleString()}
                   </span>
@@ -207,21 +209,21 @@ export function AdminExportsTab() {
                     rel="noreferrer"
                     className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-xs font-bold text-white shadow-sm hover:bg-emerald-700"
                   >
-                    <Download size={15} /> Download Export File (.jsonl / .tar)
+                    <Download size={15} /> ดาวน์โหลดไฟล์ชุดข้อมูล (.jsonl / .tar)
                   </a>
                 ) : (
                   <div className="mt-4 flex items-center justify-center gap-2 rounded-xl bg-slate-50 p-4 text-xs text-slate-500">
                     <Clock size={16} className="text-slate-400" />
-                    <span>Processing in background worker... Refresh in a few moments.</span>
+                    <span>กำลังประมวลผลโดยเวิร์กเกอร์เบื้องหลัง... กรุณาตรวจสอบสถานะอีกครั้งในสักครู่</span>
                   </div>
                 )}
               </div>
             ) : (
               <div className="text-slate-400">
                 <FileDown size={40} className="mx-auto mb-2 text-slate-300" />
-                <p className="text-sm font-bold text-slate-600">No active export selected</p>
+                <p className="text-sm font-bold text-slate-600">ยังไม่มีงานส่งออกที่เลือก</p>
                 <p className="mt-1 text-xs text-slate-400">
-                  Submit an export request on the left to track progress and download here.
+                  ส่งคำขอทางด้านซ้ายเพื่อติดตามความคืบหน้าและดาวน์โหลดไฟล์ที่นี่
                 </p>
               </div>
             )}

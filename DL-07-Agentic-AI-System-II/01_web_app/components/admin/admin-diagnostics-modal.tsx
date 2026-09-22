@@ -60,7 +60,7 @@ export function AdminDiagnosticsModal({
           type="button"
           onClick={onClose}
           className="absolute right-5 top-5 rounded-full p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-          aria-label="Close dialog"
+          aria-label="ปิดหน้าต่าง"
         >
           <X size={20} />
         </button>
@@ -72,7 +72,7 @@ export function AdminDiagnosticsModal({
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-display text-2xl text-slate-900">
-                Recommendation Diagnostics
+                การวินิจฉัยคำแนะนำและผลการตัดสินใจ
               </h2>
               {data?.risk_level && (
                 <span
@@ -84,7 +84,11 @@ export function AdminDiagnosticsModal({
                         : "bg-emerald-100 text-emerald-800"
                   }`}
                 >
-                  {data.risk_level} RISK
+                  {data.risk_level === "HIGH"
+                    ? "ความเสี่ยงสูง (HIGH)"
+                    : data.risk_level === "MEDIUM"
+                      ? "ความเสี่ยงปานกลาง (MEDIUM)"
+                      : "ความเสี่ยงต่ำ (LOW)"}
                 </span>
               )}
               {data?.recommendation_type && (
@@ -100,7 +104,7 @@ export function AdminDiagnosticsModal({
                 onClick={handleCopy}
                 className="inline-flex items-center gap-1 text-pine hover:underline"
               >
-                <Copy size={12} /> {copied ? "Copied" : "Copy"}
+                <Copy size={12} /> {copied ? "คัดลอกแล้ว" : "คัดลอก"}
               </button>
             </div>
           </div>
@@ -110,7 +114,7 @@ export function AdminDiagnosticsModal({
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 size={32} className="animate-spin text-pine" />
             <p className="mt-3 text-sm text-slate-500">
-              Loading diagnostic records...
+              กำลังโหลดข้อมูลบันทึกการวินิจฉัย...
             </p>
           </div>
         )}
@@ -118,11 +122,11 @@ export function AdminDiagnosticsModal({
         {query.isError && (
           <div className="my-8 rounded-2xl bg-red-50 p-6 text-center text-sm text-red-700">
             <AlertTriangle size={32} className="mx-auto mb-2 text-red-500" />
-            <p className="font-bold">Unable to load recommendation details</p>
+            <p className="font-bold">ไม่สามารถโหลดข้อมูลการวินิจฉัยได้</p>
             <p className="mt-1 text-xs text-red-600">
               {query.error instanceof Error
                 ? query.error.message
-                : "Check your authentication and permissions."}
+                : "กรุณาตรวจสอบสิทธิ์การเข้าถึงและโทเค็นของคุณ"}
             </p>
           </div>
         )}
@@ -132,13 +136,13 @@ export function AdminDiagnosticsModal({
             {/* Quick stats grid */}
             <div className="grid gap-3 sm:grid-cols-4">
               <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <span className="text-xs text-slate-400">Risk Score</span>
+                <span className="text-xs text-slate-400">คะแนนความเสี่ยง</span>
                 <p className="mt-1 font-display text-2xl font-bold text-slate-800">
                   {data.risk_score !== null ? data.risk_score.toFixed(2) : "—"}
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <span className="text-xs text-slate-400">Risk Confidence</span>
+                <span className="text-xs text-slate-400">ระดับความมั่นใจ</span>
                 <p className="mt-1 font-display text-2xl font-bold text-slate-800">
                   {data.risk_confidence !== null
                     ? `${Math.round(data.risk_confidence * 100)}%`
@@ -146,21 +150,21 @@ export function AdminDiagnosticsModal({
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <span className="text-xs text-slate-400">Overall Stale</span>
+                <span className="text-xs text-slate-400">ความสดใหม่ข้อมูล</span>
                 <p className="mt-1 font-display text-xl font-bold text-slate-800">
                   {data.overall_is_stale ? (
-                    <span className="text-amber-600">Yes</span>
+                    <span className="text-amber-600">ข้อมูลเก่า</span>
                   ) : (
-                    <span className="text-emerald-600">Fresh</span>
+                    <span className="text-emerald-600">สดใหม่</span>
                   )}
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                <span className="text-xs text-slate-400">Completed At</span>
+                <span className="text-xs text-slate-400">เสร็จสิ้นเมื่อ</span>
                 <p className="mt-1 text-xs font-bold text-slate-800">
                   {data.completed_at
                     ? new Date(data.completed_at).toLocaleTimeString()
-                    : "In progress"}
+                    : "กำลังประมวลผล"}
                 </p>
               </div>
             </div>
@@ -168,7 +172,7 @@ export function AdminDiagnosticsModal({
             {/* Versions snapshot */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
               <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
-                <Layers size={16} className="text-pine" /> System Versions
+                <Layers size={16} className="text-pine" /> เวอร์ชันระบบและโมเดล
               </h3>
               <div className="mt-3 grid gap-3 sm:grid-cols-4 text-xs">
                 {Object.entries(data.versions ?? {}).map(([key, val]) => (
@@ -187,16 +191,16 @@ export function AdminDiagnosticsModal({
             {/* Data Freshness */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
               <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
-                <Clock size={16} className="text-pine" /> Data Freshness
+                <Clock size={16} className="text-pine" /> ความสดใหม่ของชุดข้อมูลอ้างอิง
               </h3>
               <div className="mt-3 overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-slate-100 text-slate-400">
                     <tr>
-                      <th className="pb-2 font-bold">CATEGORY</th>
-                      <th className="pb-2 font-bold">UPDATED AT</th>
-                      <th className="pb-2 font-bold">AGE (SEC)</th>
-                      <th className="pb-2 font-bold">FRESHNESS</th>
+                      <th className="pb-2 font-bold">หมวดหมู่ข้อมูล</th>
+                      <th className="pb-2 font-bold">อัปเดตล่าสุด</th>
+                      <th className="pb-2 font-bold">อายุข้อมูล (วินาที)</th>
+                      <th className="pb-2 font-bold">สถานะ</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -221,7 +225,7 @@ export function AdminDiagnosticsModal({
                                 : "bg-emerald-100 text-emerald-800"
                             }`}
                           >
-                            {item.is_stale ? "Stale" : "Fresh"}
+                            {item.is_stale ? "ข้อมูลเก่า" : "สดใหม่"}
                           </span>
                         </td>
                       </tr>
@@ -234,7 +238,7 @@ export function AdminDiagnosticsModal({
             {/* Agent Runs */}
             <div className="rounded-2xl border border-slate-200 bg-white p-5">
               <h3 className="flex items-center gap-2 text-sm font-bold text-slate-900">
-                <Bot size={16} className="text-pine" /> Agent Execution Runs (
+                <Bot size={16} className="text-pine" /> ประวัติรอบการทำงานของเอเจนต์ (
                 {data.agent_runs?.length ?? 0})
               </h3>
               {data.agent_runs && data.agent_runs.length > 0 ? (
@@ -247,7 +251,7 @@ export function AdminDiagnosticsModal({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="font-mono font-bold text-slate-800">
-                            Attempt #{run.attempt}
+                            รอบที่ #{run.attempt}
                           </span>
                           <span
                             className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
@@ -256,7 +260,7 @@ export function AdminDiagnosticsModal({
                                 : "bg-red-100 text-red-800"
                             }`}
                           >
-                            {run.status.toUpperCase()}
+                            {run.status === "success" ? "สำเร็จ" : "ล้มเหลว"}
                           </span>
                         </div>
                         <span className="text-slate-400">
@@ -265,29 +269,29 @@ export function AdminDiagnosticsModal({
                       </div>
                       <div className="mt-3 grid gap-2 sm:grid-cols-4 text-slate-600">
                         <div>
-                          <span className="text-slate-400">Duration:</span>{" "}
+                          <span className="text-slate-400">ระยะเวลา:</span>{" "}
                           <b className="font-mono text-slate-800">
                             {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(2)}s` : "—"}
                           </b>
                         </div>
                         <div>
-                          <span className="text-slate-400">Tool Calls:</span>{" "}
+                          <span className="text-slate-400">เรียกใช้เครื่องมือ:</span>{" "}
                           <b className="font-mono text-slate-800">
                             {run.tool_calls ?? 0}
                           </b>
                         </div>
                         <div>
-                          <span className="text-slate-400">Agent Version:</span>{" "}
+                          <span className="text-slate-400">เวอร์ชันเอเจนต์:</span>{" "}
                           <span className="font-mono">{run.agent_version ?? "n/a"}</span>
                         </div>
                         <div>
-                          <span className="text-slate-400">HTTP Status:</span>{" "}
+                          <span className="text-slate-400">สถานะ HTTP:</span>{" "}
                           <span className="font-mono">{run.http_status ?? "—"}</span>
                         </div>
                       </div>
                       {run.trace_id && (
                         <div className="mt-2 text-[11px] text-slate-400">
-                          Trace ID: <span className="font-mono text-slate-600">{run.trace_id}</span>
+                          รหัสติดตาม (Trace ID): <span className="font-mono text-slate-600">{run.trace_id}</span>
                         </div>
                       )}
                     </div>
@@ -295,7 +299,7 @@ export function AdminDiagnosticsModal({
                 </div>
               ) : (
                 <p className="mt-3 text-xs text-slate-400">
-                  No agent runs recorded for this recommendation.
+                  ไม่พบบันทึกรอบการทำงานของเอเจนต์สำหรับคำแนะนำนี้
                 </p>
               )}
             </div>
@@ -308,7 +312,7 @@ export function AdminDiagnosticsModal({
             onClick={onClose}
             className="rounded-xl border border-slate-200 bg-slate-50 px-5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100"
           >
-            Close
+            ปิดหน้าต่าง
           </button>
         </div>
       </div>
