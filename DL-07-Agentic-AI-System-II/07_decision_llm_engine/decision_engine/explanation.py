@@ -78,7 +78,7 @@ async def explain(
             "weather_summary": request.weather.text if request.weather else None,
             "transport_summary": request.transport.text if request.transport else None,
             "risk_level": request.risk.level.value if request.risk and hasattr(request.risk.level, "value") else str(request.risk.level) if request.risk else None,
-            "alerts": [alert.headline for alert in request.alerts] if request.alerts else [],
+            "alerts": [f"Level: {alert.level}, Active: {alert.active}" for alert in request.alerts] if request.alerts else [],
         }
     # Byte length is a conservative upper bound for byte-level tokenizer input.
     # Real provider integrations must replace this with that provider's token counter.
