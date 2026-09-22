@@ -12,6 +12,14 @@ const LOCALE = process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? "th";
  */
 export function getAccessToken(): string | null {
   if (typeof window !== "undefined") {
+    // Prioritize admin token when in the admin section
+    if (window.location.pathname.startsWith("/admin")) {
+      const adminStored =
+        window.sessionStorage.getItem("admin_access_token") ??
+        window.localStorage.getItem("admin_access_token");
+      if (adminStored) return adminStored;
+    }
+
     try {
       const urlParams = new URLSearchParams(window.location.search);
       const queryToken = urlParams.get("token") || urlParams.get("access_token");

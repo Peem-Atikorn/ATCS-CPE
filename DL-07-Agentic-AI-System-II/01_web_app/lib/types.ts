@@ -217,3 +217,145 @@ export type FeedbackCreated = {
 /** Legacy alias kept so any lingering imports keep compiling. */
 export type Recommendation = RecommendationResponse;
 
+export type JobStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled";
+export type JobStage = "queued" | "retrieval" | "synthesis" | "safety_gate" | "completed" | "failed";
+export type JobType = "RECOMMENDATION" | "REEVALUATION" | "TRAINING_EXPORT";
+
+export type AdminJob = {
+  job_id: string;
+  type: JobType;
+  status: JobStatus;
+  stage: JobStage;
+  attempts: number;
+  error_code: string | null;
+  recommendation_id: string | null;
+  cancel_requested: boolean;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+
+export type AdminJobPage = {
+  items: AdminJob[];
+  next_cursor: string | null;
+};
+
+export type AgentRunStatus = "running" | "success" | "failure" | "timeout";
+
+export type AgentRun = {
+  run_id: string;
+  attempt: number;
+  status: AgentRunStatus;
+  http_status: number | null;
+  error_code: string | null;
+  duration_ms: number | null;
+  tool_calls: number | null;
+  agent_version: string | null;
+  trace_id: string | null;
+  started_at: string;
+  finished_at: string | null;
+};
+
+export type AdminRecommendation = {
+  recommendation_id: string;
+  source: string;
+  status: RecommendationStatus;
+  risk_level: RiskLevel | null;
+  risk_score: number | null;
+  risk_confidence: number | null;
+  recommendation_type: RecommendationType | null;
+  warning_codes: string[];
+  safety_gate_rules: string[];
+  overall_is_stale: boolean | null;
+  error_code: string | null;
+  versions: Record<string, string | null>;
+  data_freshness: Array<{
+    category: DataCategory;
+    updated_at: string | null;
+    age_seconds: number | null;
+    is_stale: boolean;
+  }>;
+  service_status: Record<string, string>;
+  created_at: string;
+  completed_at: string | null;
+  valid_until: string | null;
+  job: AdminJob | null;
+  agent_runs: AgentRun[];
+};
+
+export type ReviewStatus = "not_required" | "pending" | "approved" | "rejected";
+export type ReviewDecision = "approved" | "rejected";
+
+export type ReviewResponse = {
+  feedback_id: string;
+  recommendation_id: string;
+  rating: number | null;
+  helpful: boolean | null;
+  outcome: string;
+  report_type: string | null;
+  comment: string | null;
+  review_status: ReviewStatus;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+};
+
+export type ReviewQueueItem = ReviewResponse & {
+  recommendation: Record<string, unknown> | null;
+};
+
+export type ReviewPage = {
+  items: ReviewQueueItem[];
+  next_cursor: string | null;
+};
+
+export type ReviewUpdate = {
+  status: ReviewDecision;
+  note?: string | null;
+};
+
+export type ActorType = "user" | "admin" | "service" | "system";
+export type AuditResult = "success" | "denied" | "error";
+
+export type AuditLogItem = {
+  id: number;
+  occurred_at: string;
+  actor_type: ActorType;
+  actor_ref: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  result: AuditResult;
+  correlation_id: string;
+  metadata: Record<string, unknown>;
+};
+
+export type AuditLogPage = {
+  items: AuditLogItem[];
+  next_cursor: string | null;
+};
+
+export type ExportStatus = "queued" | "running" | "completed" | "failed";
+
+export type TrainingExportRequest = {
+  from?: string | null;
+  to?: string | null;
+};
+
+export type TrainingExportAccepted = {
+  export_id: string;
+  status: ExportStatus;
+};
+
+export type TrainingExportResponse = {
+  export_id: string;
+  status: ExportStatus;
+  from: string;
+  to: string;
+  row_count: number | null;
+  created_at: string;
+  completed_at: string | null;
+  expires_at: string | null;
+  download_url: string | null;
+};
+

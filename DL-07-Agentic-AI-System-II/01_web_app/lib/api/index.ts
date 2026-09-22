@@ -1,8 +1,18 @@
 import type {
+  AdminJobPage,
+  AdminRecommendation,
+  AuditLogPage,
   FeedbackCreate,
   FeedbackCreated,
   JobAccepted,
   RecommendationResponse,
+  ReviewPage,
+  ReviewResponse,
+  ReviewStatus,
+  ReviewUpdate,
+  TrainingExportAccepted,
+  TrainingExportRequest,
+  TrainingExportResponse,
   TravelRequest,
 } from "@/lib/types";
 import { isJobAccepted } from "@/lib/types";
@@ -48,12 +58,104 @@ export const api = {
       { signal },
     ),
 
-  getAdminJobs: (signal?: AbortSignal) =>
-    apiFetch<{ items: unknown[] }>("/v1/admin/jobs", { signal }),
+  getAdminJobs: (
+    params?: {
+      status?: string;
+      type?: string;
+      from?: string;
+      to?: string;
+      limit?: number;
+      cursor?: string;
+    },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<AdminJobPage>("/v1/admin/jobs", {
+      searchParams: params as Record<string, string | number | boolean | null | undefined>,
+      signal,
+    }),
 
-  getFeedbackReviews: (signal?: AbortSignal) =>
-    apiFetch<{ items: unknown[] }>("/v1/admin/feedback/reviews", { signal }),
+  getAdminRecommendation: (id: string, signal?: AbortSignal) =>
+    apiFetch<AdminRecommendation>(`/v1/admin/recommendations/${id}`, { signal }),
+
+  getFeedbackReviews: (
+    params?: { status?: ReviewStatus; limit?: number; cursor?: string },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<ReviewPage>("/v1/admin/feedback/reviews", {
+      searchParams: params as Record<string, string | number | boolean | null | undefined>,
+      signal,
+    }),
+
+  reviewFeedback: (id: string, payload: ReviewUpdate, signal?: AbortSignal) =>
+    apiFetch<ReviewResponse>(`/v1/admin/feedback/reviews/${id}`, {
+      method: "PATCH",
+      body: payload,
+      signal,
+    }),
+
+  getAuditLogs: (
+    params?: {
+      action?: string;
+      actor_type?: string;
+      result?: string;
+      target_type?: string;
+      target_id?: string;
+      from?: string;
+      to?: string;
+      limit?: number;
+      cursor?: string;
+    },
+    signal?: AbortSignal,
+  ) =>
+    apiFetch<AuditLogPage>("/v1/admin/audit-logs", {
+      searchParams: params as Record<string, string | number | boolean | null | undefined>,
+      signal,
+    }),
+
+  requestTrainingExport: (payload: TrainingExportRequest, signal?: AbortSignal) =>
+    apiFetch<TrainingExportAccepted>("/v1/admin/exports/training-data", {
+      method: "POST",
+      body: payload,
+      signal,
+    }),
+
+  getTrainingExport: (id: string, signal?: AbortSignal) =>
+    apiFetch<TrainingExportResponse>(`/v1/admin/exports/training-data/${id}`, { signal }),
 };
+
+/** Dev helper to request an ops-admin Bearer token with scopes (admin:read, admin:write, safety:review). */
+export async function fetchOpsAdminToken(
+  keycloakUrl = "http://localhost:8180",
+  clientSecret = "ops-admin-dev-secret-change-me",
+): Promise<{ access_token: string; expires_in: number; token_type: string; scope: string }> {
+  // Try internal Next.js proxy first (avoids browser CORS or Docker networking issues)
+  try {
+    const proxyRes = await fetch("/api/admin/auth", { method: "POST" });
+    if (proxyRes.ok) {
+      return proxyRes.json();
+    }
+  } catch {
+    // Fall back to direct Keycloak call if proxy unavailable
+  }
+
+  const body = new URLSearchParams();
+  body.append("grant_type", "client_credentials");
+  body.append("client_id", "ops-admin");
+  body.append("client_secret", clientSecret);
+
+  const res = await fetch(`${keycloakUrl}/realms/travel-safety/protocol/openid-connect/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to obtain ops-admin token: ${res.status} ${errorText}`);
+  }
+
+  return res.json();
+}
 
 /**
  * SSE sequence for a 202 JobAccepted: POST /v1/jobs/:id/stream-ticket (needs the
