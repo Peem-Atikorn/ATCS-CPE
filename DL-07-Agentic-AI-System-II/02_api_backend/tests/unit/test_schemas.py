@@ -14,7 +14,7 @@ from app.schemas.v1.travel import (
 )
 
 
-def test_schema_emergency_contact_accepts_metadata():
+def test_schema_emergency_contact_accepts_metadata() -> None:
     contact = SchemaEmergencyContact(
         name="Tourist Police",
         phone="1155",
@@ -39,16 +39,20 @@ def test_schema_emergency_contact_accepts_metadata():
         contacts=[contact],
     )
     assert len(instructions.contacts) == 1
-    assert instructions.contacts[0].metadata["coverage_radius_km"] == 50
+    instruction_metadata = instructions.contacts[0].metadata
+    assert instruction_metadata is not None
+    assert instruction_metadata["coverage_radius_km"] == 50
 
 
-def test_contract_emergency_contact_accepts_metadata():
+def test_contract_emergency_contact_accepts_metadata() -> None:
     contact = ContractEmergencyContact(
         name="Medical Emergency",
         phone="1669",
         metadata={"dispatch": "direct", "responder_type": "ambulance"},
     )
-    assert contact.metadata["dispatch"] == "direct"
+    contact_metadata = contact.metadata
+    assert contact_metadata is not None
+    assert contact_metadata["dispatch"] == "direct"
 
     instructions = ContractEmergencyInstructions(
         what_to_do_now="Call EMS immediately",
@@ -56,4 +60,6 @@ def test_contract_emergency_contact_accepts_metadata():
         contacts=[contact],
     )
     assert len(instructions.contacts) == 1
-    assert instructions.contacts[0].metadata["responder_type"] == "ambulance"
+    instruction_metadata = instructions.contacts[0].metadata
+    assert instruction_metadata is not None
+    assert instruction_metadata["responder_type"] == "ambulance"
