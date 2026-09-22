@@ -22,15 +22,29 @@ const schema = z.object({
   destination: z.string().min(2, "ระบุปลายทางอย่างน้อย 2 ตัวอักษร"),
   date: z.string().min(1, "เลือกวันเดินทาง"),
   time: z.string().default("08:00"),
-  mode: z.enum(["CAR", "BUS", "TRAIN", "FLIGHT", "WALK"]),
+  mode: z.enum(["CAR", "BUS", "TRAIN", "FLIGHT", "FERRY", "WALK", "BICYCLE"]),
   travelerCount: z.coerce.number().min(1).max(20).default(1),
   avoidHighways: z.boolean().default(false),
   avoidTolls: z.boolean().default(false),
   avoidFerries: z.boolean().default(false),
   avoidNight: z.boolean().default(false),
   note: z.string().max(240).optional(),
-});
+}).refine(
+  ({ date, time }) => new Date(`${date}T${time}:00+07:00`).getTime() > Date.now(),
+  { path: ["date"], message: "เลือกวันและเวลาเดินทางในอนาคต" },
+);
 type Form = z.infer<typeof schema>;
+
+function bangkokDate(daysFromNow: number): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(Date.now() + daysFromNow * 86_400_000));
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
 
 const BUSY_STATUS = new Set(["geocoding", "submitting", "streaming"]);
 const STATUS_LABEL: Record<string, string> = {
@@ -52,6 +66,7 @@ export function TravelForm() {
     setPinningMode,
   } = useTrip();
   const [showPreferences, setShowPreferences] = useState(false);
+  const [minDate, setMinDate] = useState("");
   const busy = BUSY_STATUS.has(status);
 
   const form = useForm<Form>({
@@ -59,7 +74,7 @@ export function TravelForm() {
     defaultValues: {
       origin: "Bangkok",
       destination: "Chiang Mai",
-      date: "2026-09-28",
+      date: "",
       time: "08:00",
       mode: "CAR",
       travelerCount: 1,
@@ -70,6 +85,11 @@ export function TravelForm() {
       note: "",
     },
   });
+
+  useEffect(() => {
+    setMinDate(bangkokDate(0));
+    if (!lastInput?.date) form.setValue("date", bangkokDate(1));
+  }, [form, lastInput?.date]);
 
   useEffect(() => {
     if (lastInput) {
@@ -158,7 +178,7 @@ export function TravelForm() {
         <input aria-label="Destination" {...form.register("destination")} />
       </Field>
       <Field icon={<CalendarDays size={16} />} label="ออกเดินทาง">
-        <input aria-label="Departure date" type="date" {...form.register("date")} />
+        <input aria-label="Departure date" type="date" min={minDate} {...form.register("date")} />
       </Field>
       <Field icon={<Navigation size={16} />} label="การเดินทาง">
         <select aria-label="Travel mode" {...form.register("mode")}>
@@ -166,7 +186,9 @@ export function TravelForm() {
           <option value="BUS">รถโดยสารประจำทาง (Bus)</option>
           <option value="TRAIN">รถไฟ (Train)</option>
           <option value="FLIGHT">เครื่องบิน (Flight)</option>
+          <option value="FERRY">เรือ (Ferry)</option>
           <option value="WALK">เดินเท้า (Walk)</option>
+          <option value="BICYCLE">จักรยาน (Bicycle)</option>
         </select>
       </Field>
 

@@ -88,8 +88,13 @@ export function RecommendationDashboard() {
   }
 
   const risk = recommendation.risk;
-  const level = risk?.level ?? "LOW";
-  const ui = RISK_UI[level];
+  const ui = risk?.level ? RISK_UI[risk.level] : {
+    label: "ยังไม่มีระดับความเสี่ยง",
+    icon: Info,
+    className: "text-slate-200",
+    bg: "bg-[#102e4e]",
+    border: "border-slate-500/30",
+  };
   const Icon = ui.icon;
 
   const weatherFactors = (risk?.factors ?? []).filter((f) => f.type.toUpperCase() === "WEATHER");
@@ -246,14 +251,15 @@ export function RecommendationDashboard() {
                 <h3 className="mt-1 font-display text-2xl">Live signals & evidence</h3>
               </div>
               <span className="flex items-center gap-1.5 rounded-full bg-pine/10 px-2.5 py-1 text-xs font-bold text-pine">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-pine" /> ACTIVE
+                {!usingMock && <span className="h-2 w-2 animate-pulse rounded-full bg-pine" />}
+                {usingMock ? "DEMO" : "ACTIVE"}
               </span>
             </div>
 
             <div className="mt-5 space-y-3">
               {weatherFactors.length === 0 && otherFactors.length === 0 && (
                 <p className="rounded-xl bg-white p-4 text-sm text-slate-500">
-                  ไม่มีรายงานสภาพผิดปกติบนเส้นทาง ณ ขณะนี้
+                  ยังไม่มีปัจจัยความเสี่ยงที่ตรวจสอบได้สำหรับเส้นทางนี้
                 </p>
               )}
 
@@ -284,14 +290,18 @@ export function RecommendationDashboard() {
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
               <span className="flex items-center gap-1.5">
                 <Clock3 size={15} className="text-aqua" />
-                {recommendation.data_freshness?.overall_is_stale ? (
+                {usingMock ? (
+                  <span className="text-amber-700">ข้อมูลจำลอง ไม่ใช่ข้อมูลสด</span>
+                ) : recommendation.data_freshness?.overall_is_stale ? (
                   <b className="text-amber-700">ข้อมูลบางส่วนล้าสมัย</b>
+                ) : recommendation.data_freshness ? (
+                  <span className="text-slate-700">ตรวจสอบเวลาข้อมูลแต่ละแหล่งด้านล่าง</span>
                 ) : (
-                  <span className="text-slate-700">ข้อมูลอัปเดตสดใหม่ตามเวลาจริง</span>
+                  <span className="text-slate-700">ยังไม่มีข้อมูลความสดใหม่</span>
                 )}
               </span>
               <span className="text-[11px] text-slate-500">
-                {recommendation.sources.length} แหล่งข้อมูลที่ตรวจสอบ
+                {recommendation.sources.length} {usingMock ? "แหล่งข้อมูลตัวอย่าง" : "แหล่งข้อมูลอ้างอิง"}
               </span>
             </div>
           </div>
@@ -702,18 +712,18 @@ function IdleExample({ busy, message }: { busy: boolean; message: string | null 
         <div className="flex items-start justify-between">
           <div>
             <p className="text-xs font-bold tracking-[.17em] text-white/55">
-              ASSESSMENT · {busy ? "กำลังประมวลผล" : "EXAMPLE STATE"}
+              ASSESSMENT · {busy ? "กำลังประมวลผล" : "รอผลประเมิน"}
             </p>
             <div className="mt-6 flex items-center gap-3 text-[#b9e5fb]">
-              {busy ? <LoaderCircle className="animate-spin" size={28} /> : <ShieldCheck size={28} />}
-              <span className="font-bold">{busy ? (message ?? "กำลังตรวจสอบ…").toUpperCase() : "LOW RISK"}</span>
+              {busy ? <LoaderCircle className="animate-spin" size={28} /> : <Info size={28} />}
+              <span className="font-bold">{busy ? (message ?? "กำลังตรวจสอบ…").toUpperCase() : "ยังไม่ทราบระดับความเสี่ยง"}</span>
             </div>
             <h3 className="mt-3 font-display text-4xl sm:text-5xl text-white">
-              {busy ? "กำลังประเมินเส้นทางของคุณ…" : "Travel normally."}
+              {busy ? "กำลังประเมินเส้นทางของคุณ…" : "เริ่มประเมินเส้นทางของคุณ"}
             </h3>
           </div>
           <span className="rounded-full bg-white/10 p-3 text-white">
-            {busy ? <LoaderCircle className="animate-spin" size={20} /> : <Check size={20} />}
+            {busy ? <LoaderCircle className="animate-spin" size={20} /> : <Info size={20} />}
           </span>
         </div>
         <p className="mt-7 max-w-md text-sm leading-7 text-white/70">
@@ -724,42 +734,40 @@ function IdleExample({ busy, message }: { busy: boolean; message: string | null 
         <div className="mt-8 grid grid-cols-2 border-t border-white/15 pt-5 text-sm text-white">
           <div>
             <span className="text-white/50">Risk score</span>
-            <b className="mt-1 block text-xl">{busy ? "…" : "18 / 100"}</b>
+            <b className="mt-1 block text-xl">{busy ? "…" : "—"}</b>
           </div>
           <div>
             <span className="text-white/50">Confidence</span>
-            <b className="mt-1 block text-xl">{busy ? "…" : "High · 91%"}</b>
+            <b className="mt-1 block text-xl">{busy ? "…" : "—"}</b>
           </div>
         </div>
       </article>
 
       <article className="rounded-2xl bg-[#eef7fc] p-6 text-ink sm:p-8">
         <div className="flex items-center justify-between">
-          <h3 className="font-display text-2xl">Live signals</h3>
-          <span className="flex items-center gap-1 text-xs font-bold text-pine">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-pine" /> UPDATING
-          </span>
+          <h3 className="font-display text-2xl">ข้อมูลสภาพแวดล้อม</h3>
+          <span className="text-xs font-bold text-slate-500">รอการประเมิน</span>
         </div>
         <div className="mt-5 space-y-3">
           <div data-card className="flex gap-3 rounded-xl bg-white p-3 shadow-sm">
             <span className="text-aqua"><Waves size={17} /></span>
             <span>
-              <b className="block text-sm">Light rain, 14:00–16:00</b>
-              <small className="text-xs text-slate-500">Monitor the coastal sections.</small>
+              <b className="block text-sm">สภาพอากาศ</b>
+              <small className="text-xs text-slate-500">จะแสดงเมื่อมีข้อมูลที่ตรวจสอบได้</small>
             </span>
           </div>
           <div data-card className="flex gap-3 rounded-xl bg-white p-3 shadow-sm">
             <span className="text-aqua"><Route size={17} /></span>
             <span>
-              <b className="block text-sm">Primary route remains open</b>
-              <small className="text-xs text-slate-500">No active disruption along the route.</small>
+              <b className="block text-sm">สภาพการเดินทาง</b>
+              <small className="text-xs text-slate-500">จะแสดงเมื่อมีข้อมูลที่ตรวจสอบได้</small>
             </span>
           </div>
           <div data-card className="flex gap-3 rounded-xl bg-white p-3 shadow-sm">
             <span className="text-aqua"><Clock3 size={17} /></span>
             <span>
-              <b className="block text-sm">Updated 2 minutes ago</b>
-              <small className="text-xs text-slate-500">Sources: weather + transport services</small>
+              <b className="block text-sm">เวลาข้อมูลและแหล่งอ้างอิง</b>
+              <small className="text-xs text-slate-500">จะแสดงหลังส่งคำขอประเมิน</small>
             </span>
           </div>
         </div>

@@ -122,6 +122,55 @@ services:
       timeout: 3s
       retries: 10
 
+  recommendation-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: reco_user
+      POSTGRES_PASSWORD: reco-dev-password
+      POSTGRES_DB: reco_db
+    volumes:
+      - reco-integration-data:/var/lib/postgresql/data
+      - ./DL-07-Agentic-AI-System-II/08_recommendation_feedback/db_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reco_user -d reco_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  recommendation-redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  recommendation-feedback:
+    build:
+      context: ./DL-07-Agentic-AI-System-II/08_recommendation_feedback
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://reco_user:reco-dev-password@recommendation-postgres:5432/reco_db
+      REDIS_URL: redis://recommendation-redis:6379/0
+      DECISION_ENGINE_URL: http://decision-engine:8050
+    depends_on:
+      recommendation-postgres:
+        condition: service_healthy
+      recommendation-redis:
+        condition: service_healthy
+      decision-engine:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)"
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
   travel-agent:
     build:
       context: ./DL-07-Agentic-AI-System-II
@@ -230,3 +279,4 @@ services:
 volumes:
   keycloak-integration-data:
   pg-integration-data:
+  reco-integration-data:

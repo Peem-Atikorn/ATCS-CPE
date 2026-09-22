@@ -29,7 +29,7 @@ interface Message {
       date?: string;
       origin?: string;
       destination?: string;
-      mode?: "CAR" | "BUS" | "TRAIN" | "FLIGHT" | "WALK";
+      mode?: "CAR" | "BUS" | "TRAIN" | "FLIGHT" | "FERRY" | "WALK" | "BICYCLE";
     };
   } | null;
   timestamp: string;
@@ -43,7 +43,7 @@ const QUICK_PROMPTS = [
 ];
 
 export function TravelAssistantDrawer() {
-  const { recommendation, lastInput, originPoint, destinationPoint, applyAssistantChanges, status } = useTrip();
+  const { recommendation, lastInput, originPoint, destinationPoint, applyAssistantChanges, status, usingMock } = useTrip();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
@@ -59,7 +59,7 @@ export function TravelAssistantDrawer() {
           id: "welcome-1",
           role: "assistant",
           content:
-            "สวัสดีครับ! ผมคือผู้ช่วยเดินทางอัจฉริยะ (AI Travel Assistant) คุณสามารถสอบถามสภาพอากาศสด จุดน้ำท่วม การจราจร หรือแจ้งให้ผมช่วยปรับเวลาและเส้นทางได้ตลอดเวลาครับ",
+            "สวัสดีครับ! ผมช่วยอธิบายผลประเมินและปรับแผนเดินทางได้ หากข้อมูลสดยังไม่พร้อม ผมจะแจ้งให้ทราบตามตรงครับ",
           timestamp: new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" }),
         },
       ]);
@@ -95,28 +95,16 @@ export function TravelAssistantDrawer() {
       date: lastInput?.date,
       time: lastInput?.time,
       mode: lastInput?.mode,
+      isDemo: usingMock,
       recommendation: recommendation
         ? {
-            actionCode: recommendation.action,
-            riskLevel: recommendation.riskLevel,
+            actionCode: recommendation.recommendation?.type ?? undefined,
+            riskLevel: recommendation.risk?.level ?? undefined,
             explanation: {
-              summary: recommendation.explanation?.summary,
-              reasons: recommendation.explanation?.reasons,
-              instructions: recommendation.explanation?.instructions,
+              summary: recommendation.recommendation?.summary ?? undefined,
+              reasons: recommendation.recommendation?.reasons,
+              instructions: recommendation.emergency_instructions?.safety_steps,
             },
-            weather: recommendation.weather
-              ? {
-                  temperature: recommendation.weather.temperature,
-                  precipitationMmH: recommendation.weather.precipitationMmH,
-                  summary: recommendation.weather.summary,
-                }
-              : undefined,
-            transport: recommendation.transport
-              ? {
-                  delayS: recommendation.transport.delaySeconds,
-                  hazard: recommendation.transport.hazardDescription,
-                }
-              : undefined,
           }
         : undefined,
     };
@@ -216,7 +204,7 @@ export function TravelAssistantDrawer() {
                 </div>
                 <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
                   <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  <span>Google Gemini Live Assisting</span>
+                  <span>อธิบายตามข้อมูลที่มี</span>
                 </div>
               </div>
             </div>
@@ -252,14 +240,16 @@ export function TravelAssistantDrawer() {
               {recommendation && (
                 <span
                   className={`shrink-0 rounded px-1.5 py-0.5 font-medium ${
-                    recommendation.riskLevel === "HIGH"
+                    recommendation.risk?.level === "HIGH"
                       ? "bg-rose-500/20 text-rose-300 border border-rose-500/30"
-                      : recommendation.riskLevel === "MEDIUM"
+                      : recommendation.risk?.level === "MEDIUM"
                       ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                      : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : recommendation.risk?.level === "LOW"
+                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                      : "bg-slate-500/20 text-slate-300 border border-slate-500/30"
                   }`}
                 >
-                  {recommendation.action}
+                  {recommendation.recommendation?.type ?? "กำลังตรวจสอบ"}
                 </span>
               )}
             </div>

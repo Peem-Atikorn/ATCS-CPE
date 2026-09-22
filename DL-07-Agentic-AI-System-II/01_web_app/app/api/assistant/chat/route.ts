@@ -11,6 +11,7 @@ interface TripContextData {
   date?: string;
   time?: string;
   mode?: string;
+  isDemo?: boolean;
   recommendation?: {
     actionCode?: string;
     riskLevel?: string;
@@ -37,17 +38,17 @@ function generateFallbackReply(userQuestion: string, context?: TripContextData) 
   const destination = context?.destination || "ปลายทาง";
   const rec = context?.recommendation;
   const summary = rec?.explanation?.summary;
-  const riskLevel = rec?.riskLevel || "LOW";
+  const demoNotice = context?.isDemo ? "ข้อมูลทริปนี้เป็นตัวอย่าง ไม่ใช่ผลตรวจสอบจริง " : "";
 
   if (q.includes("ฝน") || q.includes("อากาศ") || q.includes("พายุ") || q.includes("สภาพอากาศ")) {
     if (rec?.weather?.summary) {
       return {
-        reply: `รายงานสภาพอากาศสำหรับเส้นทาง ${origin} ➔ ${destination}: ${rec.weather.summary} อุณหภูมิประมาณ ${rec.weather.temperature ?? 30}°C แนะนำตรวจสอบที่ปัดน้ำฝนและไฟหน้ารถให้พร้อมครับ`,
+        reply: `${demoNotice}ข้อมูลสภาพอากาศที่มีสำหรับเส้นทาง ${origin} ➔ ${destination}: ${rec.weather.summary}${rec.weather.temperature != null ? ` อุณหภูมิ ${rec.weather.temperature}°C` : ""} กรุณาตรวจสอบประกาศล่าสุดก่อนเดินทางครับ`,
         proposal: null,
       };
     }
     return {
-      reply: `จากการตรวจสอบข้อมูลสภาพอากาศตามแนวเส้นทาง ${origin} ➔ ${destination} พบว่าภาพรวมทัศนวิสัยอยู่ในเกณฑ์ปกติ มีโอกาสเกิดฝนฟ้าคะนองกระจายตัวบางจุดครับ`,
+      reply: `${demoNotice}ยังไม่มีข้อมูลสภาพอากาศที่ตรวจสอบได้สำหรับเส้นทาง ${origin} ➔ ${destination} กรุณาตรวจสอบข้อมูลจากหน่วยงานทางการก่อนเดินทางครับ`,
       proposal: null,
     };
   }
@@ -55,39 +56,39 @@ function generateFallbackReply(userQuestion: string, context?: TripContextData) 
   if (q.includes("รถติด") || q.includes("จราจร") || q.includes("ปิดถนน") || q.includes("น้ำท่วม") || q.includes("อุบัติเหตุ")) {
     if (rec?.transport?.hazard) {
       return {
-        reply: `ข้อมูลจราจรสด (iTIC / Longdo Traffic) รายงานข้อควรระวัง: ${rec.transport.hazard} แนะนำใช้ความระมัดระวังเป็นพิเศษหรือเตรียมเวลาเดินทางเพิ่มครับ`,
+        reply: `${demoNotice}ข้อมูลการเดินทางที่มีสำหรับเส้นทาง ${origin} ➔ ${destination}: ${rec.transport.hazard} กรุณาตรวจสอบสถานะล่าสุดก่อนออกเดินทางครับ`,
         proposal: null,
       };
     }
     return {
-      reply: `จากการเชื่อมต่อข้อมูลจราจรสดของ Longdo Traffic บนเส้นทาง ${origin} ➔ ${destination} ไม่พบการสั่งปิดถนนหลักหรือเหตุน้ำท่วมขังรุนแรง การจราจรเคลื่อนตัวได้ตามปกติครับ`,
+      reply: `${demoNotice}ยังไม่มีข้อมูลจราจรหรือการปิดถนนที่ตรวจสอบได้สำหรับเส้นทาง ${origin} ➔ ${destination} กรุณาตรวจสอบประกาศล่าสุดจากหน่วยงานที่เกี่ยวข้องครับ`,
       proposal: null,
     };
   }
 
   if (q.includes("เลื่อนเวลา") || q.includes("เปลี่ยนเวลา") || q.includes("กี่โมง") || q.includes("เวลา")) {
-    const newTime = "10:30";
     return {
-      reply: `หากต้องการปรับเวลาออกเดินทางเพื่อหลีกเลี่ยงช่วงการจราจรหนาแน่นหรือลดความเสี่ยงจากสภาพอากาศ แนะนำเป็นช่วงเวลา ${newTime} น. ครับ คุณสามารถกดปุ่มยืนยันด้านล่างเพื่ออัปเดตแผนการเดินทางได้ทันทีครับ`,
-      proposal: {
-        label: `เลื่อนเวลาออกเดินทางเป็น ${newTime} น.`,
-        changes: {
-          time: newTime,
-        },
-      },
+      reply: `${demoNotice}ระบุวันและเวลาที่ต้องการเปลี่ยนได้ครับ จากนั้นให้ระบบประเมินทริปใหม่ก่อนใช้ผลตัดสินใจ เพราะยังไม่มีหลักฐานพอที่จะแนะนำเวลาใหม่โดยอัตโนมัติ`,
+      proposal: null,
     };
   }
 
   if (q.includes("ปลอดภัย") || q.includes("ไปได้ไหม") || q.includes("เดินทางได้ไหม") || q.includes("สรุป")) {
-    const riskThai = riskLevel === "HIGH" ? "ความเสี่ยงสูง (ควรหลีกเลี่ยง)" : riskLevel === "MEDIUM" ? "ความเสี่ยงปานกลาง (ใช้ความระมัดระวัง)" : "ปลอดภัย (เดินทางได้ตามปกติ)";
+    if (!rec?.riskLevel || !rec.actionCode) {
+      return {
+        reply: `${demoNotice}ยังไม่มีผลประเมินความปลอดภัยที่ตรวจสอบได้สำหรับทริป ${origin} ➔ ${destination} กรุณาส่งคำขอประเมินและตรวจสอบประกาศล่าสุดก่อนตัดสินใจครับ`,
+        proposal: null,
+      };
+    }
+    const riskThai = rec.riskLevel === "HIGH" ? "ความเสี่ยงสูง" : rec.riskLevel === "MEDIUM" ? "ความเสี่ยงปานกลาง" : "ความเสี่ยงต่ำตามผลประเมิน";
     return {
-      reply: `ผลการประเมินทริป ${origin} ➔ ${destination} สรุปความปลอดภัย: ${riskThai}\n${summary || "สามารถเดินทางตามแผนได้ โดยติดตามประกาศล่าสุดก่อนออกเดินทางครับ"}`,
+      reply: `${demoNotice}ผลการประเมินทริป ${origin} ➔ ${destination}: ${riskThai}\n${summary || "กรุณาดูเหตุผลและข้อจำกัดในผลประเมิน พร้อมตรวจสอบข้อมูลล่าสุดก่อนเดินทางครับ"}`,
       proposal: null,
     };
   }
 
   return {
-    reply: `สวัสดีครับ ผมคือผู้ช่วยเดินทางอัจฉริยะ พร้อมดูแลทริปจาก ${origin} ไปยัง ${destination} คุณสามารถสอบถามสภาพอากาศ จราจรอุบัติเหตุสด หรือบอกให้ผมช่วยปรับเวลา/พาหนะเดินทางได้ตลอดเวลาครับ`,
+    reply: `${demoNotice}ผมช่วยอธิบายผลประเมินทริป ${origin} ไปยัง ${destination} และช่วยปรับแผนได้ครับ หากข้อมูลสดยังไม่พร้อม ผมจะแจ้งตามตรงแทนการคาดเดา`,
     proposal: null,
   };
 }
@@ -118,7 +119,8 @@ export async function POST(req: Request) {
 หน้าที่ของคุณคือ:
 1. ตอบคำถามของผู้ใช้เกี่ยวกับการเดินทาง สภาพอากาศสด จราจรอุบัติเหตุ (Longdo Traffic) และการเตือนภัย ปภ.
 2. สไตล์การตอบ: ภาษาไทยที่สุภาพ กระชับ สละสลวย ชัดเจน และเป็นมิตร
-3. อิงข้อมูลจาก [บริบทการเดินทางปัจจุบัน] ที่ได้รับ ห้ามกุข้อมูลตัวเลขที่ขัดแย้งกับหลักฐานจริง
+3. อิงข้อมูลจาก [บริบทการเดินทางปัจจุบัน] ที่ได้รับเท่านั้น หากไม่มีข้อมูลสภาพอากาศ/จราจร/ผลประเมิน ให้บอกว่าไม่มีข้อมูล ห้ามคาดเดาว่าปลอดภัยหรือถนนเปิด
+3.1 หาก isDemo เป็น true ต้องระบุชัดว่าข้อมูลเป็นตัวอย่าง ไม่ใช่ผลตรวจสอบจริง
 4. หากผู้ใช้ต้องการปรับเปลี่ยนแผนการเดินทาง (เช่น "เลื่อนเวลาออกเดินทาง", "เปลี่ยนพาหนะ", "เปลี่ยนจุดหมาย"):
    - อธิบายเหตุผลในข้อความ "reply"
    - ให้ส่งข้อมูลใน "proposal" เป็น Object ที่มี "label" และ "changes" เพื่อให้หน้าเว็บนำไปอัปเดตฟอร์มได้
@@ -133,7 +135,7 @@ export async function POST(req: Request) {
       "date": "YYYY-MM-DD (ถ้าเปลี่ยนวัน)",
       "origin": "ชื่อสถานที่ (ถ้าเปลี่ยนต้นทาง)",
       "destination": "ชื่อสถานที่ (ถ้าเปลี่ยนปลายทาง)",
-      "mode": "CAR | BUS | TRAIN | FLIGHT | WALK (ถ้าเปลี่ยนพาหนะ)"
+      "mode": "CAR | BUS | TRAIN | FLIGHT | FERRY | WALK | BICYCLE (ถ้าเปลี่ยนพาหนะ)"
     }
   }
 }`;
