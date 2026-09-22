@@ -12,7 +12,21 @@ const LOCALE = process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? "th";
  */
 export function getAccessToken(): string | null {
   if (typeof window !== "undefined") {
-    const stored = window.sessionStorage.getItem("access_token");
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const queryToken = urlParams.get("token") || urlParams.get("access_token");
+      if (queryToken) {
+        window.sessionStorage.setItem("access_token", queryToken);
+        window.localStorage.setItem("access_token", queryToken);
+        return queryToken;
+      }
+    } catch {
+      // Ignore URL parsing errors in non-browser/restricted contexts
+    }
+
+    const stored =
+      window.sessionStorage.getItem("access_token") ??
+      window.localStorage.getItem("access_token");
     if (stored) return stored;
   }
   return process.env.NEXT_PUBLIC_DEV_TOKEN ?? null;

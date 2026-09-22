@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
+from decision_engine.hashing import CONTENT_HASH_VERSION, content_sha256
 from decision_engine.models import EmergencyContact, EmergencyInstructions
 
 
@@ -57,3 +58,25 @@ def test_08_contact_fragment_shape(now):
         "effective_date": now.isoformat(),
     }
     assert models["EmergencyContact"].model_validate(payload).region == "TEST-REGION"
+
+
+def test_module_06_hashes_content_the_same_way_as_module_07():
+    """The two copies of the hash helper must agree, or reviews silently stop matching."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "06_risk_knowledge_services/risk_knowledge/hashing.py"
+    )
+    if not path.exists():
+        pytest.skip("Sibling source not present in standalone module checkout")
+    namespace: dict[str, Any] = {}
+    exec(compile(path.read_text(encoding="utf-8-sig"), str(path), "exec"), namespace)
+
+    samples = [
+        "plain text",
+        "  spaced \n text  ",
+        "ข้อความภาษาไทย พร้อมช่องว่าง",
+        "line\r\nbreaks\tand\ttabs",
+    ]
+    for sample in samples:
+        assert namespace["content_sha256"](sample) == content_sha256(sample)
+    assert namespace["CONTENT_HASH_VERSION"] == CONTENT_HASH_VERSION

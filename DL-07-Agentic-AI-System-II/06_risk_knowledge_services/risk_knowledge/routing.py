@@ -81,10 +81,21 @@ def _record_level(record: IntegratedEvidence) -> Level:
     return Level.MEDIUM if raw == "MEDIUM" else Level.LOW
 
 
+ESSENTIAL_KINDS = {
+    "current_weather",
+    "weather_forecast",
+    "transport_status",
+    "disaster_event",
+}
+
+
 def _has_complete_coverage(route: IntegratedRoute) -> bool:
     return bool(route.segments) and all(
         segment.coverage
-        and all(status.lower() == "covered" for status in segment.coverage.values())
+        and all(
+            segment.coverage.get(kind, "").lower() == "covered"
+            for kind in ESSENTIAL_KINDS
+        )
         for segment in route.segments
     )
 

@@ -24,7 +24,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = settings
     app.state.audit = audit
-    app.state.provider = None
+    if settings.llm_model_explainer != "disabled" and settings.llm_api_key.get_secret_value():
+        from .provider import GeminiExplanationProvider
+        app.state.provider = GeminiExplanationProvider(settings)
+    else:
+        app.state.provider = None
     app.state.clock = lambda: datetime.now(UTC)
 
     @app.exception_handler(RequestValidationError)

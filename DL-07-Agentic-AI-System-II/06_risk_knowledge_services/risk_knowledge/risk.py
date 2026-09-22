@@ -146,18 +146,24 @@ def _factor_from_record(record: IntegratedEvidence) -> tuple[float, RiskFactorRe
     return 0.0, None, False
 
 
-def _confidence(context: IntegratedTravelContext, has_usable_evidence: bool) -> Level:
+def _confidence(context: IntegratedTravelContext, has_usable_evidence: bool) -> float:
     flags = {flag.lower() for flag in context.flags + context.quality_flags}
     for record in context.evidence:
         flags.update(flag.lower() for flag in record.quality_flags)
         if record.freshness in {None, "unknown"}:
             flags.add("freshness_unknown")
     bad = flags & BAD_QUALITY_FLAGS
-    if not has_usable_evidence or "conflicting" in bad or len(bad) >= 3:
-        return Level.LOW
+    if "conflicting" in bad:
+        return 0.10
+    if not has_usable_evidence or len(bad) >= 3:
+        return 0.25
     if context.degraded or bad:
-        return Level.MEDIUM
-    return context.confidence or Level.HIGH
+        return 0.65
+    if context.confidence is not None:
+        if isinstance(context.confidence, Level):
+            return {"LOW": 0.25, "MEDIUM": 0.65, "HIGH": 0.90}[context.confidence.value]
+        return float(context.confidence)
+    return 0.90
 
 
 def assess_risk(
@@ -182,7 +188,7 @@ def assess_risk(
         return RiskResult(
             level=Level.HIGH,
             score=None,
-            confidence=Level.LOW,
+            confidence=0.10,
             model_version=MODEL_VERSION,
             factors=[factor],
             records=[module_record("risk", factor.description, now=current)],

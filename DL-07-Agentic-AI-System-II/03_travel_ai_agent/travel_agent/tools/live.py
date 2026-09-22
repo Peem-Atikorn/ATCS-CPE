@@ -1,8 +1,9 @@
 """In-process adapters for the real Module 04, Module 05, and Module 06 implementations.
 
 These modules currently expose Python functions/classes rather than HTTP services. This
-adapter runs their blocking provider calls in worker threads, validates the evidence
-that Module 03 sends onward, and leaves weather/routing-provider tools on MockToolSet.
+adapter runs their blocking provider calls in worker threads and validates the evidence
+that Module 03 sends onward. Weather (Open-Meteo) and routing (OSRM) need no API key;
+transport (TomTom) degrades to "unavailable" without one.
 """
 
 from __future__ import annotations
@@ -26,9 +27,12 @@ from travel_agent.tools.schemas import (
     KnowledgeResult,
     Record,
     RiskResult,
+    RouteCandidate,
+    RouteCandidatesResult,
     RouteResult,
     TransportResult,
     TravelQuery,
+    WeatherResult,
 )
 
 CanonicalRecord = dict[str, Any]
@@ -81,15 +85,28 @@ def _load_package(name: str, directory: Path) -> ModuleType:
     return module
 
 
-def _dependencies() -> tuple[
+WeatherCurrentFetcher = Callable[[float, float], CanonicalRecord]
+WeatherForecastFetcher = Callable[[float, float], list[CanonicalRecord]]
+RouteFetcher = Callable[..., list[dict[str, Any]]]
+
+
+def _dependencies(transport_provider: str = "tomtom") -> tuple[
     TransportFetcher,
     DisasterFetcher,
     ContextBuilder,
     RiskKnowledgeFactory,
+    WeatherCurrentFetcher,
+    WeatherForecastFetcher,
+    RouteFetcher,
 ]:
+    transport_file = (
+        "longdo_traffic_adapter.py"
+        if transport_provider.lower() == "longdo"
+        else "tomtom_transport.py"
+    )
     transport = _load_module(
         "teamd_module04_transport",
-        _dependency_path("04_external_data_services", "tomtom_transport.py"),
+        _dependency_path("04_external_data_services", transport_file),
     )
     disaster = _load_module(
         "teamd_module04_disaster",
@@ -103,11 +120,25 @@ def _dependencies() -> tuple[
         "teamd_module06_risk_knowledge",
         _dependency_path("06_risk_knowledge_services", "risk_knowledge/__init__.py").parent,
     )
+    weather_path = _dependency_path("04_external_data_services", "weather_service.py")
+    if str(weather_path.parent) not in sys.path:
+        sys.path.insert(0, str(weather_path.parent))
+    weather = _load_module(
+        "teamd_module04_weather",
+        weather_path,
+    )
+    routes = _load_module(
+        "teamd_module04_routes",
+        _dependency_path("04_external_data_services", "route_candidates.py"),
+    )
     return (
         transport.fetch_canonical_transport,
         disaster.fetch_canonical_disasters,
         integration.build_context,
         risk_knowledge.RiskKnowledgeService,
+        weather.fetch_canonical_current_weather,
+        weather.fetch_canonical_forecast,
+        routes.fetch_route_candidates,
     )
 
 
@@ -135,24 +166,37 @@ def _evidence_record(record: CanonicalRecord, *, kind: str) -> Record:
     expires_at = _aware(record.get("expires_at"))
     if fetched_at is None or expires_at is None:
         raise ValueError("canonical record needs fetched_at and expires_at")
-    # This is the time Module 03 actually observed the provider record. Prefer the
-    # source event/report time when it is usable, but never invent a future observation.
-    observed_at = next(
-        (
-            value
-            for field in ("observed_at", "event_time", "issued_at")
-            if (value := _aware(record.get(field))) is not None and value <= fetched_at
-        ),
-        fetched_at,
+    value = record.get("value")
+    time_validity = (
+        value.get("time_validity")
+        if isinstance(value, dict)
+        else record.get("time_validity")
     )
+    # When an incident is active/ongoing (time_validity: present), the live query verified
+    # its presence at fetched_at. Use fetched_at as the observation time so long-running
+    # closures/incidents do not falsely appear stale based on an old event start time.
+    if isinstance(time_validity, str) and time_validity.lower() == "present":
+        observed_at = fetched_at
+    else:
+        # This is the time Module 03 actually observed the provider record. Prefer the
+        # source event/report time when it is usable, but never invent a future observation.
+        observed_at = next(
+            (
+                v
+                for field in ("observed_at", "event_time", "issued_at")
+                if (v := _aware(record.get(field))) is not None and v <= fetched_at
+            ),
+            fetched_at,
+        )
     source = record.get("source")
     source_name = source.get("name") if isinstance(source, dict) else None
     if not isinstance(source_name, str) or not source_name:
         raise ValueError("canonical record needs source.name")
-    value = record.get("value")
     description = value.get("description") if isinstance(value, dict) else None
-    excerpt = description if isinstance(description, str) and description else str(
-        record.get("record_kind", "external data")
+    excerpt = (
+        description
+        if isinstance(description, str) and description
+        else str(record.get("record_kind", "external data"))
     )
     return Record(
         kind=kind,
@@ -193,6 +237,31 @@ def _bbox(query: TravelQuery) -> tuple[float, float, float, float]:
     return west, south, east, north
 
 
+def _weather_citations(
+    available: list[CanonicalRecord], departure: datetime
+) -> list[CanonicalRecord]:
+    """Pick the weather records 07 should cite; 05 still receives every record.
+
+    Open-Meteo returns one forecast record per hour (48 per location), which would
+    overflow 07's 64-item evidence limit. Cite current weather plus, per location, the
+    first forecast hour at or after departure (or the last hour if all are earlier).
+    """
+    cited = [r for r in available if r.get("record_kind") == "current_weather"]
+    by_location: dict[str, list[tuple[datetime, CanonicalRecord]]] = {}
+    for record in available:
+        valid_at = _aware(record.get("valid_at"))
+        if record.get("record_kind") != "weather_forecast" or valid_at is None:
+            continue
+        footprint = record.get("spatial_footprint") or {}
+        key = str(footprint.get("coordinates"))
+        by_location.setdefault(key, []).append((valid_at, record))
+    for hours in by_location.values():
+        hours.sort(key=lambda item: item[0])
+        upcoming = [record for valid_at, record in hours if valid_at >= departure]
+        cited.append(upcoming[0] if upcoming else hours[-1][1])
+    return cited
+
+
 def _available(records: list[CanonicalRecord], tool: str) -> list[CanonicalRecord]:
     available = [record for record in records if record.get("status") == "available"]
     if available:
@@ -206,44 +275,56 @@ def _available(records: list[CanonicalRecord], tool: str) -> list[CanonicalRecor
 
 
 class LiveToolSet(MockToolSet):
-    """Use real 04 transport/disaster, 05 integration, and 06 risk services.
-
-    Weather and route candidates continue to use clearly-labelled mock methods until
-    those teams expose compatible services.
-    """
+    """Use real 04 (weather/transport/disaster/routing), 05 integration, and 06 risk."""
 
     def __init__(
         self,
         *,
+        transport_provider: str = "tomtom",
+        longdo_api_key: str | None = None,
         tomtom_api_key: str | None = None,
+        osrm_base_url: str = "https://router.project-osrm.org",
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         transport_fetcher: TransportFetcher | None = None,
         disaster_fetcher: DisasterFetcher | None = None,
         context_builder: ContextBuilder | None = None,
         risk_knowledge_service: Any | None = None,
+        current_weather_fetcher: WeatherCurrentFetcher | None = None,
+        forecast_fetcher: WeatherForecastFetcher | None = None,
+        route_fetcher: RouteFetcher | None = None,
     ) -> None:
         super().__init__(clock)
-        if (
-            transport_fetcher is None
-            or disaster_fetcher is None
-            or context_builder is None
-            or risk_knowledge_service is None
+        defaults = None
+        if any(
+            x is None
+            for x in (
+                transport_fetcher,
+                disaster_fetcher,
+                context_builder,
+                risk_knowledge_service,
+                current_weather_fetcher,
+                forecast_fetcher,
+                route_fetcher,
+            )
         ):
-            (
-                default_transport,
-                default_disaster,
-                default_context,
-                service_factory,
-            ) = _dependencies()
-            transport_fetcher = transport_fetcher or default_transport
-            disaster_fetcher = disaster_fetcher or default_disaster
-            context_builder = context_builder or default_context
-            risk_knowledge_service = risk_knowledge_service or service_factory(clock=clock)
+            defaults = _dependencies(transport_provider=transport_provider)
+
+        self._transport_provider = transport_provider.lower()
+        self._longdo_api_key = longdo_api_key
         self._tomtom_api_key = tomtom_api_key
-        self._fetch_transport = transport_fetcher
-        self._fetch_disasters = disaster_fetcher
-        self._build_context = context_builder
-        self._risk_knowledge = risk_knowledge_service
+        # No API key required: OSRM's public demo server has no auth, but it is rate
+        # limited and unsuitable for production load; point this at a self-hosted
+        # instance for real deployments.
+        self._osrm_base_url = osrm_base_url
+        self._fetch_transport = transport_fetcher or (defaults[0] if defaults else None)
+        self._fetch_disasters = disaster_fetcher or (defaults[1] if defaults else None)
+        self._build_context = context_builder or (defaults[2] if defaults else None)
+        self._risk_knowledge = risk_knowledge_service or (
+            defaults[3](clock=clock) if defaults else None
+        )
+        self._fetch_current_weather = current_weather_fetcher or (defaults[4] if defaults else None)
+        self._fetch_forecast = forecast_fetcher or (defaults[5] if defaults else None)
+        self._fetch_routes = route_fetcher or (defaults[6] if defaults else None)
 
     def _now(self) -> datetime:
         now = self._clock()
@@ -251,23 +332,76 @@ class LiveToolSet(MockToolSet):
             raise ValueError("clock must return a timezone-aware datetime")
         return now.astimezone(UTC)
 
+    async def weather(self, query: TravelQuery) -> WeatherResult:
+        now = self._now()
+        lon_a, lat_a = query.origin[1], query.origin[0]
+        lon_b, lat_b = query.destination[1], query.destination[0]
+        canonical = []
+        try:
+            # Module 04's weather entry points take (latitude, longitude) only.
+            for lat, lon in ((lat_a, lon_a), (lat_b, lon_b)):
+                curr = await asyncio.to_thread(self._fetch_current_weather, lat, lon)
+                if curr:
+                    canonical.append(curr)
+                fore = await asyncio.to_thread(self._fetch_forecast, lat, lon)
+                if fore:
+                    canonical.extend(fore)
+        except Exception as error:
+            raise ToolError("weather", f"invalid Module 04 result: {error}") from error
+
+        available = _available(canonical, "weather")
+        departure = query.departure_time.astimezone(UTC)
+        try:
+            evidence = [
+                _evidence_record(record, kind="weather")
+                for record in _weather_citations(available, departure)
+            ]
+        except Exception as error:
+            raise ToolError("weather", f"invalid Module 04 result: {error}") from error
+        evidence = evidence or [
+            _check_record(
+                kind="weather",
+                source_name="Open-Meteo Weather API",
+                url="https://api.open-meteo.com/v1/forecast",
+                now=now,
+            )
+        ]
+        return WeatherResult(
+            summary=f"Open-Meteo returned {len(available)} weather record(s).",
+            records=evidence,
+            canonical_records=canonical,
+        )
+
     async def transport(self, query: TravelQuery) -> TransportResult:
         now = self._now()
+        api_key = (
+            self._longdo_api_key
+            if self._transport_provider == "longdo"
+            else self._tomtom_api_key
+        )
         try:
             canonical = await asyncio.to_thread(
                 self._fetch_transport,
                 _bbox(query),
                 now=now,
-                api_key=self._tomtom_api_key,
+                api_key=api_key,
             )
             available = _available(canonical, "transport")
-            evidence = [
-                _evidence_record(record, kind="transport") for record in available
-            ] or [
+            fallback_source = (
+                "Longdo Traffic (iTIC)"
+                if self._transport_provider == "longdo"
+                else "TomTom Orbis Traffic"
+            )
+            fallback_url = (
+                "https://event.longdo.com/feed/json"
+                if self._transport_provider == "longdo"
+                else "https://api.tomtom.com/maps/orbis/traffic/incidents/details"
+            )
+            evidence = [_evidence_record(record, kind="transport") for record in available] or [
                 _check_record(
                     kind="transport",
-                    source_name="TomTom Orbis Traffic",
-                    url="https://api.tomtom.com/maps/orbis/traffic/incidents/details",
+                    source_name=fallback_source,
+                    url=fallback_url,
                     now=now,
                 )
             ]
@@ -276,21 +410,23 @@ class LiveToolSet(MockToolSet):
         except Exception as error:
             raise ToolError("transport", f"invalid Module 04 result: {error}") from error
         count = len(available)
+        provider_name = (
+            "Longdo Traffic (iTIC)"
+            if self._transport_provider == "longdo"
+            else "TomTom"
+        )
         return TransportResult(
-            summary=f"TomTom returned {count} active transport incident(s).",
+            summary=f"{provider_name} returned {count} active transport incident(s).",
             records=evidence,
             canonical_records=canonical,
         )
 
     async def disasters(self, query: TravelQuery) -> DisasterResult:
-        del query  # GDACS is fetched nationally; Module 04 already filters to Thailand.
         now = self._now()
         try:
             canonical = await asyncio.to_thread(self._fetch_disasters, now=now)
             available = _available(canonical, "disasters")
-            evidence = [
-                _evidence_record(record, kind="official") for record in available
-            ] or [
+            evidence = [_evidence_record(record, kind="official") for record in available] or [
                 _check_record(
                     kind="official",
                     source_name="Global Disaster Alert and Coordination System, GDACS",
@@ -351,11 +487,10 @@ class LiveToolSet(MockToolSet):
         transport: TransportResult | None,
         disasters: DisasterResult | None,
     ) -> IntegratedContext:
-        del weather  # Real weather canonical records are not wired in this change.
         canonical = [
             record
-            for result in (transport, disasters)
-            if result is not None
+            for result in (weather, transport, disasters)
+            if result is not None and hasattr(result, "canonical_records")
             for record in result.canonical_records
         ]
         try:
@@ -369,9 +504,7 @@ class LiveToolSet(MockToolSet):
         except Exception as error:
             raise ToolError("integrate", f"invalid Module 05 result: {error}") from error
 
-    async def risk(
-        self, query: TravelQuery, context: IntegratedContext | None
-    ) -> RiskResult:
+    async def risk(self, query: TravelQuery, context: IntegratedContext | None) -> RiskResult:
         try:
             result = await self._risk_knowledge.risk(
                 query.model_dump(mode="python"),
@@ -381,9 +514,7 @@ class LiveToolSet(MockToolSet):
         except Exception as error:
             raise ToolError("risk", f"invalid Module 06 result: {error}") from error
 
-    async def knowledge(
-        self, query: TravelQuery, alerts: list[Alert]
-    ) -> KnowledgeResult:
+    async def knowledge(self, query: TravelQuery, alerts: list[Alert]) -> KnowledgeResult:
         try:
             result = await self._risk_knowledge.knowledge(
                 query.model_dump(mode="python"),
@@ -408,3 +539,27 @@ class LiveToolSet(MockToolSet):
             return RouteResult.model_validate(result.model_dump(mode="python"))
         except Exception as error:
             raise ToolError("routes", f"invalid Module 06 result: {error}") from error
+
+    async def route_candidates(self, query: TravelQuery) -> RouteCandidatesResult:
+        now = self._now()
+        try:
+            raw = await asyncio.to_thread(
+                self._fetch_routes,
+                query.origin,
+                query.destination,
+                base_url=self._osrm_base_url,
+            )
+            candidates = [RouteCandidate.model_validate(candidate) for candidate in raw]
+        except ToolError:
+            raise
+        except Exception as error:
+            raise ToolError("route_candidates", f"invalid Module 04 result: {error}") from error
+        evidence = [
+            _check_record(
+                kind="route",
+                source_name="OSRM routing",
+                url=f"{self._osrm_base_url}/route/v1/driving",
+                now=now,
+            )
+        ]
+        return RouteCandidatesResult(candidates=candidates, records=evidence)

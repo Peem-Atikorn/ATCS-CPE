@@ -1,4 +1,10 @@
-import type { JobAccepted, RecommendationResponse, TravelRequest } from "@/lib/types";
+import type {
+  FeedbackCreate,
+  FeedbackCreated,
+  JobAccepted,
+  RecommendationResponse,
+  TravelRequest,
+} from "@/lib/types";
 import { isJobAccepted } from "@/lib/types";
 import { apiFetch, BASE_URL } from "./client";
 import { ApiError } from "./problem";
@@ -28,6 +34,13 @@ export const api = {
 
   getRecommendation: (id: string, signal?: AbortSignal) =>
     apiFetch<RecommendationResponse>(`/v1/travel/recommendations/${id}`, { signal }),
+
+  submitFeedback: (recommendationId: string, payload: FeedbackCreate, signal?: AbortSignal) =>
+    apiFetch<FeedbackCreated>(`/v1/recommendations/${recommendationId}/feedback`, {
+      method: "POST",
+      body: payload,
+      signal,
+    }),
 
   getServiceStatus: (signal?: AbortSignal) =>
     apiFetch<{ services: Array<{ name: string; status: string }> }>(

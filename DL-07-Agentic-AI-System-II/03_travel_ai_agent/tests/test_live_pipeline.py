@@ -8,7 +8,12 @@ from .conftest import run_body
 
 @pytest.mark.asyncio
 async def test_live_05_06_pipeline_reaches_real_07(make_client):
-    """03 can pass a real 05 context through real 06 and into real 07."""
+    """03 can pass a real 05 context through real 06 and into real 07.
+
+    Weather and routing hit the real Open-Meteo and OSRM demo services (both
+    unauthenticated); transport and disasters are stubbed to keep the run fast and
+    independent of TomTom/GDACS availability.
+    """
     tools = LiveToolSet(
         transport_fetcher=lambda bbox, *, now, api_key: [],
         disaster_fetcher=lambda *, now: [],
@@ -26,4 +31,5 @@ async def test_live_05_06_pipeline_reaches_real_07(make_client):
     payload = response.json()
     assert payload["status"] in {"completed", "partial_result"}
     assert payload["versions"]["risk_model"] == "rule-baseline-v0.1.2"
-    assert payload["routes"]["primary"]["route_id"] == "mock-primary"
+    # Real OSRM route, not a fixed id: only its shape is pinned here.
+    assert payload["routes"]["primary"]["route_id"].startswith("osrm-route-")

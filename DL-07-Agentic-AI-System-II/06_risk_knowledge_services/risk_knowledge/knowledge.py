@@ -12,6 +12,7 @@ from collections import Counter
 from datetime import UTC, datetime
 from typing import Any, Iterable
 
+from .hashing import content_sha256
 from .models import (
     AlertInput,
     KnowledgePassage,
@@ -129,11 +130,16 @@ def retrieve_knowledge(
     ranked.sort(key=lambda item: (-item[0], item[1].document_id, item[1].section))
 
     records: list[Record] = []
-    for score, passage in ranked[:top_k]:
+    for _score, passage in ranked[:top_k]:
         location = f"page={passage.page}" if passage.page is not None else "page=unknown"
+        # Stable citation only: no per-query ranking score. Module 07's emergency
+        # catalog matches a procedure to evidence by hashing this excerpt verbatim
+        # against a reviewed value; a score that changes with every query wording
+        # would make that hash never match, so "grounded" guidance could never fire
+        # even when a reviewed procedure genuinely covers this passage.
         excerpt = (
-            f"[document_id={passage.document_id}; {location}; section={passage.section}; "
-            f"retrieval_score={score:.3f}] {passage.text}"
+            f"[document_id={passage.document_id}; {location}; section={passage.section}] "
+            f"{passage.text}"
         )
         records.append(Record(
             kind="knowledge",
@@ -144,5 +150,8 @@ def retrieve_knowledge(
             fetched_at=current,
             expires_at=passage.expires_at,
             excerpt=excerpt,
+            # Identity of the content itself, so a change to the line above cannot
+            # invalidate a reviewed procedure, and edited source text is detected.
+            content_sha256=content_sha256(passage.text),
         ))
     return KnowledgeResult(records=records)

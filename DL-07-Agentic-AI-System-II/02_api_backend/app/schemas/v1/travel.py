@@ -153,6 +153,7 @@ class EmergencyContact(_Strict):
     phone: str
     url: str | None = None
     available_hours: str | None = None
+    metadata: dict[str, Any] | None = None
 
 
 class SupportPlace(_Strict):

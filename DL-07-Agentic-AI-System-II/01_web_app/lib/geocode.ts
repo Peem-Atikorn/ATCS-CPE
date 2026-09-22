@@ -107,3 +107,50 @@ export function haversineKm(a: { lat: number; lon: number }, b: { lat: number; l
     Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
+
+/** Reverse geocode coordinates to a human-readable Thai place name. */
+export async function reverseGeocode(lat: number, lon: number, signal?: AbortSignal): Promise<string> {
+  for (const c of CITY_TABLE) {
+    if (haversineKm({ lat, lon }, { lat: c.lat, lon: c.lon }) < 4) {
+      return c.key.charAt(0).toUpperCase() + c.key.slice(1);
+    }
+  }
+
+  const wait = Math.max(0, 1100 - (Date.now() - lastNominatimCall));
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  lastNominatimCall = Date.now();
+
+  try {
+    const url = new URL("https://nominatim.openstreetmap.org/reverse");
+    url.searchParams.set("lat", lat.toFixed(6));
+    url.searchParams.set("lon", lon.toFixed(6));
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("accept-language", "th");
+
+    const response = await fetch(url.toString(), {
+      signal,
+      headers: { Accept: "application/json" },
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const addr = data.address;
+      if (addr) {
+        const road = addr.road || addr.suburb || addr.neighbourhood;
+        const locality = addr.city || addr.town || addr.district || addr.county || addr.subdistrict;
+        const province = addr.province || addr.state;
+        const parts = [road, locality, province].filter(Boolean);
+        if (parts.length > 0) {
+          return parts.slice(0, 2).join(", ");
+        }
+      }
+      if (data.display_name) {
+        return data.display_name.split(",").slice(0, 2).join(", ").trim();
+      }
+    }
+  } catch {
+    // Network or offline fallback
+  }
+
+  return `พิกัด (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+}
+

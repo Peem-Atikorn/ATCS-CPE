@@ -989,6 +989,18 @@
             ],
             "title": "Available Hours"
           },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
           "name": {
             "title": "Name",
             "type": "string"

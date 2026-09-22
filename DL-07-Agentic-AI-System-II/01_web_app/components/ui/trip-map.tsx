@@ -20,36 +20,85 @@ export function TripMap({
   destination,
   routeCoordinates,
   riskLevel,
+  pinningMode = null,
+  onPinLocation,
 }: {
   origin: GeoPoint | null;
   destination: GeoPoint | null;
   routeCoordinates?: Array<[number, number]> | null;
   riskLevel: RiskLevel | null;
+  pinningMode?: "origin" | "destination" | null;
+  onPinLocation?: (type: "origin" | "destination", coords: { lat: number; lon: number }) => void;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const layerRef = useRef<LayerGroup | null>(null);
   const [ready, setReady] = useState(false);
 
+  // Keep latest callbacks/mode in ref for map events without recreating map
+  const pinRef = useRef({ pinningMode, onPinLocation });
+  pinRef.current = { pinningMode, onPinLocation };
+
   useEffect(() => {
     let cancelled = false;
+    let resizeObserver: ResizeObserver | null = null;
+
     void import("leaflet").then((leaflet) => {
       if (cancelled || !containerRef.current || mapRef.current) return;
       const L = leaflet.default;
-      const map = L.map(containerRef.current, { scrollWheelZoom: false }).setView(
-        [13.7563, 100.5018],
-        6,
-      );
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+      const map = L.map(containerRef.current, {
+        scrollWheelZoom: false,
+        fadeAnimation: false,
+        zoomControl: false,
+      }).setView([13.7563, 100.5018], 6);
+
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      // Longdo Map Tiles (native Thai roads, landmarks, and soi names)
+      const longdoKey = process.env.NEXT_PUBLIC_LONGDO_MAP_KEY || "";
+      const longdoTileUrl = longdoKey
+        ? `https://ms.longdo.com/mmmap/img.php?proj=epsg3857&mode=normal&zoom={z}&x={x}&y={y}&HD=1&key=${longdoKey}`
+        : "https://ms.longdo.com/mmmap/img.php?proj=epsg3857&mode=normal&zoom={z}&x={x}&y={y}&HD=1";
+
+      L.tileLayer(longdoTileUrl, {
+        attribution: '&copy; <a href="https://map.longdo.com/" target="_blank" rel="noreferrer">Longdo Map</a>',
         maxZoom: 19,
+        minZoom: 1,
       }).addTo(map);
+
+      // Handle map click for pinning
+      map.on("click", (e: import("leaflet").LeafletMouseEvent) => {
+        const { pinningMode, onPinLocation } = pinRef.current;
+        if (pinningMode && onPinLocation) {
+          onPinLocation(pinningMode, { lat: e.latlng.lat, lon: e.latlng.lng });
+        }
+      });
+
       layerRef.current = L.layerGroup().addTo(map);
       mapRef.current = map;
+
+      // Ensure Leaflet calculates dimensions immediately
+      setTimeout(() => {
+        if (!cancelled && mapRef.current) {
+          mapRef.current.invalidateSize();
+        }
+      }, 100);
+
+      if (containerRef.current) {
+        resizeObserver = new ResizeObserver(() => {
+          if (mapRef.current) {
+            mapRef.current.invalidateSize();
+          }
+        });
+        resizeObserver.observe(containerRef.current);
+      }
+
       setReady(true);
     });
+
     return () => {
       cancelled = true;
+      resizeObserver?.disconnect();
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -68,19 +117,40 @@ export function TripMap({
       const points: Array<[number, number]> = [];
 
       if (origin) {
-        L.marker([origin.lat, origin.lon], {
+        const markerA = L.marker([origin.lat, origin.lon], {
+          draggable: true,
           icon: L.divIcon({ html: dot("#0e7490", "A"), className: "", iconSize: [28, 28] }),
         })
-          .bindTooltip(`ต้นทาง: ${origin.name}`)
+          .bindTooltip(`<b>ต้นทาง (A):</b> ${origin.name}<br/><span style="font-size:10px;color:#cbd5e1">ลากเพื่อย้ายตำแหน่ง</span>`, {
+            direction: "top",
+            offset: [0, -14],
+          })
           .addTo(group);
+
+        markerA.on("dragend", () => {
+          const pos = markerA.getLatLng();
+          pinRef.current.onPinLocation?.("origin", { lat: pos.lat, lon: pos.lng });
+        });
+
         points.push([origin.lat, origin.lon]);
       }
+
       if (destination) {
-        L.marker([destination.lat, destination.lon], {
+        const markerB = L.marker([destination.lat, destination.lon], {
+          draggable: true,
           icon: L.divIcon({ html: dot(color, "B"), className: "", iconSize: [28, 28] }),
         })
-          .bindTooltip(`ปลายทาง: ${destination.name}`)
+          .bindTooltip(`<b>ปลายทาง (B):</b> ${destination.name}<br/><span style="font-size:10px;color:#cbd5e1">ลากเพื่อย้ายตำแหน่ง</span>`, {
+            direction: "top",
+            offset: [0, -14],
+          })
           .addTo(group);
+
+        markerB.on("dragend", () => {
+          const pos = markerB.getLatLng();
+          pinRef.current.onPinLocation?.("destination", { lat: pos.lat, lon: pos.lng });
+        });
+
         points.push([destination.lat, destination.lon]);
       }
 
@@ -92,8 +162,9 @@ export function TripMap({
         );
       }
 
+      map.invalidateSize();
       if (points.length > 0) {
-        map.fitBounds(L.latLngBounds(line ?? points), { padding: [36, 36], maxZoom: 12 });
+        map.fitBounds(L.latLngBounds(line ?? points), { padding: [48, 48], maxZoom: 14 });
       }
     });
   }, [ready, origin, destination, routeCoordinates, riskLevel]);
@@ -107,7 +178,8 @@ export function TripMap({
           ? `แผนที่แสดงเส้นทางจาก ${origin.name} ไปยัง ${destination.name}`
           : "แผนที่แสดงตำแหน่งต้นทางและปลายทาง"
       }
-      className="h-full min-h-[360px] w-full"
+      style={{ cursor: pinningMode ? "crosshair" : undefined }}
+      className="h-full min-h-[440px] w-full"
     />
   );
 }

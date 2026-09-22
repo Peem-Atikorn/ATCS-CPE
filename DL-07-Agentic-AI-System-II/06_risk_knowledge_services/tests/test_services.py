@@ -207,7 +207,7 @@ class RiskTests(unittest.TestCase):
     def test_missing_context_uses_conservative_degraded_result(self):
         result = assess_risk(None, now=NOW)
         self.assertEqual(result.level, Level.HIGH)
-        self.assertEqual(result.confidence, Level.LOW)
+        self.assertEqual(result.confidence, 0.10)
         self.assertIsNone(result.score)
 
     def test_unknown_feature_schema_is_rejected(self):
@@ -225,7 +225,7 @@ class RiskTests(unittest.TestCase):
         }
         result = assess_risk(summary, now=NOW)
         self.assertEqual(result.level, Level.MEDIUM)
-        self.assertEqual(result.confidence, Level.LOW)
+        self.assertEqual(result.confidence, 0.25)
         self.assertIsNone(result.score)
         self.assertIn("DATA_INCOMPLETE", {factor.type for factor in result.factors})
 
@@ -247,7 +247,7 @@ class RiskTests(unittest.TestCase):
         payload["degraded"] = True
         result = assess_risk(payload, now=NOW)
         self.assertEqual(result.level, Level.HIGH)
-        self.assertEqual(result.confidence, Level.MEDIUM)
+        self.assertEqual(result.confidence, 0.65)
         self.assertIn("WEATHER", {factor.type for factor in result.factors})
 
     def test_unknown_freshness_is_not_counted_as_usable_evidence(self):
@@ -256,7 +256,7 @@ class RiskTests(unittest.TestCase):
         payload["evidence"][1]["quality_flags"] = ["freshness_unknown"]
         payload["evidence"] = [payload["evidence"][1]]
         result = assess_risk(payload, now=NOW)
-        self.assertEqual(result.confidence, Level.LOW)
+        self.assertEqual(result.confidence, 0.25)
 
 
 class KnowledgeTests(unittest.TestCase):
@@ -279,6 +279,20 @@ class KnowledgeTests(unittest.TestCase):
         inactive = alert() | {"active": False}
         result = retrieve_knowledge(query(), [inactive], [passage()], now=NOW)
         self.assertEqual(result.records, [])
+
+    def test_excerpt_is_stable_across_queries_so_07_can_verify_it_by_hash(self):
+        # Module 07's emergency catalog matches a reviewed procedure to evidence by
+        # hashing this excerpt verbatim. If the excerpt embedded a per-query ranking
+        # score (as it once did), two different alert wordings for the same passage
+        # would hash differently and "grounded" guidance could never be verified,
+        # even for a passage a reviewer genuinely approved.
+        first = retrieve_knowledge(query(), [alert()], [passage()], now=NOW)
+        reworded = alert() | {"title": "Different wording entirely", "level": "CLOSURE"}
+        second = retrieve_knowledge(query(), [reworded], [passage()], now=NOW)
+        self.assertEqual(len(first.records), 1)
+        self.assertEqual(len(second.records), 1)
+        self.assertEqual(first.records[0].excerpt, second.records[0].excerpt)
+        self.assertNotIn("retrieval_score", first.records[0].excerpt)
 
 
 class RouteTests(unittest.TestCase):
@@ -340,7 +354,7 @@ class Module05IntegrationTests(unittest.TestCase):
         self.assertEqual(coverage, {kind: "covered" for kind in coverage})
         self.assertEqual(integrated["quality_flags"], [])
         self.assertFalse(integrated["degraded"])
-        self.assertEqual(risk.confidence, Level.HIGH)
+        self.assertEqual(risk.confidence, 0.90)
         self.assertEqual(routes.primary.risk_level, Level.LOW)
         self.assertTrue(routes.primary.usable)
 
@@ -367,7 +381,7 @@ class Module05IntegrationTests(unittest.TestCase):
         routes = analyze_routes(query(), integrated, risk, now=INTEGRATION_NOW)
 
         self.assertEqual(risk.level, Level.HIGH)
-        self.assertEqual(risk.confidence, Level.LOW)
+        self.assertEqual(risk.confidence, 0.25)
         self.assertEqual(
             {factor.type for factor in risk.factors},
             {"TRANSPORT", "DISASTER_EVENT"},
@@ -425,11 +439,35 @@ class ServiceAndContractTests(unittest.TestCase):
             risk_result = assess_risk(context(), now=NOW)
             knowledge_result = retrieve_knowledge(query(), [alert()], [passage()], now=NOW)
             route_result = analyze_routes(query(), context(), risk_result, now=NOW)
+
             AgentRiskResult.model_validate(risk_result.model_dump())
             AgentKnowledgeResult.model_validate(knowledge_result.model_dump())
             AgentRouteResult.model_validate(route_result.model_dump())
         finally:
             sys.path.remove(str(agent_root))
+
+    def test_complete_coverage_with_essential_kinds(self):
+        from risk_knowledge.routing import _has_complete_coverage
+        from risk_knowledge.models import IntegratedRoute, RouteSegment
+        seg = RouteSegment(
+            start_index=0,
+            end_index=1,
+            enter_at=NOW,
+            exit_at=NOW,
+            coverage={
+                "current_weather": "covered",
+                "weather_forecast": "covered",
+                "transport_status": "covered",
+                "disaster_event": "covered",
+                "closure": "missing",
+                "official_alert": "missing",
+            }
+        )
+        route = IntegratedRoute(
+            route_id="r1",
+            segments=[seg]
+        )
+        self.assertTrue(_has_complete_coverage(route))
 
 
 if __name__ == "__main__":

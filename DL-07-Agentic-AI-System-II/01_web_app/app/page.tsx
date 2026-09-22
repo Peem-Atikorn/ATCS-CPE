@@ -1,52 +1,197 @@
-import { ArrowDown, ArrowUpRight, ChevronDown, Compass, ExternalLink, Sparkles } from "lucide-react";
+import {
+  ArrowDown,
+  ChevronDown,
+  Compass,
+  ExternalLink,
+  MapPin,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
 import { SiteHeader } from "@/components/site-header";
 import { TravelForm } from "@/components/travel-form";
-import { ImageStreamHero, type StreamImage } from "@/components/ui/image-stream-hero";
-import { CoastalDoorReveal } from "@/components/ui/coastal-door-reveal";
-import { CoastalTestimonials } from "@/components/ui/testimonials-columns-1";
 import { RoutePreview } from "@/components/route-preview";
 import { RecommendationDashboard } from "@/components/recommendation-dashboard";
+import { TravelAssistantDrawer } from "@/components/travel-assistant-drawer";
 
-const workflow = [["01", "Tell us where", "Enter your route, timing, and the things that make this trip yours."], ["02", "We read the signals", "Verified weather, disaster, and transport feeds are checked by the backend."], ["03", "Confirm on the map", "Review the route and make sure every important stop is in the right place."], ["04", "Travel with clarity", "Receive a practical recommendation, reasons, and relevant live alerts."]];
-const destinations = [["destination-a", "Andaman Coast", "A sea journey, thoughtfully timed.", "6 days · Coastal escape"], ["destination-b", "Mae Hong Son", "Where mountain roads invite patience.", "4 days · Scenic drive"], ["destination-c", "Sukhothai", "Heritage at an unhurried pace.", "3 days · Culture"], ["destination-d", "Khao Sok", "For the wild heart, well prepared.", "3 days · Nature"], ["destination-e", "Chiang Rai", "A quieter north, ready when you are.", "5 days · Highlands"], ["destination-f", "Koh Yao Noi", "Slow mornings and clear-water afternoons.", "4 days · Island time"]];
-const faqs = [["ข้อมูลอัปเดตแบบ Real-time แค่ไหน?", "เมื่อสร้างคำขอ ระบบรับสัญญาณล่าสุดจากแหล่งข้อมูลที่เชื่อมต่อและแสดงเวลาอัปเดตในแต่ละเหตุผล สำหรับทริปที่บันทึกไว้ ระบบจะตรวจซ้ำตามรอบที่ backend กำหนด."], ["WayPoint ตัดสินใจแทนฉันหรือไม่?", "ไม่ ระบบแสดงการประเมิน ความมั่นใจ และหลักฐานประกอบ เพื่อให้คุณตัดสินใจอย่างรอบคอบเสมอ."], ["ระบบแม่นยำ 100% หรือไม่?", "ข้อมูลภายนอกและสภาพพื้นที่เปลี่ยนแปลงได้ คำแนะนำจึงเป็นข้อมูลช่วยตัดสินใจ ไม่ใช่การรับประกันความปลอดภัย."], ["ตำแหน่งของฉันถูกเก็บไว้หรือเปล่า?", "เราไม่เข้าถึงตำแหน่งอุปกรณ์ของคุณจนกว่าจะได้รับอนุญาต และการใช้ข้อมูลเป็นไปตามนโยบายความเป็นส่วนตัว."]];
-const coastalStream: StreamImage[] = [
-  { src: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=900&q=85", alt: "Aerial tropical shoreline" },
-  { src: "https://images.unsplash.com/photo-1473116763249-2faaef81ccda?auto=format&fit=crop&w=900&q=85", alt: "Blue sea and rocky coast" },
-  { src: "https://images.unsplash.com/photo-1510414842594-a61c69b5ae57?auto=format&fit=crop&w=900&q=85", alt: "Palm trees beside a tropical beach" },
-  { src: "https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=900&q=85", alt: "Coastal cliffs at golden hour" },
-  { src: "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=900&q=85", alt: "Ocean wave breaking onto shore" },
+const faqs = [
+  [
+    "ข้อมูลอัปเดตแบบ Real-time แค่ไหน?",
+    "เมื่อสร้างคำขอ ระบบรับสัญญาณล่าสุดจากแหล่งข้อมูลที่เชื่อมต่อ (Longdo Traffic / iTIC, TomTom, Open-Meteo, ข้อมูลภัยพิบัติ) และแสดงเวลาอัปเดตในแต่ละเหตุผลอย่างโปร่งใส",
+  ],
+  [
+    "WayPoint ตัดสินใจแทนฉันหรือไม่?",
+    "ระบบประเมินความเสี่ยง นำเสนอระดับความเสี่ยง (LOW, MEDIUM, HIGH) พร้อมเหตุผลและเส้นทางทางเลือก เพื่อให้ผู้เดินทางใช้ประกอบการตัดสินใจด้วยตนเอง",
+  ],
+  [
+    "ระบบแม่นยำ 100% หรือไม่?",
+    "ข้อมูลภายนอกและสภาพพื้นที่จริงอาจเปลี่ยนแปลงได้ตลอดเวลา คำแนะนำจึงเป็นข้อมูลช่วยตัดสินใจตามสัญญาณข้อมูลล่าสุด ไม่ใช่การรับประกันความปลอดภัยเชิงกายภาพ",
+  ],
+  [
+    "ตำแหน่งของฉันถูกเก็บไว้หรือไม่?",
+    "ระบบใช้พิกัดตำแหน่งเฉพาะสำหรับประมวลผลความปลอดภัยของเส้นทางที่ระบุเท่านั้น โดยเป็นไปตามนโยบายความเป็นส่วนตัว",
+  ],
 ];
 
-export default function Home() { return <main id="top" className="overflow-hidden bg-cloud">
-  <section aria-label="Plan your journey" className="relative min-h-[900px] overflow-hidden text-white"><div aria-hidden className="hero-photo hero-motion absolute -inset-8"/><div aria-hidden className="absolute inset-0 bg-gradient-to-r from-[#03162c]/82 via-[#03162c]/42 to-[#03162c]/18"/><SiteHeader/><div className="relative z-10 mx-auto grid min-h-[900px] max-w-7xl items-end gap-12 px-6 pb-14 pt-36 lg:grid-cols-[1.1fr_.9fr] lg:pb-20">
-    <div className="max-w-2xl"><p className="mb-6 flex items-center gap-2 text-xs font-bold tracking-[.22em] text-white/80"><span className="h-px w-10 bg-white/70"/> COASTAL TRAVEL INTELLIGENCE</p><h1 className="font-display text-5xl leading-[.92] sm:text-7xl lg:text-8xl">Beyond the blue.<br/><i className="font-normal text-[#b9e5fb]">Know the way.</i></h1><p className="mt-7 max-w-md text-base leading-7 text-white/85">ทุกการเดินทางเริ่มจากความอยากไปให้ไกล และจบลงด้วยความมั่นใจในทุกช่วงของเส้นทาง</p><a href="#how" className="mt-9 inline-flex items-center gap-2 text-xs font-bold tracking-widest underline underline-offset-8">DISCOVER THE COAST <ArrowDown size={15}/></a></div>
-    <div className="rounded-[1.35rem] border border-white/80 bg-white/95 p-5 text-ink shadow-float backdrop-blur sm:p-7"><div className="mb-5 flex items-start justify-between"><div><p className="text-xs font-bold tracking-[.16em] text-aqua">PLAN WITH THE TIDE</p><h2 className="mt-1 font-display text-3xl">Where will blue take you?</h2></div><span className="rounded-full bg-[#e7f4fb] p-2 text-aqua"><Sparkles size={18}/></span></div><TravelForm/></div>
-  </div></section>
+export default function Home() {
+  return (
+    <main id="top" className="overflow-hidden bg-cloud">
+      {/* 1. Hero & Travel Planning Form */}
+      <section aria-label="Plan your journey" className="relative min-h-[850px] overflow-hidden text-white">
+        <div aria-hidden className="hero-photo hero-motion absolute -inset-8" />
+        <div aria-hidden className="absolute inset-0 bg-gradient-to-r from-[#03162c]/88 via-[#03162c]/55 to-[#03162c]/25" />
+        <SiteHeader />
+        <div className="relative z-10 mx-auto grid min-h-[850px] max-w-7xl items-center gap-12 px-6 pb-14 pt-32 lg:grid-cols-[1.1fr_.9fr] lg:pb-20">
+          <div className="max-w-2xl">
+            <p className="mb-6 flex items-center gap-2 text-xs font-bold tracking-[.22em] text-white/80">
+              <span className="h-px w-10 bg-white/70" /> AI-POWERED TRAVEL SAFETY
+            </p>
+            <h1 className="font-display text-5xl leading-[.95] sm:text-7xl lg:text-8xl">
+              Travel smart.<br />
+              <i className="font-normal text-[#b9e5fb]">Know the risk.</i>
+            </h1>
+            <p className="mt-7 max-w-md text-base leading-7 text-white/85">
+              วางแผนและประเมินความปลอดภัยการเดินทางล่วงหน้า ด้วยระบบ Agentic AI วิเคราะห์สภาพอากาศ สภาพจราจรสด และการแจ้งเตือนภัยพิบัติแบบเรียลไทม์
+            </p>
+            <div className="mt-9 flex flex-wrap items-center gap-4">
+              <a
+                href="#map"
+                className="inline-flex items-center gap-2 rounded-full bg-white/10 px-5 py-2.5 text-xs font-bold tracking-widest text-white backdrop-blur transition hover:bg-white/20"
+              >
+                <MapPin size={15} /> VIEW ROUTE MAP
+              </a>
+              <a
+                href="#dashboard"
+                className="inline-flex items-center gap-2 rounded-full bg-aqua px-5 py-2.5 text-xs font-bold tracking-widest text-white transition hover:bg-aqua/90"
+              >
+                <ShieldCheck size={15} /> SAFETY DASHBOARD <ArrowDown size={14} />
+              </a>
+            </div>
+          </div>
+          <div className="rounded-[1.35rem] border border-white/80 bg-white/95 p-5 text-ink shadow-float backdrop-blur sm:p-7">
+            <div className="mb-5 flex items-start justify-between">
+              <div>
+                <p className="text-xs font-bold tracking-[.16em] text-aqua">TRIP SAFETY CHECK</p>
+                <h2 className="mt-1 font-display text-3xl">ตรวจสอบความปลอดภัยเส้นทาง</h2>
+              </div>
+              <span className="rounded-full bg-[#e7f4fb] p-2 text-aqua">
+                <Sparkles size={18} />
+              </span>
+            </div>
+            <TravelForm />
+          </div>
+        </div>
+      </section>
 
-  <section className="bg-white px-6 py-24 sm:py-32"><div className="mx-auto max-w-7xl"><div className="mb-10 flex flex-col justify-between gap-4 md:flex-row md:items-end"><div><p className="text-xs font-bold tracking-[.2em] text-aqua">THE COAST IN MOTION</p><h2 className="mt-4 font-display text-5xl leading-none sm:text-6xl">A journey, already<br/>in motion.</h2></div><p className="max-w-sm text-sm leading-6 text-slate-600">ภาพของชายฝั่งเคลื่อนผ่านอย่างต่อเนื่อง — ชวนให้คุณเห็นปลายทางก่อนเริ่มวางแผน</p></div><ImageStreamHero images={coastalStream} cards={8} speed={23} axis={53} path={{ cardWidth: 15, cardHeight: 21, exitHeight: 39, railExit: 42 }} className="min-h-[420px] bg-white sm:min-h-[560px]"/></div></section>
+      {/* 2. Interactive Route Map Preview */}
+      <section id="map" className="bg-white px-6 py-20 sm:py-28">
+        <div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[.8fr_1.2fr]">
+          <div>
+            <p className="text-xs font-bold tracking-[.2em] text-aqua">YOUR ROUTE, IN CONTEXT</p>
+            <h2 className="mt-4 font-display text-4xl leading-tight sm:text-5xl">
+              ตรวจสอบเส้นทาง<br />และพิกัดบนแผนที่
+            </h2>
+            <p className="mt-6 max-w-sm text-sm leading-7 text-slate-600">
+              ยืนยันหมุดต้นทาง ปลายทาง และตรวจสอบภาพรวมเส้นทางบนแผนที่แบบอินเทอร์แอคทีฟ เพื่อให้ผลการประเมินความเสี่ยงตรงกับเส้นทางจริงของคุณ
+            </p>
+            <div className="mt-8 flex gap-8 border-l-2 border-aqua pl-5 text-sm">
+              <span>
+                <b className="block text-ink">Leaflet + Longdo Map</b>
+                <span className="text-slate-500">Live Map Layer</span>
+              </span>
+              <span>
+                <b className="block text-ink">OSRM Route Candidate</b>
+                <span className="text-slate-500">Geometry Preview</span>
+              </span>
+            </div>
+          </div>
+          <RoutePreview />
+        </div>
+      </section>
 
-  <CoastalDoorReveal />
+      {/* 3. Real-Time Recommendation Dashboard */}
+      <section id="dashboard" className="bg-ink px-6 py-20 text-white sm:py-28">
+        <div className="mx-auto max-w-7xl">
+          <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
+            <div>
+              <p className="text-xs font-bold tracking-[.2em] text-[#a9dbf5]">REAL-TIME SAFETY INTELLIGENCE</p>
+              <h2 className="mt-4 font-display text-4xl leading-tight sm:text-5xl">
+                ผลการประเมินและคำแนะนำ<br />
+                <i className="font-normal text-[#b9e5fb]">Recommendation Dashboard</i>
+              </h2>
+            </div>
+            <p className="max-w-sm text-sm leading-6 text-white/65">
+              แสดงระดับความเสี่ยง สภาพอากาศ สภาพการจราจรสด การแจ้งเตือนภัยพิบัติ และความสดใหม่ของข้อมูล
+            </p>
+          </div>
+          <div className="mt-12">
+            <RecommendationDashboard />
+          </div>
+        </div>
+      </section>
 
-  <section id="how" className="paper-grid px-6 py-24 sm:py-32"><div className="mx-auto max-w-7xl"><div className="max-w-xl"><p className="text-xs font-bold tracking-[.2em] text-aqua">THE QUIET CONFIDENCE OF PREPARATION</p><h2 className="mt-4 font-display text-5xl leading-none sm:text-6xl">Four small steps.<br/>One considered journey.</h2></div><div className="mt-16 grid gap-0 md:grid-cols-4">{workflow.map(([num,title,body], i) => <article key={num} className="relative border-t border-ink/20 py-6 pr-7 md:border-l md:border-t-0 md:pl-6 md:first:border-l-0"><span className="font-display text-4xl text-aqua">{num}</span><span className="absolute left-0 top-0 h-2 w-2 -translate-y-1/2 rounded-full bg-aqua md:left-0 md:top-0 md:-translate-x-1/2 md:translate-y-0"/><h3 className="mt-12 text-lg font-bold">{title}</h3><p className="mt-3 text-sm leading-6 text-slate-600">{body}</p>{i === 1 && <p className="mt-6 text-xs italic text-pine">Only the backend assesses risk — never your browser.</p>}</article>)}</div></div></section>
+      {/* 4. FAQ Section */}
+      <section id="faq" className="paper-grid px-6 py-20 sm:py-28">
+        <div className="mx-auto grid max-w-5xl gap-12 lg:grid-cols-[.8fr_1.2fr]">
+          <div>
+            <p className="text-xs font-bold tracking-[.2em] text-aqua">FREQUENTLY ASKED</p>
+            <h2 className="mt-4 font-display text-4xl leading-tight sm:text-5xl">
+              คำถามที่พบบ่อย
+            </h2>
+            <p className="mt-6 text-sm leading-6 text-slate-600">
+              รายละเอียดการทำงานและความโปร่งใสของระบบประเมินความปลอดภัย
+            </p>
+          </div>
+          <div className="divide-y divide-ink/15 border-y border-ink/15">
+            {faqs.map(([q, a], i) => (
+              <details key={q} className="group py-5" open={i === 0}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold">
+                  {q}
+                  <ChevronDown className="shrink-0 transition group-open:rotate-180" size={18} />
+                </summary>
+                <p className="max-w-xl pt-3 text-sm leading-6 text-slate-600">{a}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
 
-  <section className="bg-white px-6 py-24 sm:py-32"><div className="mx-auto grid max-w-7xl items-center gap-12 lg:grid-cols-[.8fr_1.2fr]"><div><p className="text-xs font-bold tracking-[.2em] text-aqua">YOUR ROUTE, IN CONTEXT</p><h2 className="mt-4 font-display text-5xl leading-none sm:text-6xl">Pin the plan.<br/>See the whole picture.</h2><p className="mt-7 max-w-sm text-sm leading-7 text-slate-600">ยืนยันหมุดต้นทาง ปลายทาง และจุดแวะของคุณบนแผนที่ก่อนส่งคำขอ เพื่อให้ผลลัพธ์อ้างอิงเส้นทางที่คุณตั้งใจจริง ๆ</p><div className="mt-8 flex gap-8 border-l-2 border-aqua pl-5 text-sm"><span><b className="block text-ink">Leaflet + OpenStreetMap</b><span className="text-slate-500">Tile layer live</span></span><span><b className="block text-ink">Accessible controls</b><span className="text-slate-500">Keyboard first</span></span></div></div><RoutePreview/></div></section>
+      {/* 5. Footer */}
+      <footer className="bg-ink px-6 py-12 text-white">
+        <div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-4">
+          <div className="md:col-span-2">
+            <div className="flex items-center gap-2 text-xl font-bold">
+              <Compass /> WayPoint
+            </div>
+            <p className="mt-4 max-w-sm text-sm leading-6 text-white/65">
+              ระบบประเมินความปลอดภัยการเดินทางอัจฉริยะ (AI-Powered Travel Safety Assessment Platform)
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-bold tracking-widest text-white/45">เบอร์โทรติดต่อฉุกเฉิน</p>
+            <p className="mt-3 text-sm leading-7">
+              <a href="tel:191" className="hover:underline">191 เหตุด่วนเหตุร้าย (ตำรวจ)</a><br />
+              <a href="tel:1669" className="hover:underline">1669 ศูนย์กู้ชีพและแพทย์ฉุกเฉิน</a><br />
+              <a href="tel:1193" className="hover:underline">1193 ตำรวจทางหลวง</a><br />
+              <a href="tel:1784" className="hover:underline">1784 สายด่วน ปภ. (เตือนภัยพิบัติ)</a>
+            </p>
+          </div>
+          <div>
+            <p className="text-xs font-bold tracking-widest text-white/45">ระบบและบริการ</p>
+            <p className="mt-3 text-sm leading-7 text-white/75">
+              <a href="#dashboard" className="hover:underline">แดชบอร์ดความปลอดภัย</a><br />
+              <a href="/status" className="hover:underline">สถานะระบบ (Service Status)</a><br />
+              <a href="#faq" className="hover:underline">คำถามที่พบบ่อย (FAQ)</a><br />
+              <a href="/admin" className="hover:underline">ระบบผู้ดูแล (Admin Console) <ExternalLink className="inline" size={12} /></a>
+            </p>
+          </div>
+        </div>
+        <div className="mx-auto mt-12 flex max-w-7xl flex-col gap-3 border-t border-white/15 pt-5 text-xs text-white/45 md:flex-row md:justify-between">
+          <span>© 2026 WayPoint. Travel Safety Assessment System.</span>
+          <span>ข้อมูลใช้เพื่อประกอบการตัดสินใจ โปรดตรวจสอบประกาศทางการก่อนออกเดินทาง</span>
+        </div>
+      </footer>
 
-  <section id="dashboard" className="bg-ink px-6 py-24 text-white sm:py-32"><div className="mx-auto max-w-7xl"><div className="flex flex-col justify-between gap-6 md:flex-row md:items-end"><div><p className="text-xs font-bold tracking-[.2em] text-[#a9dbf5]">A DECISION, NOT JUST A SCORE</p><h2 className="mt-4 font-display text-5xl leading-none sm:text-6xl">The recommendation<br/><i className="font-normal text-[#b9e5fb]">dashboard.</i></h2></div><p className="max-w-sm text-sm leading-6 text-white/65">ชัดเจนในสิ่งที่ควรทำ โปร่งใสในเหตุผล และให้รายละเอียดเฉพาะเมื่อคุณต้องการ</p></div>
-  <div className="mt-14"><RecommendationDashboard/></div>
-  <div className="mt-4 grid gap-4 md:grid-cols-3"><Disclosure title="Why this recommendation?" text="Two observed conditions and their timestamps are available."/><Disclosure title="Compare safer routes" text="Primary and alternative route cards with trade-offs."/><Disclosure title="When conditions change" text="Loading, queued, and alert states designed for SSE updates."/></div></div></section>
-
-  <section id="destinations" className="bg-[#f8fafc] px-6 py-24 sm:py-32"><div className="mx-auto max-w-7xl"><div className="grid gap-8 lg:grid-cols-[.9fr_1.1fr]"><div><p className="text-xs font-bold tracking-[.2em] text-aqua">CURATED TRAVEL PACKAGES</p><h2 className="mt-4 font-display text-5xl leading-none sm:text-6xl">Find a story<br/>worth taking.</h2><p className="mt-6 max-w-md text-sm leading-7 text-slate-600">ชุดเส้นทางที่คัดสรรมาให้คุณเริ่มต้นจากแรงบันดาลใจ แล้วใช้ข้อมูลจริงช่วยวางจังหวะการเดินทางที่เหมาะสม</p><button className="mt-8 rounded-full bg-ink px-5 py-3 text-xs font-bold text-white">EXPLORE ALL PACKAGES <ArrowUpRight className="ml-1 inline" size={14}/></button></div><article className="destination-a group relative min-h-[420px] overflow-hidden rounded-[2rem] bg-cover bg-center"><div className="absolute inset-0 bg-gradient-to-t from-[#061a31]/90 via-[#061a31]/15 to-transparent"/><div className="absolute inset-x-0 bottom-0 p-7 text-white"><p className="text-xs font-bold tracking-[.18em] text-[#b9e5fb]">FEATURED JOURNEY · SOUTHERN THAILAND</p><h3 className="mt-2 font-display text-4xl">Islands, in their own time.</h3><p className="mt-3 max-w-md text-sm leading-6 text-white/80">A thoughtful six-day route through calm coves, local tables, and routes that feel easy to follow.</p><span className="mt-5 inline-block rounded-full border border-white/35 px-3 py-1.5 text-xs font-bold">VIEW JOURNEY <ArrowUpRight className="ml-1 inline" size={13}/></span></div></article></div><div className="mt-7 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{destinations.slice(1).map(([image,title,copy,meta], i) => <article key={title} className={`${image} group relative min-h-[330px] overflow-hidden rounded-2xl bg-cover bg-center`}><div className="absolute inset-0 bg-gradient-to-t from-[#061a31]/90 via-[#061a31]/10 to-transparent transition duration-500 group-hover:from-[#061a31]/98"/><div className="absolute inset-x-0 bottom-0 p-5 text-white"><p className="text-[10px] font-bold tracking-[.16em] text-[#b9e5fb]">0{i+2} · {meta}</p><h3 className="mt-2 font-display text-3xl">{title}</h3><p className="mt-2 text-sm leading-5 text-white/80">{copy}</p><button className="mt-4 flex items-center gap-1 text-xs font-bold">SEE DETAILS <ArrowUpRight size={14}/></button></div></article>)}</div></div></section>
-
-  <section className="bg-white px-6 py-24 sm:py-32"><div className="mx-auto max-w-7xl"><div className="grid gap-12 lg:grid-cols-[.9fr_1.1fr]"><article className="overflow-hidden rounded-[2rem] border border-[#d9e8f0] bg-[#f4fbfe]"><div className="h-72 bg-[url('https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=1200&q=85')] bg-cover bg-center"/><div className="p-7"><p className="text-xs font-bold tracking-[.18em] text-aqua">THE JOURNEY JOURNAL</p><h2 className="mt-3 font-display text-4xl">It all begins with a place you want to remember.</h2><p className="mt-4 text-sm leading-7 text-slate-600">เก็บไอเดีย จุดแวะ และคำถามสำคัญไว้ในที่เดียว ก่อนเปลี่ยนมันให้เป็นแผนที่พร้อมออกเดินทาง</p><button className="mt-6 text-xs font-bold text-ink">READ THE FIELD NOTES <ArrowUpRight className="ml-1 inline" size={14}/></button></div></article><div className="grid content-center gap-6"><div><p className="text-xs font-bold tracking-[.2em] text-aqua">TRAVEL WITH INTENTION</p><h2 className="mt-4 font-display text-5xl leading-none sm:text-6xl">Beautiful plans<br/>have room to breathe.</h2></div><p className="max-w-xl text-sm leading-7 text-slate-600">WayPoint เชื่อมแรงบันดาลใจของคุณเข้ากับข้อมูลที่ช่วยตัดสินใจจริง ตั้งแต่เลือกช่วงเวลา เส้นทางสำรอง ไปจนถึงสิ่งที่ควรเตรียมไว้ระหว่างทาง</p><div className="grid gap-4 sm:grid-cols-3"><InfoCard value="150+" label="Places to begin" copy="เส้นทางที่คัดเลือกเพื่อเริ่มต้นการค้นหา"/><InfoCard value="24/7" label="Signal watch" copy="ติดตามข้อมูลที่เกี่ยวข้องกับแผนของคุณ"/><InfoCard value="One plan" label="Clear context" copy="รายละเอียดที่จำเป็น โดยไม่ทำให้หน้าจอรก"/></div></div></div></div></section>
-
-  <section className="bg-[#eef8fc] px-6 py-24 sm:py-32"><div className="mx-auto max-w-7xl"><div className="flex flex-col justify-between gap-5 md:flex-row md:items-end"><div><p className="text-xs font-bold tracking-[.2em] text-aqua">CAPTURING THE WORLD</p><h2 className="mt-4 font-display text-5xl leading-none sm:text-6xl">A journey through<br/>the lens.</h2></div><p className="max-w-sm text-sm leading-6 text-slate-600">เก็บภาพก่อนออกเดินทาง เพื่อให้จุดหมายมีความหมายตั้งแต่ยังอยู่ในจินตนาการ</p></div><div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><GalleryCard image="https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=800&q=85" title="First light"/><GalleryCard image="https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=85" title="Salt air"/><GalleryCard image="https://images.unsplash.com/photo-1526778548025-fa2f459cd5c1?auto=format&fit=crop&w=800&q=85" title="The long road"/><GalleryCard image="https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=800&q=85" title="Wild ground"/></div></div></section>
-
-  <CoastalTestimonials />
-
-  <section id="faq" className="paper-grid px-6 py-24 sm:py-32"><div className="mx-auto grid max-w-5xl gap-12 lg:grid-cols-[.8fr_1.2fr]"><div><p className="text-xs font-bold tracking-[.2em] text-aqua">GOOD QUESTIONS</p><h2 className="mt-4 font-display text-5xl leading-none">Frequently asked,<br/>clearly answered.</h2><p className="mt-6 text-sm leading-6 text-slate-600">ข้อมูลที่ดีควรเข้าใจง่ายก่อนที่คุณจะต้องใช้มัน</p></div><div className="divide-y divide-ink/15 border-y border-ink/15">{faqs.map(([q,a], i) => <details key={q} className="group py-5" open={i === 0}><summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-bold">{q}<ChevronDown className="shrink-0 transition group-open:rotate-180" size={18}/></summary><p className="max-w-xl pt-3 text-sm leading-6 text-slate-600">{a}</p></details>)}</div></div></section>
-  <footer className="bg-ink px-6 py-12 text-white"><div className="mx-auto grid max-w-7xl gap-10 md:grid-cols-4"><div className="md:col-span-2"><div className="flex items-center gap-2 text-xl font-bold"><Compass/> WayPoint</div><p className="mt-4 max-w-sm text-sm leading-6 text-white/65">A calmer way to move through a changing world.</p></div><div><p className="text-xs font-bold tracking-widest text-white/45">IN AN EMERGENCY</p><p className="mt-3 text-sm leading-7"><a href="tel:191">191 Police</a><br/><a href="tel:1669">1669 Medical emergency</a><br/><a href="tel:1193">1193 Highway police</a></p></div><div><p className="text-xs font-bold tracking-widest text-white/45">INFORMATION</p><p className="mt-3 text-sm leading-7 text-white/75"><a href="#dashboard">Data sources <ExternalLink className="inline" size={12}/></a><br/><a href="#faq">Privacy & consent</a><br/><a href="/admin">Service administration</a></p></div></div><div className="mx-auto mt-12 flex max-w-7xl flex-col gap-3 border-t border-white/15 pt-5 text-xs text-white/45 md:flex-row md:justify-between"><span>© 2026 WayPoint. Prototype presentation layer.</span><span>We do not access device location without your permission.</span></div></footer>
-</main> }
-function Disclosure({ title, text }: { title: string; text: string }) { return <button data-card className="text-left rounded-xl border border-white/15 p-5 transition hover:bg-white/5"><ChevronDown size={17} className="mb-9 text-[#90d9d3]"/><b className="block text-sm">{title}</b><p className="mt-2 text-xs leading-5 text-white/60">{text}</p></button> }
-function InfoCard({ value, label, copy }: { value: string; label: string; copy: string }) { return <article className="rounded-2xl border border-[#d9e8f0] bg-white p-5"><b className="font-display text-4xl text-ink">{value}</b><span className="mt-3 block text-sm font-bold text-ink">{label}</span><p className="mt-2 text-xs leading-5 text-slate-500">{copy}</p></article> }
-function GalleryCard({ image, title }: { image: string; title: string }) { return <article className="group overflow-hidden rounded-2xl bg-white p-2"><div className="h-56 overflow-hidden rounded-xl"><div className="h-full w-full bg-cover bg-center transition duration-700 group-hover:scale-110" style={{ backgroundImage: `url('${image}')` }}/></div><div className="flex items-center justify-between px-2 pb-2 pt-4"><span className="font-display text-xl text-ink">{title}</span><ArrowUpRight className="text-aqua" size={18}/></div></article> }
+      <TravelAssistantDrawer />
+    </main>
+  );
+}

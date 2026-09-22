@@ -57,7 +57,12 @@ def create_app(
         tools = (
             MockToolSet()
             if settings.use_mock_tools
-            else LiveToolSet(tomtom_api_key=settings.tomtom_api_key.get_secret_value() or None)
+            else LiveToolSet(
+                transport_provider=settings.transport_provider,
+                longdo_api_key=settings.longdo_api_key.get_secret_value() or None,
+                tomtom_api_key=settings.tomtom_api_key.get_secret_value() or None,
+                osrm_base_url=str(settings.osrm_base_url).rstrip("/"),
+            )
         )
 
     @asynccontextmanager

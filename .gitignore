@@ -240,3 +240,4 @@ next-env.d.ts
 .agents/rules/
 GEMINI.md
 AGENTS.md
+.superpowers/

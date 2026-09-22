@@ -17,6 +17,7 @@ from pydantic import (
     ConfigDict,
     Field,
     HttpUrl,
+    field_validator,
     model_validator,
 )
 
@@ -143,6 +144,9 @@ class Record(StrictModel):
     fetched_at: AwareDatetime
     expires_at: AwareDatetime
     excerpt: str = Field(default="", max_length=4000)
+    # Hash of the passage content (risk_knowledge/hashing.py). Module 07 matches a
+    # reviewed emergency procedure on this instead of on the excerpt's layout.
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @model_validator(mode="after")
     def provenance_is_usable(self):
@@ -162,10 +166,19 @@ class RiskFactorResult(StrictModel):
 class RiskResult(StrictModel):
     level: Level
     score: float | None = Field(default=None, ge=0, le=1)
-    confidence: Level
+    confidence: float = Field(ge=0, le=1)
     model_version: Identifier
     factors: list[RiskFactorResult] = Field(default_factory=list)
     records: list[Record] = Field(min_length=1)
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _coerce_confidence(cls, value: Any) -> Any:
+        if isinstance(value, Level):
+            return {"LOW": 0.25, "MEDIUM": 0.65, "HIGH": 0.90}[value.value]
+        if isinstance(value, str) and value.upper() in {"LOW", "MEDIUM", "HIGH"}:
+            return {"LOW": 0.25, "MEDIUM": 0.65, "HIGH": 0.90}[value.upper()]
+        return value
 
 
 class KnowledgeResult(StrictModel):
