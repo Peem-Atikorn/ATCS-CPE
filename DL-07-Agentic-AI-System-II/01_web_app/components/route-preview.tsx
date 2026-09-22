@@ -15,7 +15,7 @@ export function RoutePreview() {
     originPoint,
     destinationPoint,
     recommendation,
-    roadRoute,
+    roadRoutes,
     selectedRouteIndex,
     pinningMode,
     setPinningMode,
@@ -45,16 +45,18 @@ export function RoutePreview() {
       lon: rawCoordinates[rawCoordinates.length - 1][0],
     }) <= ROUTE_ENDPOINT_TOLERANCE_KM;
 
-  // Prefer a real road route (OSRM) for primary route CAR/BUS, or alternative's geometry if selected
-  const usingRoadRoute = selectedRouteIndex === 0 && !!roadRoute;
+  // Every selectable road option must come from the router. Never draw the mock
+  // recommendation's sparse waypoint geometry as if it were a driveable road.
+  const selectedRoadRoute = roadRoutes[selectedRouteIndex] ?? roadRoutes[0] ?? null;
+  const usingRoadRoute = !!selectedRoadRoute;
   const coordinates = usingRoadRoute
-    ? roadRoute?.coordinates
+    ? selectedRoadRoute.coordinates
     : routeMatchesMarkers
       ? rawCoordinates
       : null;
 
   const distanceKm = usingRoadRoute
-    ? Math.round(roadRoute.distanceKm)
+    ? Math.round(selectedRoadRoute.distanceKm)
     : activeRoute?.distance_km != null
       ? Math.round(activeRoute.distance_km)
       : originPoint && destinationPoint
@@ -62,6 +64,11 @@ export function RoutePreview() {
         : null;
 
   const showApproximateWarning = !usingRoadRoute && !routeMatchesMarkers && !!recommendation;
+  const avoidLabels: Record<string, string> = {
+    HIGHWAYS: "ทางด่วน",
+    TOLLS: "ค่าผ่านทาง",
+    FERRIES: "เรือข้ามฟาก",
+  };
 
   const handlePinLocation = (type: "origin" | "destination", coords: { lat: number; lon: number }) => {
     void pinLocation(type, coords);
@@ -160,6 +167,11 @@ export function RoutePreview() {
             <b className="text-ink">{originPoint.name}</b> → <b className="text-ink">{destinationPoint.name}</b>
             {distanceKm != null ? ` · ${distanceKm} km` : ""}
           </p>
+          {usingRoadRoute && selectedRoadRoute.appliedAvoid.length > 0 && (
+            <p className="mt-1 text-[11px] font-semibold text-emerald-700">
+              คำนวณใหม่โดยเลี่ยง {selectedRoadRoute.appliedAvoid.map((item) => avoidLabels[item] ?? item).join(", ")}
+            </p>
+          )}
           {showApproximateWarning && (
             <p className="mt-1 text-[11px] text-amber-600">
               เส้นทางเป็นเส้นประมาณระยะทาง ยังไม่ใช่เส้นทางถนนจริง

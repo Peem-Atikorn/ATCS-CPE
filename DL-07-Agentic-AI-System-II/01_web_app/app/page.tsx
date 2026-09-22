@@ -99,7 +99,7 @@ export default function Home() {
                 <span className="text-slate-500">Live Map Layer</span>
               </span>
               <span>
-                <b className="block text-ink">OSRM Route Candidate</b>
+                <b className="block text-ink">Valhalla Road Routes</b>
                 <span className="text-slate-500">Geometry Preview</span>
               </span>
             </div>

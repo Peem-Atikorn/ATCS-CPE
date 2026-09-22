@@ -11,6 +11,7 @@ x-web-env: &web-env
   # Server-side URL: used by Server Components / Route Handlers only.
   # Inside a container `localhost` is the container itself, so use the service name.
   API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
+  ROUTING_API_URL: ${ROUTING_API_URL:-https://valhalla1.openstreetmap.de/route}
 
 services:
   # Development: hot reload against the source tree.
@@ -49,6 +50,7 @@ services:
     image: tsa-webapp:prod
     environment:
       API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
+      ROUTING_API_URL: ${ROUTING_API_URL:-https://valhalla1.openstreetmap.de/route}
     ports:
       - "${WEB_HOST_PORT:-3000}:3000"
     networks: [backend]

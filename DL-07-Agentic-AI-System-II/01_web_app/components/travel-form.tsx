@@ -29,10 +29,19 @@ const schema = z.object({
   avoidFerries: z.boolean().default(false),
   avoidNight: z.boolean().default(false),
   note: z.string().max(240).optional(),
-}).refine(
-  ({ date, time }) => new Date(`${date}T${time}:00+07:00`).getTime() > Date.now(),
-  { path: ["date"], message: "เลือกวันและเวลาเดินทางในอนาคต" },
-);
+}).superRefine(({ date, time, avoidNight }, ctx) => {
+  if (new Date(`${date}T${time}:00+07:00`).getTime() <= Date.now()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["date"], message: "เลือกวันและเวลาเดินทางในอนาคต" });
+  }
+  const hour = Number(time.split(":")[0]);
+  if (avoidNight && (hour < 6 || hour >= 18)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["time"],
+      message: "เปิดการเลี่ยงกลางคืนแล้ว กรุณาเลือกเวลา 06:00–17:59 น.",
+    });
+  }
+});
 type Form = z.infer<typeof schema>;
 
 function bangkokDate(daysFromNow: number): string {
@@ -213,7 +222,7 @@ export function TravelForm() {
         {showPreferences && (
           <div className="mt-2.5 space-y-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
             <div className="grid grid-cols-2 gap-3">
-              <Field icon={<Clock size={15} />} label="เวลาออกเดินทาง">
+              <Field icon={<Clock size={15} />} label="เวลาออกเดินทาง" error={form.formState.errors.time?.message}>
                 <input aria-label="Departure time" type="time" {...form.register("time")} />
               </Field>
               <Field icon={<Users size={15} />} label="จำนวนผู้เดินทาง">

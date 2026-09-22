@@ -4,7 +4,7 @@ import { requestRecommendation } from "@/lib/api";
 import { toUserMessage } from "@/lib/api/problem";
 import { geocode, reverseGeocode, type GeoPoint } from "@/lib/geocode";
 import { buildMockRecommendation } from "@/lib/mock-recommendation";
-import { fetchDrivingRoute, type DrivingRoute } from "@/lib/routing";
+import { fetchDrivingRoutes, type DrivingRoute } from "@/lib/routing";
 import type { AvoidOption, RecommendationResponse, TravelMode } from "@/lib/types";
 
 /** Travel modes OSRM's public driving profile can approximate with a real road route. */
@@ -35,7 +35,7 @@ type TripContextValue = {
   selectedRouteIndex: number;
   setSelectedRouteIndex: (index: number) => void;
   /** Real road-following geometry for CAR/BUS, fetched independently of the recommendation. */
-  roadRoute: DrivingRoute | null;
+  roadRoutes: DrivingRoute[];
   lastInput: TripFormInput | null;
   submit: (input: TripFormInput) => Promise<void>;
   applyAssistantChanges: (changes: Partial<TripFormInput>) => Promise<void>;
@@ -57,14 +57,14 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   const [usingMock, setUsingMock] = useState(false);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [roadRoute, setRoadRoute] = useState<DrivingRoute | null>(null);
+  const [roadRoutes, setRoadRoutes] = useState<DrivingRoute[]>([]);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
   const requestSeq = useRef(0);
 
   const resetPins = useCallback(() => {
     setOriginPoint(null);
     setDestinationPoint(null);
-    setRoadRoute(null);
+    setRoadRoutes([]);
     setPinningMode(null);
   }, []);
 
@@ -103,11 +103,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     if (otherPoint) {
       const start = type === "origin" ? newPoint : otherPoint;
       const end = type === "origin" ? otherPoint : newPoint;
-      fetchDrivingRoute(start, end).then((route) => {
-        setRoadRoute(route);
+      fetchDrivingRoutes(start, end, lastInput?.avoid).then((routes) => {
+        setRoadRoutes(routes);
       });
     }
-  }, [originPoint, destinationPoint]);
+  }, [originPoint, destinationPoint, lastInput?.avoid]);
 
   const submit = useCallback(async (input: TripFormInput) => {
     setLastInput(input);
@@ -117,7 +117,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setStatus("geocoding");
     setErrorMessage(null);
     setProgressMessage(null);
-    setRoadRoute(null);
+    setRoadRoutes([]);
     setSelectedRouteIndex(0);
 
     let origin: GeoPoint;
@@ -143,8 +143,8 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
     setStatus("submitting");
 
     if (ROAD_MODES.has(input.mode)) {
-      fetchDrivingRoute(origin, destination).then((route) => {
-        if (!isStale()) setRoadRoute(route);
+      fetchDrivingRoutes(origin, destination, input.avoid).then((routes) => {
+        if (!isStale()) setRoadRoutes(routes);
       });
     }
 
@@ -219,7 +219,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
         errorMessage,
         selectedRouteIndex,
         setSelectedRouteIndex,
-        roadRoute,
+        roadRoutes,
         lastInput,
         submit,
         applyAssistantChanges,
