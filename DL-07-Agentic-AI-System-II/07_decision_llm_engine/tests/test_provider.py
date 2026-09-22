@@ -1,6 +1,8 @@
 import json
-import pytest
+
 import httpx
+import pytest
+
 from decision_engine.config import Settings
 from decision_engine.models import Action
 from decision_engine.provider import GeminiExplanationProvider
@@ -25,23 +27,16 @@ async def test_gemini_provider_generate_success(monkeypatch):
     }
 
     async def mock_post(self, url, **kwargs):
-        assert "key=mock-key" in str(url)
+        assert "key=" not in str(url)
         assert "gemini-2.0-flash" in str(url)
+        assert kwargs["headers"]["x-goog-api-key"] == "mock-key"
         payload = kwargs.get("json", {})
         assert payload["generationConfig"]["responseMimeType"] == "application/json"
         return httpx.Response(
             status_code=200,
             json={
                 "candidates": [
-                    {
-                        "content": {
-                            "parts": [
-                                {
-                                    "text": json.dumps(mock_candidate_output)
-                                }
-                            ]
-                        }
-                    }
+                    {"content": {"parts": [{"text": json.dumps(mock_candidate_output)}]}}
                 ]
             },
         )
@@ -117,15 +112,7 @@ async def test_explain_with_gemini_natural_language(monkeypatch, samples):
             status_code=200,
             json={
                 "candidates": [
-                    {
-                        "content": {
-                            "parts": [
-                                {
-                                    "text": json.dumps(mock_candidate_output)
-                                }
-                            ]
-                        }
-                    }
+                    {"content": {"parts": [{"text": json.dumps(mock_candidate_output)}]}}
                 ]
             },
         )
@@ -143,6 +130,7 @@ async def test_explain_with_gemini_natural_language(monkeypatch, samples):
         suggested_departure_time=None,
     )
     from decision_engine.models import DecisionRequest
+
     request = DecisionRequest.model_validate(samples["high_risk"])
 
     explanation, checks = await explain(
@@ -151,4 +139,3 @@ async def test_explain_with_gemini_natural_language(monkeypatch, samples):
     assert explanation.mode == "provider"
     assert explanation.summary == mock_candidate_output["summary"]
     assert "LLM_OUTPUT_VALIDATED" in checks
-

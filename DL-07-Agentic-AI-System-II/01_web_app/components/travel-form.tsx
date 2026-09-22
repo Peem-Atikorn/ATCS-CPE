@@ -145,7 +145,8 @@ export function TravelForm() {
           <button
             type="button"
             onClick={() => setPinningMode(pinningMode === "origin" ? null : "origin")}
-            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold transition ${
+            style={{ minHeight: 44 }}
+            className={`inline-flex items-center gap-1 rounded px-3 text-xs font-semibold transition ${
               pinningMode === "origin"
                 ? "bg-aqua text-white shadow-xs"
                 : "text-aqua hover:bg-aqua/10"
@@ -165,7 +166,8 @@ export function TravelForm() {
           <button
             type="button"
             onClick={() => setPinningMode(pinningMode === "destination" ? null : "destination")}
-            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-semibold transition ${
+            style={{ minHeight: 44 }}
+            className={`inline-flex items-center gap-1 rounded px-3 text-xs font-semibold transition ${
               pinningMode === "destination"
                 ? "bg-amber-600 text-white shadow-xs"
                 : "text-amber-600 hover:bg-amber-500/10"
@@ -307,7 +309,7 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <label>
+    <div>
       <span className="mb-1 flex items-center justify-between gap-1.5 text-xs font-bold tracking-wider text-slate-500">
         <span className="flex items-center gap-1.5">
           {icon}
@@ -319,6 +321,6 @@ function Field({
         {children}
       </div>
       {error && <span className="mt-1 block text-xs text-red-700">{error}</span>}
-    </label>
+    </div>
   );
 }

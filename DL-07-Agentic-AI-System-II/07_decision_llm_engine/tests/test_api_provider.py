@@ -1,4 +1,3 @@
-import pytest
 from decision_engine.api import create_app
 from decision_engine.config import Settings
 from decision_engine.provider import GeminiExplanationProvider

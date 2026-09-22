@@ -49,6 +49,7 @@ coverage.xml
 *.py.cover
 .hypothesis/
 .pytest_cache/
+.pytest-tmp/
 cover/
 
 # Translations
@@ -151,6 +152,7 @@ activemq-data/
 .env
 .envrc
 .venv
+.codex-venv/
 env/
 venv/
 ENV/
@@ -225,6 +227,9 @@ next-env.d.ts
 .vercel
 .eslintcache
 .pnpm-store/
+.npm-cache/
+.uv-cache/
+.uv-python/
 
 # secret ของ Next.js (pattern ".env" ด้านบนไม่ match พวกนี้)
 .env.local

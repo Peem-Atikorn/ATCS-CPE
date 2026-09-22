@@ -8,7 +8,6 @@ import {
   RefreshCw,
   XCircle,
 } from "lucide-react";
-import { toUserMessage } from "@/lib/api/problem";
 import {
   fetchServiceStatus,
   type ComponentState,
@@ -16,19 +15,35 @@ import {
 } from "@/lib/api/service-status";
 
 // Icon + words carry the meaning; colour only reinforces it (WCAG 2.1 AA).
-const STATE_UI: Record<ComponentState, { label: string; icon: typeof CheckCircle2; className: string }> = {
-  operational: { label: "ใช้งานได้ปกติ", icon: CheckCircle2, className: "text-emerald-700" },
-  degraded: { label: "ทำงานได้บางส่วน", icon: AlertTriangle, className: "text-amber-700" },
+const STATE_UI: Record<
+  ComponentState,
+  { label: string; icon: typeof CheckCircle2; className: string }
+> = {
+  operational: {
+    label: "ใช้งานได้ปกติ",
+    icon: CheckCircle2,
+    className: "text-emerald-700",
+  },
+  degraded: {
+    label: "ทำงานได้บางส่วน",
+    icon: AlertTriangle,
+    className: "text-amber-700",
+  },
   down: { label: "ใช้งานไม่ได้", icon: XCircle, className: "text-red-700" },
-  unknown: { label: "ไม่ทราบสถานะ", icon: CircleHelp, className: "text-slate-500" },
+  unknown: {
+    label: "ไม่ทราบสถานะ",
+    icon: CircleHelp,
+    className: "text-slate-500",
+  },
 };
 
 export default function StatusPage() {
-  const { data, error, isPending, isFetching, refetch, dataUpdatedAt } = useQuery({
-    queryKey: ["service-status"],
-    queryFn: ({ signal }) => fetchServiceStatus(signal),
-    refetchInterval: 60_000,
-  });
+  const { data, error, isPending, isFetching, refetch, dataUpdatedAt } =
+    useQuery({
+      queryKey: ["service-status"],
+      queryFn: ({ signal }) => fetchServiceStatus(signal),
+      refetchInterval: 60_000,
+    });
 
   return (
     <main className="mx-auto w-full max-w-2xl px-5 py-10">
@@ -45,7 +60,10 @@ export default function StatusPage() {
           disabled={isFetching}
           className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50"
         >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} aria-hidden />
+          <RefreshCw
+            className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`}
+            aria-hidden
+          />
           ตรวจสอบใหม่
         </button>
       </header>
@@ -59,7 +77,9 @@ export default function StatusPage() {
               <XCircle className="h-5 w-5" aria-hidden />
               ตรวจสอบสถานะไม่สำเร็จ
             </p>
-            <p className="mt-1 text-sm text-red-800">{toUserMessage(error)}</p>
+            <p className="mt-1 text-sm text-red-800">
+              ไม่สามารถเชื่อมต่อบริการตรวจสอบสถานะได้ กรุณาลองใหม่ในภายหลัง
+            </p>
           </div>
         )}
 
@@ -77,12 +97,15 @@ export default function StatusPage() {
               </p>
             )}
             <p className="mt-4 text-xs text-slate-500">
-              ข้อมูลล่าสุด {new Date(dataUpdatedAt).toLocaleTimeString("th-TH")} · ตรวจสอบอัตโนมัติทุก 1 นาที
+              ข้อมูลล่าสุด {new Date(dataUpdatedAt).toLocaleTimeString("th-TH")}{" "}
+              · ตรวจสอบอัตโนมัติทุก 1 นาที
             </p>
 
             {/* Remove once the response shape is locked with the backend team. */}
             <details className="mt-6">
-              <summary className="cursor-pointer text-sm text-slate-600">ข้อมูลดิบจาก API</summary>
+              <summary className="cursor-pointer text-sm text-slate-600">
+                ข้อมูลดิบจาก API
+              </summary>
               <pre className="mt-2 overflow-x-auto rounded bg-slate-900 p-3 text-xs text-slate-100">
                 {JSON.stringify(data.raw, null, 2)}
               </pre>
@@ -132,7 +155,9 @@ function ComponentRow({ component }: { component: ServiceComponent }) {
           </p>
         )}
       </div>
-      <span className={`flex shrink-0 items-center gap-1.5 text-sm ${className}`}>
+      <span
+        className={`flex shrink-0 items-center gap-1.5 text-sm ${className}`}
+      >
         <Icon className="h-4 w-4" aria-hidden />
         {label}
       </span>

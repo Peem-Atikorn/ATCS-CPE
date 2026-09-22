@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-import pytest
 from app.infrastructure.agent.contracts import (
     EmergencyContact as ContractEmergencyContact,
+)
+from app.infrastructure.agent.contracts import (
     EmergencyInstructions as ContractEmergencyInstructions,
 )
 from app.schemas.v1.travel import (
     EmergencyContact as SchemaEmergencyContact,
+)
+from app.schemas.v1.travel import (
     EmergencyInstructions as SchemaEmergencyInstructions,
 )
 

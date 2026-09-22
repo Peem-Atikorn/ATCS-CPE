@@ -72,13 +72,19 @@ async def explain(
         "output_schema": Candidate.model_json_schema(),
     }
     if is_nl:
+        risk_level = None
+        if request.risk:
+            risk_level = getattr(request.risk.level, "value", str(request.risk.level))
+
         package["context_summary"] = {
             "route_id": request.context.route_id,
             "departure_time": request.context.departure_time.isoformat(),
             "weather_summary": request.weather.text if request.weather else None,
             "transport_summary": request.transport.text if request.transport else None,
-            "risk_level": request.risk.level.value if request.risk and hasattr(request.risk.level, "value") else str(request.risk.level) if request.risk else None,
-            "alerts": [f"Level: {alert.level}, Active: {alert.active}" for alert in request.alerts] if request.alerts else [],
+            "risk_level": risk_level,
+            "alerts": [
+                f"Level: {alert.level}, Active: {alert.active}" for alert in request.alerts
+            ],
         }
     # Byte length is a conservative upper bound for byte-level tokenizer input.
     # Real provider integrations must replace this with that provider's token counter.

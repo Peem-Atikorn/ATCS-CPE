@@ -1,13 +1,15 @@
 import json
 import logging
+
 import httpx
+
 from .config import Settings
 
 log = logging.getLogger("decision_engine.provider")
 
 
 class GeminiExplanationProvider:
-    """HTTP REST Provider connecting to Google Gemini API for structured natural language explanation."""
+    """Gemini REST provider for a structured natural-language explanation."""
 
     is_natural_language: bool = True
 
@@ -18,7 +20,7 @@ class GeminiExplanationProvider:
         self._base_url = settings.gemini_api_base.rstrip("/")
 
     async def generate(self, package: dict, *, max_output_tokens: int) -> dict:
-        url = f"{self._base_url}/models/{self._model}:generateContent?key={self._api_key}"
+        url = f"{self._base_url}/models/{self._model}:generateContent"
 
         system_instruction = (
             "คุณคือผู้ช่วยประเมินความปลอดภัยในการเดินทางอัจฉริยะ (Travel Safety Explainer) "
@@ -33,16 +35,18 @@ class GeminiExplanationProvider:
 
         user_prompt = (
             f"Locked Action: {package.get('locked_action')}\n"
-            f"Valid Evidence IDs: {json.dumps(package.get('evidence_ids', []), ensure_ascii=False)}\n"
-            f"Fallback Sentence Reference: {json.dumps(package.get('sentence_bank', {}), ensure_ascii=False)}\n"
+            "Valid Evidence IDs: "
+            f"{json.dumps(package.get('evidence_ids', []), ensure_ascii=False)}\n"
+            "Fallback Sentence Reference: "
+            f"{json.dumps(package.get('sentence_bank', {}), ensure_ascii=False)}\n"
         )
         if "context_summary" in package:
-            user_prompt += f"Context Details: {json.dumps(package['context_summary'], ensure_ascii=False)}\n"
+            user_prompt += (
+                f"Context Details: {json.dumps(package['context_summary'], ensure_ascii=False)}\n"
+            )
 
         payload = {
-            "system_instruction": {
-                "parts": [{"text": system_instruction}]
-            },
+            "system_instruction": {"parts": [{"text": system_instruction}]},
             "contents": [
                 {
                     "role": "user",
@@ -61,9 +65,13 @@ class GeminiExplanationProvider:
 
         timeout = httpx.Timeout(self._settings.llm_timeout)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=payload)
+            resp = await client.post(
+                url,
+                headers={"x-goog-api-key": self._api_key},
+                json=payload,
+            )
             if resp.status_code != 200:
-                log.warning("Gemini API error status %s: %s", resp.status_code, resp.text[:200])
+                log.warning("Gemini API error status %s", resp.status_code)
                 raise RuntimeError(f"Gemini API returned status {resp.status_code}")
 
             data = resp.json()

@@ -3,12 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
+  Car,
   Check,
   ChevronRight,
+  CloudRain,
   Clock,
-  MapPin,
-  MessageSquare,
-  Minus,
   Navigation,
   Send,
   ShieldAlert,
@@ -16,7 +15,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useTrip } from "./trip-context";
+import { type TripFormInput, useTrip } from "./trip-context";
 
 interface Message {
   id: string;
@@ -36,10 +35,10 @@ interface Message {
 }
 
 const QUICK_PROMPTS = [
-  { label: "มีฝนตกช่วงไหนบ้าง?", icon: "🌧️" },
-  { label: "มีรถติดหรือปิดถนนไหม?", icon: "🚗" },
-  { label: "เส้นทางนี้ปลอดภัยไหม?", icon: "🛡️" },
-  { label: "เลื่อนเวลาออกเดินทางให้หน่อย", icon: "⏱️" },
+  { label: "มีฝนตกช่วงไหนบ้าง?", icon: CloudRain },
+  { label: "มีรถติดหรือปิดถนนไหม?", icon: Car },
+  { label: "เส้นทางนี้ปลอดภัยไหม?", icon: ShieldAlert },
+  { label: "เลื่อนเวลาออกเดินทางให้หน่อย", icon: Clock },
 ];
 
 export function TravelAssistantDrawer() {
@@ -149,7 +148,11 @@ export function TravelAssistantDrawer() {
     }
   };
 
-  const handleApplyProposal = async (msgId: string, changes: any) => {
+  const handleApplyProposal = async (
+    msgId: string,
+    changes: Partial<TripFormInput> | undefined,
+  ) => {
+    if (!changes) return;
     setAppliedProposalId(msgId);
     await applyAssistantChanges(changes);
   };
@@ -211,16 +214,20 @@ export function TravelAssistantDrawer() {
 
             <div className="flex items-center gap-1">
               <button
+                type="button"
                 onClick={handleClearChat}
-                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
                 title="ล้างบทสนทนา"
+                aria-label="ล้างบทสนทนา"
               >
                 <Trash2 className="h-4 w-4" />
               </button>
               <button
+                type="button"
                 onClick={() => setIsOpen(false)}
-                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200"
                 title="ปิดหน้าต่างแชต"
+                aria-label="ปิดหน้าต่างแชต"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -324,14 +331,15 @@ export function TravelAssistantDrawer() {
           {/* Quick Prompts Carousel */}
           <div className="border-t border-slate-800/80 bg-slate-950/40 px-3 py-2">
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-[11px]">
-              {QUICK_PROMPTS.map((p, idx) => (
+              {QUICK_PROMPTS.map((p) => (
                 <button
-                  key={idx}
+                  key={p.label}
+                  type="button"
                   onClick={() => handleSendMessage(p.label)}
                   disabled={isLoading}
-                  className="shrink-0 flex items-center gap-1 rounded-full border border-slate-700/70 bg-slate-800/60 px-2.5 py-1 text-slate-300 transition-colors hover:border-sky-500 hover:bg-slate-800 hover:text-white"
+                  className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border border-slate-700/70 bg-slate-800/60 px-3 text-slate-300 transition-colors hover:border-sky-500 hover:bg-slate-800 hover:text-white"
                 >
-                  <span>{p.icon}</span>
+                  <p.icon aria-hidden className="h-4 w-4" />
                   <span>{p.label}</span>
                 </button>
               ))}
@@ -347,7 +355,11 @@ export function TravelAssistantDrawer() {
             className="border-t border-slate-800 bg-slate-950/90 p-3"
           >
             <div className="flex items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900 px-3 py-1.5 focus-within:border-sky-500 transition-colors">
+              <label htmlFor="travel-assistant-message" className="sr-only">
+                ข้อความถึงผู้ช่วยเดินทาง
+              </label>
               <input
+                id="travel-assistant-message"
                 type="text"
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
@@ -358,7 +370,8 @@ export function TravelAssistantDrawer() {
               <button
                 type="submit"
                 disabled={!inputMessage.trim() || isLoading}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-600 text-white transition-all hover:bg-sky-500 disabled:opacity-40 disabled:hover:bg-sky-600"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-sky-600 text-white transition-all hover:bg-sky-500 disabled:opacity-40 disabled:hover:bg-sky-600"
+                aria-label="ส่งข้อความ"
               >
                 <Send className="h-4 w-4" />
               </button>

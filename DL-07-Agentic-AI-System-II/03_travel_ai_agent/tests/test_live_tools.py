@@ -443,7 +443,7 @@ async def test_live_route_candidates_calls_real_module_04_entry_point(monkeypatc
 
 @pytest.mark.asyncio
 async def test_live_transport_ongoing_incident_uses_fetched_at_for_freshness():
-    """Incidents with time_validity 'present' must use fetched_at so long-term closures are not marked stale."""
+    """Ongoing incidents use fetched_at so long-term closures are not marked stale."""
     incident = canonical("transport_status", "tomtom:incident-ongoing")
     # Simulate a long-running closure from 2 years ago without lastReportTime
     incident["observed_at"] = None
@@ -497,5 +497,4 @@ async def test_live_transport_longdo_provider():
     assert transport.canonical_records == []
     assert transport.records[0].source_name == "Longdo Traffic (iTIC)"
     assert str(transport.records[0].url) == "https://event.longdo.com/feed/json"
-
 

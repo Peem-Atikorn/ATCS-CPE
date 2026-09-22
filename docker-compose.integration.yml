@@ -178,8 +178,6 @@ services:
       target: runtime
     ports:
       - "127.0.0.1:8010:8010"
-    env_file:
-      - ./DL-07-Agentic-AI-System-II/03_travel_ai_agent/.env
     environment:
       DECISION_SERVICE_URL: http://decision-engine:8050
       USE_MOCK_TOOLS: "false"
