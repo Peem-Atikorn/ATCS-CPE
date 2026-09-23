@@ -111,9 +111,14 @@ export async function POST(req: Request) {
       return NextResponse.json(generateFallbackReply(userQuestion, tripContext));
     }
 
-    const model = process.env.LLM_MODEL_EXPLAINER || "gemini-3.6-flash";
+    const candidateModels = [
+      process.env.LLM_MODEL_EXPLAINER,
+      "gemini-2.5-flash-lite",
+      "gemini-flash-latest",
+      "gemini-3.5-flash-lite",
+    ].filter(Boolean) as string[];
+
     const baseUrl = (process.env.GEMINI_API_BASE || "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
-    const url = `${baseUrl}/models/${model}:generateContent?key=${apiKey}`;
 
     const systemPrompt = `คุณคือ "ผู้ช่วยเดินทางอัจฉริยะ (AI Travel Assistant)" ของระบบ Waypoint Safety Thailand
 หน้าที่ของคุณคือ:
@@ -162,20 +167,32 @@ export async function POST(req: Request) {
       },
     };
 
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    let candidateText: string | null = null;
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.warn("Gemini API error:", res.status, errText);
-      return NextResponse.json(generateFallbackReply(userQuestion, tripContext));
+    for (const m of candidateModels) {
+      try {
+        const url = `${baseUrl}/models/${m}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+          if (candidateText) {
+            break;
+          }
+        } else {
+          const errText = await res.text();
+          console.warn(`Gemini model ${m} returned HTTP ${res.status}:`, errText);
+        }
+      } catch (err) {
+        console.warn(`Gemini model ${m} request failed:`, err);
+      }
     }
 
-    const data = await res.json();
-    const candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!candidateText) {
       return NextResponse.json(generateFallbackReply(userQuestion, tripContext));
     }
