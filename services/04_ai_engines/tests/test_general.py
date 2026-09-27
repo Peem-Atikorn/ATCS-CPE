@@ -63,14 +63,21 @@ def test_general_both_providers_down_returns_503_problem_json():
     with patch("app.main.call_general_ai", side_effect=LLMUnavailableError("groq down | gemini down")):
         r = client.post(
             "/general",
-            json={"request_id": "req-3", "query": "อธิบายกติกาจุดโทษ", "history": [], "language": "th"},
+            json={
+                "request_id": "body-value-should-be-ignored",  # จงใจให้ต่างจาก header
+                "query": "อธิบายกติกาจุดโทษ",
+                "history": [],
+                "language": "th",
+            },
+            headers={"X-Request-ID": "req-3"},
         )
     assert r.status_code == 503
     assert r.headers["content-type"].startswith("application/problem+json")
+    assert r.headers["x-request-id"] == "req-3"
     body = r.json()
     assert body["code"] == "LLM_UNAVAILABLE"
     assert body["service"] == "engines"
-    assert body["request_id"] == "req-3"
+    assert body["request_id"] == "req-3" 
 
 
 def test_general_missing_query_returns_422():

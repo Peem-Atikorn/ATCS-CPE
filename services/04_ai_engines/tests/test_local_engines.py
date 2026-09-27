@@ -49,10 +49,17 @@ def test_local_classify_model_unavailable_returns_503():
 def test_local_predict_returns_501_not_implemented():
     r = client.post(
         "/local/predict",
-        json={"request_id": "p1", "home_team_id": 57, "away_team_id": 61, "season": "2026"},
+        json={
+            "request_id": "body-value-should-be-ignored",
+            "home_team_id": 57,
+            "away_team_id": 61,
+            "season": "2026",
+        },
+        headers={"X-Request-ID": "p1"},
     )
     assert r.status_code == 501
     assert r.headers["content-type"].startswith("application/problem+json")
+    assert r.headers["x-request-id"] == "p1"
     body = r.json()
     assert body["code"] == "NOT_IMPLEMENTED"
-    assert body["request_id"] == "p1"
+    assert body["request_id"] == "p1" 

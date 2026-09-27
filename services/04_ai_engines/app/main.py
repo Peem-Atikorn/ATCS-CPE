@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from .config import settings
-from .llm_client import LLMUnavailableError, call_general_ai
+from .llm_client import AnswerTooLongError, LLMUnavailableError, call_general_ai
 from .local_classifier import ModelNotLoadedError, classify as classify_intent, model_version
 from .schemas import (
     ClassifyRequest,
@@ -104,7 +104,11 @@ def health():
 
 @app.post("/general")
 def general(body: GeneralRequest, request: Request):
-    request_id = body.request_id or getattr(request.state, "request_id", str(uuid.uuid4()))
+    # [ข้อ 5] ใช้ request.state.request_id (ตั้งค่าโดย request_id_middleware) เป็นค่าเดียว
+    # ทั้ง response header, body และ log — ไม่ใช้ body.request_id อีกต่อไป เพราะถ้าผู้เรียกส่ง
+    # request_id มาแค่ใน body (ไม่ใส่ header X-Request-ID) ค่าที่ตอบกลับจะคนละค่ากับ header/log
+    # ทำให้ trace ข้ามบริการไม่ได้ตาม CONTRACT §0
+    request_id = request.state.request_id
 
     system_prompt = SYSTEM_PROMPT_TH if body.language == "th" else SYSTEM_PROMPT_EN
 
@@ -126,6 +130,20 @@ def general(body: GeneralRequest, request: Request):
         content, model_used, token_usage = call_general_ai(
             messages=messages,
             max_tokens=settings.GENERAL_MAX_TOKENS,
+            request_id=request_id,
+        )
+    except AnswerTooLongError as e:
+        # [ข้อ 4] แยกจาก LLM_UNAVAILABLE: ทั้ง Groq และ Gemini ตอบสำเร็จ (provider ปกติดี)
+        # แต่คำตอบยาวเกิน GENERAL_MAX_TOKENS ทุกครั้ง — เพื่อไม่ให้ผู้เรียกเข้าใจผิดว่า provider ล่ม
+        return _problem(
+            status=503,
+            code="ANSWER_TOO_LONG",
+            title="Answer exceeded token budget",
+            detail=(
+                f"Groq และ Gemini ตอบสำเร็จแต่คำตอบยาวเกิน GENERAL_MAX_TOKENS "
+                f"({settings.GENERAL_MAX_TOKENS}) ทุกครั้ง — ไม่ใช่ provider ล่ม "
+                f"ลองถามให้เจาะจง/สั้นลง หรือแจ้งทีมถ้าเจอบ่อยเพื่อพิจารณาขยับเพดาน: {e}"
+            ),
             request_id=request_id,
         )
     except LLMUnavailableError as e:
@@ -153,7 +171,8 @@ def general(body: GeneralRequest, request: Request):
 @app.post("/local/classify")
 def local_classify(body: ClassifyRequest, request: Request):
     """D3 — router ใช้เส้นนี้เป็นชั้น classifier ก่อนตัดสินใจ route (CONTRACT.md §3)"""
-    request_id = body.request_id or getattr(request.state, "request_id", str(uuid.uuid4()))
+    # [ข้อ 5] เหตุผลเดียวกับ /general — ใช้ request.state.request_id เป็นค่าเดียว
+    request_id = request.state.request_id
 
     t0 = time.monotonic()
     try:
@@ -198,7 +217,8 @@ def local_predict(body: PredictRequest, request: Request):
     ส่วนที่ "ทำแล้วจริง" คือคณิตศาสตร์ Poisson ล้วน ๆ ใน app/poisson.py (มี unit test ครบ
     ใน tests/test_poisson.py) — พร้อมต่อกับข้อมูลจริงทันทีที่มี 07 และ path การเรียกที่ตกลงกันแล้ว
     """
-    request_id = body.request_id or getattr(request.state, "request_id", str(uuid.uuid4()))
+    # [ข้อ 5] เหตุผลเดียวกับ /general
+    request_id = request.state.request_id
     return _problem(
         status=501,
         code="NOT_IMPLEMENTED",
