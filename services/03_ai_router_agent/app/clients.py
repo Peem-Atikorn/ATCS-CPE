@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 from uuid import uuid4
@@ -5,6 +6,10 @@ from uuid import uuid4
 import httpx
 
 from .router import UpstreamError
+from .teams import TeamDirectory
+
+
+LLM_PROVIDER_TIMEOUT = 3
 
 
 class ServiceClients:
@@ -21,10 +26,11 @@ class ServiceClients:
                                            headers={"X-Request-ID": str(uuid4())}, timeout=3)
             response.raise_for_status()
             data = response.json()
-            if not isinstance(data.get("teams"), list) or not data["teams"]:
+            if not isinstance(data, dict) or not isinstance(data.get("teams"), list) or not data["teams"]:
                 raise ValueError("empty team directory")
+            TeamDirectory.from_payload(data)
             return data
-        except (httpx.HTTPError, ValueError) as exc:
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError) as exc:
             raise UpstreamError("football-data") from exc
 
     async def _post(self, base: str, path: str, payload: dict, request_id: str, timeout: float, service: str):
@@ -78,13 +84,15 @@ class ServiceClients:
             if not key or not model:
                 continue
             try:
-                client = AsyncOpenAI(api_key=key, base_url=base_url, timeout=8, max_retries=0)
-                response = await client.chat.completions.create(
-                    model=model, temperature=0,
-                    messages=[{"role": "system", "content": system},
-                              {"role": "user", "content": query}],
-                    response_format={"type": "json_object"},
-                    extra_headers={"X-Request-ID": request_id})
+                client = AsyncOpenAI(api_key=key, base_url=base_url,
+                                     timeout=LLM_PROVIDER_TIMEOUT, max_retries=0)
+                async with asyncio.timeout(LLM_PROVIDER_TIMEOUT):
+                    response = await client.chat.completions.create(
+                        model=model, temperature=0,
+                        messages=[{"role": "system", "content": system},
+                                  {"role": "user", "content": query}],
+                        response_format={"type": "json_object"},
+                        extra_headers={"X-Request-ID": request_id})
                 data = json.loads(response.choices[0].message.content or "{}")
                 if not isinstance(data, dict):
                     raise ValueError("invalid classification")

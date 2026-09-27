@@ -85,6 +85,8 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         result = await self.run_query("ใครนำดาวซัลโวตอนนี้")
         self.assertEqual(result["route"], "football_rag")
         self.assertEqual(self.clients.calls[0][1]["filters"]["category"], ["standings"])
+        self.assertEqual(self.clients.calls[0][1]["filters"]["matchweek"], 5)
+        self.assertNotIn("matchweek", self.clients.calls[1][1]["filters"])
         self.assertIn("ดาวซัลโว", self.clients.calls[0][1]["query"])
         self.assertNotIn("general", [call[0] for call in self.clients.calls])
 

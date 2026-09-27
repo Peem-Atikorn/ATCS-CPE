@@ -62,15 +62,20 @@ def _intent(query: str) -> str | None:
         return "out_of_scope"
     if _has(text, ("ทำนาย", "คาดการณ์", "พยากรณ์ผล", "predict", "who will win", "โอกาสชนะ", "น่าจะชนะ")):
         return "prediction"
+    if _has(text, ("ใบเหลือง", "ใบแดง", "ลูกโทษ")) and _has(
+            text, ("เมื่อวาน", "เมื่อคืน", "นัดล่าสุด", "นัดก่อน", "นัดที่", "แมตช์", "เกมล่าสุด", "ผลแข่ง")):
+        return "match_result"
     if _has(text, ("กฎ", "ล้ำหน้า", "var ", "ใบเหลือง", "ใบแดง", "แฮนด์บอล", "ลูกโทษ", "แผนการเล่น", "free kick", "ผู้รักษาประตูใช้มือ")):
         return "general_football"
     if _has(text, ("สรุป", "ไฮไลต์", "weekly summary")) and _has(text, ("สัปดาห์", "นัด", "week", "พรีเมียร์ลีก")):
         return "weekly_summary"
+    if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history")):
+        return "trivia_history"
     if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule")):
         return "fixture_schedule"
-    if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "ดาวซัลโว", "standings", "points")):
+    if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "ดาวซัลโว", "standings", "points", "scorer", "golden boot")):
         return "standings_stats"
-    if _has(text, ("เมื่อวาน", "นัดล่าสุด", "นัดก่อน", "ชนะไหม", "ผลนัด", "ผลแข่ง", "จบเท่าไร", "สกอร์", "score", "result")):
+    if _has(text, ("เมื่อวาน", "นัดล่าสุด", "นัดก่อน", "ชนะไหม", "ผลนัด", "ผลแข่ง", "จบเท่าไร", "สกอร์", "result")) or re.search(r"\bscore\b", text):
         return "match_result"
     if _has(text, ("ใครได้", "เคยได้", "ประวัติ", "กี่ครั้ง", "บัลลงดอร์", "ใครยิง", "trivia", "history")):
         return "trivia_history"
@@ -134,10 +139,10 @@ def enrich(decision: Decision, query: str, context: dict, history: list[dict], t
         elif "สัปดาห์นี้" in text or "this week" in text:
             monday = (now - timedelta(days=now.weekday())).date()
             decision.filters.update(date_from=monday.isoformat(), date_to=(monday + timedelta(days=6)).isoformat())
-        match = re.search(r"(?:นัดที่|matchweek\s*)(\d{1,2})", text)
+        match = re.search(r"(?:นัดที่\s*|matchweek\s*)(\d{1,2})", text)
         if match:
             decision.filters["matchweek"] = int(match.group(1))
-        elif decision.intent == "weekly_summary" and context.get("current_matchweek") and "สัปดาห์นี้" not in text:
+        elif decision.intent in ("weekly_summary", "standings_stats") and context.get("current_matchweek") and "สัปดาห์นี้" not in text:
             decision.filters["matchweek"] = int(context["current_matchweek"])
         decision.rewritten_query = _rewrite(query, decision.intent,
                                             [team.short_name for team in found], decision.filters)
@@ -158,7 +163,11 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
         return Decision("clarify", None, "guard", 1.0, "พบหลายทีมในคำถาม")
     intent = _intent(query)
     if intent is None and history and re.search(r"(แล้ว|นัดก่อน|นัดนั้น)", text):
-        intent = _intent(" ".join(item.get("content", "") for item in reversed(history[-10:]) if item.get("role") == "user"))
+        for item in reversed(history[-10:]):
+            if item.get("role") == "user":
+                intent = _intent(item.get("content", ""))
+                if intent is not None:
+                    break
     if intent is None:
         return None
     route, category = INTENT_MAP[intent]

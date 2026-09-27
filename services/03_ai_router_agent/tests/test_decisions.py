@@ -57,6 +57,45 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(result.filters["team_ids"], [57])
         self.assertIn("Arsenal", result.rewritten_query)
 
+    def test_vague_followup_uses_latest_classifiable_user_intent(self):
+        history = [{"role": "user", "content": "ทำนายผล แมนซิตี้ กับ ลิเวอร์พูล"},
+                   {"role": "assistant", "content": "ยังไม่พร้อม"},
+                   {"role": "user", "content": "อาร์เซนอลอยู่อันดับเท่าไร"}]
+        result = decide("แล้วล่ะ", CONTEXT, history, TEAMS)
+        self.assertEqual(result.intent, "standings_stats")
+        self.assertEqual(result.route, "football_rag")
+
+    def test_match_discipline_questions_remain_factual(self):
+        for query in ("เมื่อวานลิเวอร์พูลได้ลูกโทษไหม", "ใครโดนใบแดงนัดล่าสุด"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(result.intent, "match_result")
+                self.assertEqual(result.filters["category"], ["match_report"])
+
+    def test_discipline_rule_question_stays_general(self):
+        result = decide("กฎใบแดงคืออะไร", CONTEXT, [], TEAMS)
+        self.assertEqual(result.intent, "general_football")
+
+    def test_title_history_when_is_trivia(self):
+        result = decide("ลิเวอร์พูลได้แชมป์ครั้งล่าสุดเมื่อไร", CONTEXT, [], TEAMS)
+        self.assertEqual(result.intent, "trivia_history")
+        self.assertEqual(result.filters["category"], ["trivia"])
+        self.assertNotIn("season", result.filters)
+
+    def test_english_top_scorer_uses_standings(self):
+        result = decide("who is the top scorer", CONTEXT, [], TEAMS)
+        self.assertEqual(result.intent, "standings_stats")
+        self.assertEqual(result.filters["category"], ["standings"])
+
+    def test_weekly_summary_uses_spaced_matchweek(self):
+        result = decide("สรุปพรีเมียร์ลีกนัดที่ 3", CONTEXT, [], TEAMS)
+        self.assertEqual(result.intent, "weekly_summary")
+        self.assertEqual(result.filters["matchweek"], 3)
+
+    def test_current_scorer_filters_current_matchweek(self):
+        result = decide("ใครนำดาวซัลโวตอนนี้", CONTEXT, [], TEAMS)
+        self.assertEqual(result.filters["matchweek"], 5)
+
     def test_ambiguous_united(self):
         self.assertEqual(decide("ยูไนเต็ดนัดล่าสุดชนะไหม", CONTEXT, [], TEAMS).route, "clarify")
 

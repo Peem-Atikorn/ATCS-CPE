@@ -6,7 +6,7 @@ FastAPI router for the Premier League Football Assistant. It implements `docs/CO
 
 `POST /route` selects `football_rag`, `general_ai`, `local_ai`, `clarify`, or `decline`. Decisions run through guards, rules, the `/local/classify` engine (score at least 0.75), and finally a structured LLM decision. The LLM uses Groq first and Gemini once as a fallback. Rule decisions report confidence `0.9`; classifier and LLM decisions report their own score.
 
-The router maps team names and Thai nicknames to football-data.org team IDs, resolves simple follow-ups from recent user history, and turns relative dates into search filters. It refreshes the team list from 07 every five minutes. `data/team_aliases.json` supplies the initial and offline list.
+The router maps team names and Thai nicknames to football-data.org team IDs, resolves simple follow-ups using the latest classifiable user message, and turns relative dates into search filters. It refreshes the team list from 07 every five minutes and keeps the offline list if 07 returns invalid team data. `data/team_aliases.json` supplies the initial and offline list. Each LLM provider gets up to three seconds so Gemini can be tried if Groq stalls within the eight-second decision budget.
 
 For factual answers it searches 05 and passes the retrieved contexts to 06. Thai search rewrites keep the entire original question alongside English search hints so names and conditions reach 05. An empty filtered search is retried once without temporal filters. Trivia can fall back to General AI with an explicit caveat; match results, fixtures, standings, and weekly reports never do. General and local engine drafts pass through 06. A 501 prediction response becomes the contracted unavailable message. Every response includes route confidence, trace, latency, and token usage.
 
@@ -32,7 +32,7 @@ Run the offline tests with `python -m unittest discover -s tests -v`. Run `pytho
 - 06 provides `/generate` at the Generation URL.
 - 07 provides `/football/teams`; the local alias list is used while 07 is unavailable.
 - 02 now includes optional `context.last_ingest_at` from 07 status. For an empty live-data search, 03 shows that timestamp when present and does not invent one when 07 status is unavailable or the field is null.
-- Scorer questions use the `standings` category required by `docs/CONTRACT.md` §4. A factual scorer answer depends on 07 publishing scorer data in the indexed standings document and 05 returning it.
+- Scorer questions in Thai or English use the `standings` category required by `docs/CONTRACT.md` §4. When the user omits a matchweek, 03 filters to `context.current_matchweek` first, then retries without that filter if 05 returns no chunks. A factual scorer answer still depends on 07 publishing scorer data in the indexed standings document and 05 returning it; the retry cannot guarantee the newest document ranks first.
 
 The deploy owner supplies the service container and Compose wiring. This module contains only the router implementation and its own tests.
 
