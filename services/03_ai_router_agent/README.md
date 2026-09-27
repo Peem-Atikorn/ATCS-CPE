@@ -31,7 +31,13 @@ Run the offline tests with `python -m unittest discover -s tests -v`. Run `pytho
 - 05 provides `/search` at the Retrieval URL.
 - 06 provides `/generate` at the Generation URL.
 - 07 provides `/football/teams`; the local alias list is used while 07 is unavailable.
-- For an empty live-data search, 02 should include optional `context.last_ingest_at` from 07 status so the fallback answer can show the latest ingest time. The current 02 request schema sends only season, matchweek, and now, so 03 does not invent a timestamp when it is absent.
+- 02 now includes optional `context.last_ingest_at` from 07 status. For an empty live-data search, 03 shows that timestamp when present and does not invent one when 07 status is unavailable or the field is null.
 - Scorer questions use the `standings` category required by `docs/CONTRACT.md` §4. A factual scorer answer depends on 07 publishing scorer data in the indexed standings document and 05 returning it.
 
 The deploy owner supplies the service container and Compose wiring. This module contains only the router implementation and its own tests.
+
+## Verification scope
+
+The router unit tests and 40-case route evaluation use simulated upstream responses. The 02-to-03 context handoff was also checked with the current 02 `router_context` function and `RouteContext` schema feeding the actual 03 `/route` ASGI endpoint: an empty search included the supplied `last_ingest_at` in the fallback answer; unavailable 07 status produced a null timestamp and no claimed update time. This check used a simulated empty 05 response and did not run the full 02 HTTP server.
+
+Live answer quality, citations from the indexed data, scorer coverage, and the complete 03→04/05/06/07 path still require the corresponding services and data to run together. The 40-case route score does not establish those results.
