@@ -35,6 +35,8 @@ GAMBLING_PROMOTION_PATTERNS = [
 ]
 
 # odds/handicap ตัวเลขที่ดูเหมือนราคาต่อรอง (ตรวจแยกกับ numeric guard)
-GAMBLING_ODDS_PATTERN = r"\b\d{1,5}\s*/\s*\d{1,5}\b|\bhandicap\s*[-+]?\d+(\.\d+)?\b|ราคาต่อ\s*\d"
+GAMBLING_ODDS_PATTERN = (
+    r"\b\d{1,5}\s*/\s*\d{1,5}\b|\bhandicap\s*[-+]?\d+(\.\d+)?\b|ราคาต่อ\s*\d"
+)
 
 # canary token ถูกสร้างแบบสุ่มต่อ process ใน llm/client.py แล้วส่งเข้าที่นี่เพื่อตรวจ prompt leak

@@ -3,6 +3,7 @@
 ครอบคลุมกรณี P2 ใน PR review: chunk เดียวมีหลายแมตช์ (สัปดาห์จาก 07/05) แล้ว
 คำตอบอ้างสกอร์ของคู่ที่สอง ต้องไม่ถูก numeric_guard ปฏิเสธเป็น insufficient
 """
+
 from __future__ import annotations
 
 import pytest
@@ -69,7 +70,9 @@ async def test_second_match_score_in_shared_chunk_not_rejected():
     fake_llm = _FakeLLM("ลิเวอร์พูลชนะเอฟเวอร์ตัน 3-0 [1]")
     settings = Settings(llm_mock=True, numeric_guard="strict")
 
-    resp = await run_grounded(req, llm=fake_llm, settings=settings, request_id=req.request_id)
+    resp = await run_grounded(
+        req, llm=fake_llm, settings=settings, request_id=req.request_id
+    )
 
     assert "ไม่พบข้อมูลที่เพียงพอ" not in resp.answer
     assert "3-0" in resp.answer
@@ -91,7 +94,9 @@ async def test_first_match_score_in_shared_chunk_still_detected():
     fake_llm = _FakeLLM("อาร์เซนอลชนะเชลซี 2-1 [1]")
     settings = Settings(llm_mock=True, numeric_guard="strict")
 
-    resp = await run_grounded(req, llm=fake_llm, settings=settings, request_id=req.request_id)
+    resp = await run_grounded(
+        req, llm=fake_llm, settings=settings, request_id=req.request_id
+    )
 
     assert "ไม่พบข้อมูลที่เพียงพอ" not in resp.answer
     assert "2-1" in resp.answer
@@ -130,7 +135,9 @@ async def test_injection_in_context_blocks_before_llm_call():
     fake_llm = _FakeLLM("ไม่ควรมีใครเห็นคำตอบนี้")
     settings = Settings(llm_mock=True, numeric_guard="strict")
 
-    resp = await run_grounded(req, llm=fake_llm, settings=settings, request_id=req.request_id)
+    resp = await run_grounded(
+        req, llm=fake_llm, settings=settings, request_id=req.request_id
+    )
 
     assert fake_llm.calls == 0  # ต้องไม่เรียก LLM เลยเมื่อเจอ injection
     assert resp.safety.blocked is True
@@ -152,7 +159,9 @@ async def test_normal_context_not_falsely_blocked_as_injection():
     fake_llm = _FakeLLM("อาร์เซนอลชนะเชลซี 2-1 [1]")
     settings = Settings(llm_mock=True, numeric_guard="strict")
 
-    resp = await run_grounded(req, llm=fake_llm, settings=settings, request_id=req.request_id)
+    resp = await run_grounded(
+        req, llm=fake_llm, settings=settings, request_id=req.request_id
+    )
 
     assert fake_llm.calls == 1  # ต้องเรียก LLM ตามปกติ ไม่ถูกบล็อกผิด
     assert resp.safety.blocked is False

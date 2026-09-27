@@ -1,4 +1,5 @@
 """Problem-JSON error handling ตามหัวข้อ 4.1"""
+
 from __future__ import annotations
 
 import uuid

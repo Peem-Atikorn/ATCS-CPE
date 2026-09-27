@@ -1,6 +1,7 @@
 """mode=grounded pipeline หัวข้อ 6: validate → safety → context → prompt → LLM
 → citations → numeric guard → safety → sources → response
 """
+
 from __future__ import annotations
 
 import re
@@ -31,18 +32,33 @@ from app.schemas import (
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 _env = Environment(
-    loader=FileSystemLoader(str(_PROMPTS_DIR)), undefined=StrictUndefined, trim_blocks=True
+    loader=FileSystemLoader(str(_PROMPTS_DIR)),
+    undefined=StrictUndefined,
+    trim_blocks=True,
 )
 
 INSUFFICIENT_TH = "ไม่พบข้อมูลที่เพียงพอในคลังข้อมูลเพื่อตอบคำถามนี้"
-INSUFFICIENT_EN = "I couldn't find enough information in the knowledge base to answer this."
+INSUFFICIENT_EN = (
+    "I couldn't find enough information in the knowledge base to answer this."
+)
 
 # ข้อความปฏิเสธเมื่อเจอ prompt injection ใน context ก่อนเรียก LLM
 # (แยกจาก gambling.refusal_text เพราะเป็นเหตุผลคนละประเภท ให้ reviewer/log แยกแยะได้ง่าย)
-INJECTION_REFUSAL_TH = "ไม่สามารถประมวลผลคำขอนี้ได้ เนื่องจากตรวจพบคำสั่งที่ไม่เหมาะสมแฝงอยู่ในข้อมูลอ้างอิง"
+INJECTION_REFUSAL_TH = (
+    "ไม่สามารถประมวลผลคำขอนี้ได้ เนื่องจากตรวจพบคำสั่งที่ไม่เหมาะสมแฝงอยู่ในข้อมูลอ้างอิง"
+)
 INJECTION_REFUSAL_EN = "This request cannot be processed because a prompt injection attempt was detected in the reference data."
 
-_INJECTION_DELIMITERS = ["<references>", "</references>", "<ref", "</ref>", "<history>", "</history>", "<question>", "</question>"]
+_INJECTION_DELIMITERS = [
+    "<references>",
+    "</references>",
+    "<ref",
+    "</ref>",
+    "<history>",
+    "</history>",
+    "<question>",
+    "</question>",
+]
 
 
 def _language_name(language: str) -> str:
@@ -90,7 +106,13 @@ async def run_grounded(
     # 2. pre-safety บน query
     reason = gambling.check_query(req.query)
     if reason:
-        log_event("safety_blocked", request_id, reason=reason, mode="grounded", text=req.query[:200])
+        log_event(
+            "safety_blocked",
+            request_id,
+            reason=reason,
+            mode="grounded",
+            text=req.query[:200],
+        )
         return GenerateResponse(
             request_id=request_id,
             answer=gambling.refusal_text(language),
@@ -125,7 +147,9 @@ async def run_grounded(
         if injection.detect_injection(clean_text):
             injection_detected = True
             injection_refs.append(c.ref)
-            log_event("injection_suspected", request_id, ref=c.ref, doc_id=c.source.doc_id)
+            log_event(
+                "injection_suspected", request_id, ref=c.ref, doc_id=c.source.doc_id
+            )
         sanitized_contexts.append((c.ref, clean_text, c.source))
         # เก็บสกอร์ "ทุกคู่" ที่ปรากฏใน chunk นี้ (ไม่ใช่แค่คู่แรก) — chunk รายงาน
         # สัปดาห์จาก 07/05 อาจมีหลายแมตช์ในก้อนเดียวกัน ใช้ตัวตรวจร่วมกับ
@@ -169,9 +193,7 @@ async def run_grounded(
         log_event("contexts_trimmed", request_id, trimmed=trimmed)
 
     history = req.history[-6:]
-    history = [
-        type(h)(role=h.role, content=h.content[:500]) for h in history
-    ]
+    history = [type(h)(role=h.role, content=h.content[:500]) for h in history]
 
     canary = new_canary()
     system_prompt = _env.get_template("grounded.j2").render(
@@ -250,28 +272,47 @@ async def run_grounded(
                     total_usage.output += retry_result.usage.output
                     model_used = retry_result.model
                     retry_answer = normalize_citations(retry_result.text)
-                    retry_answer, extra_removed = strip_invalid_citations(retry_answer, valid_refs)
+                    retry_answer, extra_removed = strip_invalid_citations(
+                        retry_answer, valid_refs
+                    )
                     citations_removed += extra_removed
                     retry_mismatches = check_score_mismatch(retry_answer, known_scores)
                     if retry_mismatches:
-                        log_event("numeric_guard_failed", request_id, mismatches=str(retry_mismatches))
+                        log_event(
+                            "numeric_guard_failed",
+                            request_id,
+                            mismatches=str(retry_mismatches),
+                        )
                         answer = _insufficient_phrase(language)
                         cited = []
                     else:
                         answer = retry_answer
                         cited = extract_cited_refs(answer)
                 except LLMUnavailable:
-                    log_event("numeric_guard_failed", request_id, mismatches=str(mismatches))
+                    log_event(
+                        "numeric_guard_failed", request_id, mismatches=str(mismatches)
+                    )
                     answer = _insufficient_phrase(language)
                     cited = []
             elif settings.numeric_guard == "strict":
-                log_event("numeric_guard_failed", request_id, mismatches=str(mismatches), reason="no_time_for_retry")
+                log_event(
+                    "numeric_guard_failed",
+                    request_id,
+                    mismatches=str(mismatches),
+                    reason="no_time_for_retry",
+                )
                 answer = _insufficient_phrase(language)
                 cited = []
             else:  # warn
-                log_event("numeric_guard_mismatch", request_id, mismatches=str(mismatches))
+                log_event(
+                    "numeric_guard_mismatch", request_id, mismatches=str(mismatches)
+                )
 
-    if not cited and not answer.strip().startswith((INSUFFICIENT_TH, INSUFFICIENT_EN)) and req.contexts:
+    if (
+        not cited
+        and not answer.strip().startswith((INSUFFICIENT_TH, INSUFFICIENT_EN))
+        and req.contexts
+    ):
         log_event("no_citation", request_id)
 
     # 9. post-safety (defense-in-depth: เช็คซ้ำแม้ผ่านขั้นตอน 4.1 มาแล้ว
@@ -284,13 +325,21 @@ async def run_grounded(
     if reason:
         safety_blocked = True
         safety_reason = reason
-        log_event("safety_blocked", request_id, reason=reason, mode="grounded", text=answer[:200])
+        log_event(
+            "safety_blocked",
+            request_id,
+            reason=reason,
+            mode="grounded",
+            text=answer[:200],
+        )
         answer = gambling.refusal_text(language)
         cited = []
 
     # 10. compose sources
     sources: list[Source] = []
-    if not safety_blocked and not answer.strip().startswith((INSUFFICIENT_TH, INSUFFICIENT_EN)):
+    if not safety_blocked and not answer.strip().startswith(
+        (INSUFFICIENT_TH, INSUFFICIENT_EN)
+    ):
         by_ref = {r: s for r, _, s in sanitized_contexts}
         for r in sorted(set(cited)):
             if r in by_ref:

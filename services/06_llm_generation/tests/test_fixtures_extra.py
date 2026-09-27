@@ -42,7 +42,12 @@ def test_injection_in_context_does_not_leak_into_safety(client):
     # คำตอบสุดท้ายต้องไม่ผ่านเป็นคำแนะนำพนันโดยไม่ถูกบล็อก
     assert resp.status_code == 200
     if data["safety"]["blocked"]:
-       assert data["safety"]["reason"] in ("gambling_odds", "gambling_tips", "gambling_promotion", "injection_attempt")
+        assert data["safety"]["reason"] in (
+            "gambling_odds",
+            "gambling_tips",
+            "gambling_promotion",
+            "injection_attempt",
+        )
 
 
 def test_historical_odds_allowed_in_grounded(client):

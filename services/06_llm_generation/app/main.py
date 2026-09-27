@@ -1,4 +1,5 @@
 """FastAPI app entrypoint — service 06 · LLM Generation"""
+
 from __future__ import annotations
 
 import asyncio

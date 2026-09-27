@@ -5,6 +5,7 @@
 คำสั่งแปลกปลอมเลยไม่มี canary leak ให้ตรวจเจอ -> blocked=False ทั้งที่ input มี pattern ชัดเจน)
 แก้ให้ตรวจจาก context/input โดยตรงและบล็อกทันที ไม่ต้องรอดูว่า LLM จะหลุดหรือไม่
 """
+
 from __future__ import annotations
 
 import re

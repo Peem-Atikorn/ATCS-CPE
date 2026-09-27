@@ -3,6 +3,7 @@
 พยายามตอบให้สมจริงพอควรจากเนื้อหา <references> / <draft> / <data> ที่ส่งเข้ามา
 เพื่อให้ทดสอบ citation / numeric guard / safety ได้ครบ
 """
+
 from __future__ import annotations
 
 import json

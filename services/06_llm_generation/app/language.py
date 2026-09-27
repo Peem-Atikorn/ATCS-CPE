@@ -1,4 +1,5 @@
 """ตรวจภาษาแบบนับสัดส่วนอักษรไทย (ไม่เรียก LLM) — ใช้ใน passthrough หัวข้อ 7"""
+
 from __future__ import annotations
 
 import re

@@ -3,6 +3,7 @@
 Groq = หลัก (LLM_PRIMARY), Gemini = สำรอง (LLM_FALLBACK) ผ่าน OpenAI-compatible endpoint
 ห้ามลง SDK ของเจ้าอื่นเพิ่ม (google-generativeai, groq ฯลฯ)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -71,10 +72,16 @@ class RealLLMClient:
         self.settings = settings
         providers = {
             "groq": _ProviderConfig(
-                "groq", settings.groq_api_key, settings.groq_base_url, settings.groq_model
+                "groq",
+                settings.groq_api_key,
+                settings.groq_base_url,
+                settings.groq_model,
             ),
             "gemini": _ProviderConfig(
-                "gemini", settings.gemini_api_key, settings.gemini_base_url, settings.gemini_model
+                "gemini",
+                settings.gemini_api_key,
+                settings.gemini_base_url,
+                settings.gemini_model,
             ),
         }
         self._primary = providers[settings.llm_primary]
@@ -91,8 +98,13 @@ class RealLLMClient:
         )
 
     async def _call_once(
-        self, provider: _ProviderConfig, messages: list[dict], *, temperature: float,
-        max_tokens: int, timeout: float,
+        self,
+        provider: _ProviderConfig,
+        messages: list[dict],
+        *,
+        temperature: float,
+        max_tokens: int,
+        timeout: float,
     ) -> tuple[str, TokenUsage]:
         client = self._client_for(provider, timeout)
         kwargs: dict = {
@@ -116,7 +128,9 @@ class RealLLMClient:
             output=getattr(resp.usage, "completion_tokens", 0) or 0,
         )
         if _is_empty_content(content, finish_reason):
-            raise RuntimeError(f"empty content from {provider.name} (finish_reason={finish_reason})")
+            raise RuntimeError(
+                f"empty content from {provider.name} (finish_reason={finish_reason})"
+            )
         return content, usage
 
     async def chat(
@@ -134,36 +148,54 @@ class RealLLMClient:
         try:
             text, usage = await asyncio.wait_for(
                 self._call_once(
-                    self._primary, messages, temperature=temperature,
-                    max_tokens=max_tokens, timeout=primary_timeout,
+                    self._primary,
+                    messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=primary_timeout,
                 ),
                 timeout=primary_timeout,
             )
             latency_ms = int((time.monotonic() - start) * 1000)
             return LLMResult(
-                text=text, model=self._primary.model, provider=self._primary.name,
-                usage=usage, fallback_used=False, latency_ms=latency_ms,
+                text=text,
+                model=self._primary.model,
+                provider=self._primary.name,
+                usage=usage,
+                fallback_used=False,
+                latency_ms=latency_ms,
             )
         except Exception:  # noqa: BLE001 — ต้อง catch ทุก error ของ provider (timeout/429/5xx/conn/parse) เพื่อ fallback
             elapsed = time.monotonic() - start
             remaining = deadline - elapsed
             if remaining < 5.0:
-                raise LLMUnavailable("primary failed and not enough time left for fallback")
+                raise LLMUnavailable(
+                    "primary failed and not enough time left for fallback"
+                )
             try:
                 text, usage = await asyncio.wait_for(
                     self._call_once(
-                        self._fallback, messages, temperature=temperature,
-                        max_tokens=max_tokens, timeout=remaining,
+                        self._fallback,
+                        messages,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        timeout=remaining,
                     ),
                     timeout=remaining,
                 )
                 latency_ms = int((time.monotonic() - start) * 1000)
                 return LLMResult(
-                    text=text, model=self._fallback.model, provider=self._fallback.name,
-                    usage=usage, fallback_used=True, latency_ms=latency_ms,
+                    text=text,
+                    model=self._fallback.model,
+                    provider=self._fallback.name,
+                    usage=usage,
+                    fallback_used=True,
+                    latency_ms=latency_ms,
                 )
             except Exception as exc:
-                raise LLMUnavailable("both primary and fallback providers failed") from exc
+                raise LLMUnavailable(
+                    "both primary and fallback providers failed"
+                ) from exc
 
     async def check_models_available(self) -> None:
         """startup check: เรียก models.list() timeout สั้น ไม่ทำให้ service ล้มถ้าพลาด"""
@@ -177,8 +209,18 @@ class RealLLMClient:
                 if provider.model not in ids:
                     from app.middleware import log_event
 
-                    log_event("model_missing", "-", provider=provider.name, model=provider.model)
+                    log_event(
+                        "model_missing",
+                        "-",
+                        provider=provider.name,
+                        model=provider.model,
+                    )
             except Exception as exc:  # noqa: BLE001
                 from app.middleware import log_event
 
-                log_event("model_check_failed", "-", provider=provider.name, error=str(exc)[:200])
+                log_event(
+                    "model_check_failed",
+                    "-",
+                    provider=provider.name,
+                    error=str(exc)[:200],
+                )

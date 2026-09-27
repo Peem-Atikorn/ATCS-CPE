@@ -1,4 +1,5 @@
 """mode=passthrough pipeline หัวข้อ 7"""
+
 from __future__ import annotations
 
 import time
@@ -17,7 +18,11 @@ from app.safety import gambling
 from app.schemas import GenerateRequest, GenerateResponse, SafetyInfo, TokenUsage
 
 _PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
-_env = Environment(loader=FileSystemLoader(str(_PROMPTS_DIR)), undefined=StrictUndefined, trim_blocks=True)
+_env = Environment(
+    loader=FileSystemLoader(str(_PROMPTS_DIR)),
+    undefined=StrictUndefined,
+    trim_blocks=True,
+)
 
 
 async def run_passthrough(
@@ -62,7 +67,9 @@ async def run_passthrough(
         else:
             answer = translated
             model_used = result.model
-            token_usage = TokenUsage(input=result.usage.input, output=result.usage.output)
+            token_usage = TokenUsage(
+                input=result.usage.input, output=result.usage.output
+            )
 
     # safety: ในโหมดนี้ไม่มี context ให้ยกเว้น ใช้เกณฑ์เข้มกว่า grounded
     safety_blocked = False
@@ -71,7 +78,13 @@ async def run_passthrough(
     if reason:
         safety_blocked = True
         safety_reason = reason
-        log_event("safety_blocked", request_id, reason=reason, mode="passthrough", text=answer[:200])
+        log_event(
+            "safety_blocked",
+            request_id,
+            reason=reason,
+            mode="passthrough",
+            text=answer[:200],
+        )
         answer = gambling.refusal_text(language)
 
     latency_ms = int((time.monotonic() - start) * 1000)

@@ -236,4 +236,3 @@ ruff check app/ tests/
 - `grounded.py` เก็บสกอร์จาก context ด้วย `numeric_guard.find_score_claims` (เดิมใช้ `re.search` ได้แค่คู่แรกต่อ chunk) กันคำตอบที่อ้างสกอร์คู่ที่สองในรายงานสัปดาห์เดียวกันถูกมองว่าผิดแล้วแทนด้วย insufficient ผิด ๆ พร้อมเทส `tests/test_grounded_pipeline.py`
 - ย้ายโครง service มาไว้ใต้ `services/06_llm_generation/` ให้ตรงกับ `GIT_FLOW` และคำสั่งใน README เอง (เดิมอยู่ผิดตำแหน่ง)
 - `app/llm/mock.py` (`_respond_translate`) แก้ regex ดึงเนื้อ `<draft>` — เดิม `<draft>\s*(.*?)\s*</draft>` จับ match ผิดตำแหน่งเพราะคำว่า `<draft>` โผล่ซ้ำในประโยคคำสั่งของ template เอง (`"แปลข้อความใน <draft> เป็นภาษา..."`) ทำให้ mock คืนทั้งก้อน system prompt ปนมากับ draft แทนที่จะคืนแค่ draft พบจากการรัน `LLM_MOCK=true` ทดสอบ passthrough translate จริงแล้วคำตอบเพี้ยน แก้เป็น `<draft>\n(.*?)\n</draft>` (บังคับให้ตามด้วยขึ้นบรรทัดใหม่ทันที ตรงกับที่ template ห่อจริง) พร้อมเทส `test_passthrough_translate_extracts_draft_not_whole_prompt`
-

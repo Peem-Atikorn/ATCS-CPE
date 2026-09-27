@@ -1,4 +1,5 @@
 """Pydantic v2 schemas ตาม CONTRACT.md v1.1 หัวข้อ 4"""
+
 from __future__ import annotations
 
 from typing import Literal

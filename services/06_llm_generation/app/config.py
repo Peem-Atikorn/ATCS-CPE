@@ -1,4 +1,5 @@
 """ค่าตั้งค่า service — ทุกตัวแปรต้องมีค่าตั้งต้น ไม่บังคับต้องตั้ง env"""
+
 from __future__ import annotations
 
 from pydantic_settings import BaseSettings, SettingsConfigDict

@@ -24,12 +24,23 @@ def test_weekly_report_full(client):
         "matches": [_base_match()],
         "standings": [
             {
-                "position": 1, "team_id": 57, "name": "Arsenal", "played": 5, "won": 4,
-                "draw": 1, "lost": 0, "goals_for": 12, "goals_against": 4,
-                "goal_difference": 8, "points": 13, "form": "WWDWW",
+                "position": 1,
+                "team_id": 57,
+                "name": "Arsenal",
+                "played": 5,
+                "won": 4,
+                "draw": 1,
+                "lost": 0,
+                "goals_for": 12,
+                "goals_against": 4,
+                "goal_difference": 8,
+                "points": 13,
+                "form": "WWDWW",
             }
         ],
-        "top_scorers": [{"player": "E. Haaland", "team_id": 65, "goals": 7, "assists": 1}],
+        "top_scorers": [
+            {"player": "E. Haaland", "team_id": 65, "goals": 7, "assists": 1}
+        ],
     }
     resp = client.post("/report/weekly", json=body)
     assert resp.status_code == 200
@@ -75,8 +86,16 @@ def test_weekly_report_accepts_list_lineups_and_statistics(client):
             _base_match(
                 detail_source="api-football",
                 lineups=[
-                    {"team_id": 57, "formation": "4-3-3", "starting_xi": ["A. Ramsdale"]},
-                    {"team_id": 61, "formation": "4-2-3-1", "starting_xi": ["R. Sanchez"]},
+                    {
+                        "team_id": 57,
+                        "formation": "4-3-3",
+                        "starting_xi": ["A. Ramsdale"],
+                    },
+                    {
+                        "team_id": 61,
+                        "formation": "4-2-3-1",
+                        "starting_xi": ["R. Sanchez"],
+                    },
                 ],
                 statistics=[
                     {"team_id": 57, "possession": 58, "shots_on_target": 6},
@@ -101,9 +120,18 @@ def test_weekly_report_pipe_in_team_name_safe(client):
         "matches": [_base_match(home={"team_id": 1, "name": "Team | Pipe"})],
         "standings": [
             {
-                "position": 1, "team_id": 1, "name": "Team | Pipe", "played": 1, "won": 1,
-                "draw": 0, "lost": 0, "goals_for": 2, "goals_against": 1,
-                "goal_difference": 1, "points": 3, "form": "W",
+                "position": 1,
+                "team_id": 1,
+                "name": "Team | Pipe",
+                "played": 1,
+                "won": 1,
+                "draw": 0,
+                "lost": 0,
+                "goals_for": 2,
+                "goals_against": 1,
+                "goal_difference": 1,
+                "points": 3,
+                "form": "W",
             }
         ],
         "top_scorers": [],

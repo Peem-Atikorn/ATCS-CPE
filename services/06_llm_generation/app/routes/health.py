@@ -1,4 +1,5 @@
 """GET /health — ห้ามเรียก LLM ในนี้"""
+
 from __future__ import annotations
 
 from fastapi import APIRouter

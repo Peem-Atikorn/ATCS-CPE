@@ -2,6 +2,7 @@
 
 pure function ไม่ใช้ LLM/เน็ต ทดสอบง่าย ใช้ทั้ง grounded, translate, รายงานประจำสัปดาห์
 """
+
 from __future__ import annotations
 
 import re
@@ -56,7 +57,9 @@ def score_in_source(pair: tuple[int, int], known_scores: set[tuple[int, int]]) -
     return (a, b) in known_scores or (b, a) in known_scores
 
 
-def check_score_mismatch(text: str, known_scores: set[tuple[int, int]]) -> list[tuple[int, int]]:
+def check_score_mismatch(
+    text: str, known_scores: set[tuple[int, int]]
+) -> list[tuple[int, int]]:
     """คืนรายการคู่สกอร์ที่อ้างในคำตอบแต่ไม่พบใน known_scores (hard violation)"""
     claims = find_score_claims(text)
     return [c for c in claims if not score_in_source(c, known_scores)]

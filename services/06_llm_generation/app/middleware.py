@@ -1,4 +1,5 @@
 """X-Request-ID + JSON logging (หนึ่งบรรทัดต่อ event, stdout)"""
+
 from __future__ import annotations
 
 import json

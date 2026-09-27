@@ -1,4 +1,5 @@
 """จัดการ citation [n]: normalize, ตัดที่ไม่มีจริง, map sources — ห้าม renumber"""
+
 from __future__ import annotations
 
 import re

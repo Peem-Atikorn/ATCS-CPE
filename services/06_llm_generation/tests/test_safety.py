@@ -26,7 +26,9 @@ def test_answer_odds_blocked_in_passthrough():
 
 
 def test_answer_odds_allowed_in_grounded_context():
-    assert check_answer("ก่อนแชมป์เลสเตอร์ถูกตั้งราคา 5000/1", allow_context_odds=True) is None
+    assert (
+        check_answer("ก่อนแชมป์เลสเตอร์ถูกตั้งราคา 5000/1", allow_context_odds=True) is None
+    )
 
 
 def test_spaced_evasion_detected():

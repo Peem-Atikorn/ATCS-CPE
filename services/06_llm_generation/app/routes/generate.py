@@ -1,4 +1,5 @@
 """POST /generate — router(03) เรียก"""
+
 from __future__ import annotations
 
 import uuid
@@ -41,7 +42,11 @@ async def generate(body: GenerateRequest, request: Request, response: Response):
     llm = get_llm_client()
 
     if body.mode == "grounded":
-        return await run_grounded(body, llm=llm, settings=settings, request_id=request_id)
+        return await run_grounded(
+            body, llm=llm, settings=settings, request_id=request_id
+        )
     if body.mode == "passthrough":
-        return await run_passthrough(body, llm=llm, settings=settings, request_id=request_id)
+        return await run_passthrough(
+            body, llm=llm, settings=settings, request_id=request_id
+        )
     raise AppValidationError(f"mode ไม่รู้จัก: {body.mode}")

@@ -1,4 +1,5 @@
 """ตรวจคำขอ/คำตอบเกี่ยวกับการพนัน (ห้ามให้ทีเด็ด/อัตราต่อรอง/ชวนเล่นพนัน)"""
+
 from __future__ import annotations
 
 import re
@@ -65,7 +66,9 @@ def check_answer(answer: str, *, allow_context_odds: bool = False) -> str | None
     if _any_match(GAMBLING_PROMOTION_PATTERNS, answer):
         return "gambling_promotion"
     normed = _normalize(answer)
-    if not allow_context_odds and re.search(GAMBLING_ODDS_PATTERN, normed, flags=re.IGNORECASE):
+    if not allow_context_odds and re.search(
+        GAMBLING_ODDS_PATTERN, normed, flags=re.IGNORECASE
+    ):
         return "gambling_odds"
     return None
 
