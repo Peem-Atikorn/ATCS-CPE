@@ -466,7 +466,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 |---|---|---|
 | `trivia` | `trivia-<เลขลำดับ 4 หลัก>` | สร้างครั้งเดียวตอน ingest คลัง |
 | `match_report` | `match-<season>-mw<NN>-<home_id>-<away_id>` | ทับเมื่อได้ข้อมูลละเอียดจาก API-Football |
-| `standings` | `standings-<season>-mw<NN>` | 1 เอกสารต่อแมตช์วีค เก็บย้อนหลังได้ |
+| `standings` | `standings-<season>` | ล่าสุด 1 เอกสารต่อฤดูกาล ทับทุกครั้งที่ ingest; legacy `-mw<NN>` รองรับเฉพาะช่วง cleanup |
 | `fixtures` | `fixtures-<season>-team-<team_id>` | นัดที่เหลือของทีมนั้น ทับทุกครั้งที่ ingest |
 | `weekly_report` | `weekly-<season>-mw<NN>` | ที่มา `origin: generated` · **upsert เมื่อ publish เท่านั้น** และ delete เมื่อ unpublish (§7) |
 

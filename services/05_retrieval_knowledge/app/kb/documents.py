@@ -14,7 +14,8 @@ ORIGINS = ("kb", "football-data.org", "api-football", "generated")
 DOC_ID_PATTERNS: dict[str, re.Pattern[str]] = {
     "trivia": re.compile(r"trivia-\d{4}"),
     "match_report": re.compile(r"match-\d{4}-mw\d{2}-\d+-\d+"),
-    "standings": re.compile(r"standings-\d{4}-mw\d{2}"),
+    # One current snapshot per season; legacy IDs remain valid during cleanup.
+    "standings": re.compile(r"standings-\d{4}(?:-mw\d{2})?"),
     "fixtures": re.compile(r"fixtures-\d{4}-team-\d+"),
     "weekly_report": re.compile(r"weekly-\d{4}-mw\d{2}"),
 }
