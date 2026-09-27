@@ -37,6 +37,11 @@ _env = Environment(
 INSUFFICIENT_TH = "ไม่พบข้อมูลที่เพียงพอในคลังข้อมูลเพื่อตอบคำถามนี้"
 INSUFFICIENT_EN = "I couldn't find enough information in the knowledge base to answer this."
 
+# ข้อความปฏิเสธเมื่อเจอ prompt injection ใน context ก่อนเรียก LLM
+# (แยกจาก gambling.refusal_text เพราะเป็นเหตุผลคนละประเภท ให้ reviewer/log แยกแยะได้ง่าย)
+INJECTION_REFUSAL_TH = "ไม่สามารถประมวลผลคำขอนี้ได้ เนื่องจากตรวจพบคำสั่งที่ไม่เหมาะสมแฝงอยู่ในข้อมูลอ้างอิง"
+INJECTION_REFUSAL_EN = "This request cannot be processed because a prompt injection attempt was detected in the reference data."
+
 _INJECTION_DELIMITERS = ["<references>", "</references>", "<ref", "</ref>", "<history>", "</history>", "<question>", "</question>"]
 
 
@@ -46,6 +51,10 @@ def _language_name(language: str) -> str:
 
 def _insufficient_phrase(language: str) -> str:
     return INSUFFICIENT_TH if language == "th" else INSUFFICIENT_EN
+
+
+def _injection_refusal_phrase(language: str) -> str:
+    return INJECTION_REFUSAL_TH if language == "th" else INJECTION_REFUSAL_EN
 
 
 def _sanitize_context_text(text: str, char_limit: int) -> str:
@@ -109,15 +118,43 @@ async def run_grounded(
     # 4. เตรียม context: sanitize + injection detection + token budget
     sanitized_contexts = []
     known_scores: set[tuple[int, int]] = set()
+    injection_detected = False
+    injection_refs: list[int] = []
     for c in req.contexts:
         clean_text = _sanitize_context_text(c.text, settings.context_char_limit)
         if injection.detect_injection(clean_text):
+            injection_detected = True
+            injection_refs.append(c.ref)
             log_event("injection_suspected", request_id, ref=c.ref, doc_id=c.source.doc_id)
         sanitized_contexts.append((c.ref, clean_text, c.source))
         # เก็บสกอร์ "ทุกคู่" ที่ปรากฏใน chunk นี้ (ไม่ใช่แค่คู่แรก) — chunk รายงาน
         # สัปดาห์จาก 07/05 อาจมีหลายแมตช์ในก้อนเดียวกัน ใช้ตัวตรวจร่วมกับ
         # numeric_guard เพื่อกันสกอร์ปลอมจากรูปแบบเวลา/ปี/matchweek ให้สม่ำเสมอกัน
         known_scores.update(find_score_claims(clean_text))
+
+    # 4.1 บล็อกทันทีถ้าเจอ pattern injection ใน context — ก่อนเรียก LLM
+    # (เดิมพึ่งพา detect_prompt_leak ที่ post-safety อย่างเดียว ซึ่งขึ้นกับว่า
+    # LLM จะ "เผลอทำตาม" คำสั่งแปลกปลอมหรือไม่ ผลเลยไม่คงเส้นคงวาระหว่าง
+    # mock กับ provider จริงแต่ละตัว — บล็อกจาก pattern ใน input ตรง ๆ แทน
+    # ให้ผลเหมือนกันเสมอไม่ว่าจะใช้ LLM ตัวไหน เหมือนแนวทางของ gambling.check_query)
+    if injection_detected:
+        log_event(
+            "safety_blocked",
+            request_id,
+            reason="injection_attempt",
+            mode="grounded",
+            refs=str(injection_refs),
+        )
+        return GenerateResponse(
+            request_id=request_id,
+            answer=_injection_refusal_phrase(language),
+            sources=[],
+            citations_removed=0,
+            safety=SafetyInfo(blocked=True, reason="injection_attempt"),
+            model="none",
+            latency_ms=int((time.monotonic() - start) * 1000),
+            token_usage=TokenUsage(),
+        )
 
     # token budget: ตัด context ท้ายสุดก่อนถ้าเกิน (คง ref เดิม ห้าม renumber)
     from app.tokens import estimate_tokens
@@ -237,7 +274,8 @@ async def run_grounded(
     if not cited and not answer.strip().startswith((INSUFFICIENT_TH, INSUFFICIENT_EN)) and req.contexts:
         log_event("no_citation", request_id)
 
-    # 9. post-safety
+    # 9. post-safety (defense-in-depth: เช็คซ้ำแม้ผ่านขั้นตอน 4.1 มาแล้ว
+    # เผื่อกรณี LLM เองสร้างเนื้อหาที่ไม่เหมาะสมขึ้นมาเอง หรือ canary หลุดจากทางอื่น)
     safety_blocked = False
     safety_reason = None
     reason = gambling.check_answer(answer, allow_context_odds=True)
