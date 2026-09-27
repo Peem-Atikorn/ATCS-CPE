@@ -62,4 +62,4 @@ def test_local_predict_returns_501_not_implemented():
     assert r.headers["x-request-id"] == "p1"
     body = r.json()
     assert body["code"] == "NOT_IMPLEMENTED"
-    assert body["request_id"] == "p1" 
+    assert body["request_id"] == "p1"

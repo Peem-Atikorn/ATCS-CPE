@@ -77,7 +77,7 @@ def test_general_both_providers_down_returns_503_problem_json():
     body = r.json()
     assert body["code"] == "LLM_UNAVAILABLE"
     assert body["service"] == "engines"
-    assert body["request_id"] == "req-3" 
+    assert body["request_id"] == "req-3"
 
 
 def test_general_missing_query_returns_422():

@@ -23,9 +23,21 @@ class Settings:
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 
     # งบเวลา: router → engines เพดาน 25s ต่อ hop (CONTRACT.md §0)
-    # เผื่อพอสำหรับ primary + fallback หนึ่งครั้งภายในเพดานนั้น
-    PRIMARY_TIMEOUT_SECONDS = float(os.getenv("GENERAL_PRIMARY_TIMEOUT_SECONDS", "12"))
-    FALLBACK_TIMEOUT_SECONDS = float(os.getenv("GENERAL_FALLBACK_TIMEOUT_SECONDS", "10"))
+    #
+    # [รีวิว PR #21 ข้อ 1] worst case ของ call_general_ai คือ 3 hop เรียงกัน:
+    #   Groq primary -> Groq retry (low effort, เจอ finish_reason="length") -> Gemini fallback
+    # ค่าเดิม 12 + 12 + 10 = 34s เกิน timeout 25s ที่ Router (services/03_ai_router_agent
+    # /app/clients.py:59) ตั้งไว้ตอนเรียก /general ทำให้ request อาจถูกตัดก่อน Gemini ตอบกลับมา
+    #
+    # ปรับให้ worst case ต่ำกว่า ROUTER_TIMEOUT_SECONDS ลบด้วย TIMEOUT_SAFETY_MARGIN_SECONDS
+    # (เผื่อ network/serialization overhead ระหว่าง router <-> engines) และ assert ไว้ตอน import
+    # กัน env ในอนาคตตั้งค่าจนเกินงบโดยไม่มีใครสังเกต — ดูเทสยืนยันที่
+    # tests/test_llm_fallback_timeout.py
+    ROUTER_TIMEOUT_SECONDS = float(os.getenv("ROUTER_TIMEOUT_SECONDS", "25"))
+    TIMEOUT_SAFETY_MARGIN_SECONDS = float(os.getenv("TIMEOUT_SAFETY_MARGIN_SECONDS", "5"))
+
+    PRIMARY_TIMEOUT_SECONDS = float(os.getenv("GENERAL_PRIMARY_TIMEOUT_SECONDS", "7"))
+    FALLBACK_TIMEOUT_SECONDS = float(os.getenv("GENERAL_FALLBACK_TIMEOUT_SECONDS", "6"))
 
     # D4: จำกัด token ของ /general สองทาง
     #  1) response — เพดานคำตอบที่ให้ LLM สร้าง (ลดจาก D2 เพราะ /general ควรตอบสั้นกระชับ)
@@ -36,3 +48,15 @@ class Settings:
 
 
 settings = Settings()
+
+# [รีวิว PR #21 ข้อ 1] worst case: Groq primary + Groq retry (low effort) + Gemini fallback
+# ต้องต่ำกว่า deadline ของผู้เรียก (Router) พร้อม margin เผื่อ overhead — ถ้าใครแก้ env จนงบเวลา
+# เกิน จะ import service ไม่ขึ้นทันที (fail fast) แทนที่จะไปโดนตัดคำขอกลางทางตอน production จริง
+_worst_case_fallback_seconds = 2 * settings.PRIMARY_TIMEOUT_SECONDS + settings.FALLBACK_TIMEOUT_SECONDS
+_deadline_with_margin = settings.ROUTER_TIMEOUT_SECONDS - settings.TIMEOUT_SAFETY_MARGIN_SECONDS
+assert _worst_case_fallback_seconds <= _deadline_with_margin, (
+    f"งบเวลา fallback รวม (primary*2 + fallback = {_worst_case_fallback_seconds}s) "
+    f"เกิน deadline ของ router หลังหัก margin ({_deadline_with_margin}s) — "
+    "ปรับ GENERAL_PRIMARY_TIMEOUT_SECONDS/GENERAL_FALLBACK_TIMEOUT_SECONDS "
+    "หรือ TIMEOUT_SAFETY_MARGIN_SECONDS ให้งบรวมต่ำกว่านี้"
+)

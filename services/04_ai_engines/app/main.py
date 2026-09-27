@@ -133,12 +133,14 @@ def general(body: GeneralRequest, request: Request):
             request_id=request_id,
         )
     except AnswerTooLongError as e:
-        # [ข้อ 4] แยกจาก LLM_UNAVAILABLE: ทั้ง Groq และ Gemini ตอบสำเร็จ (provider ปกติดี)
-        # แต่คำตอบยาวเกิน GENERAL_MAX_TOKENS ทุกครั้ง — เพื่อไม่ให้ผู้เรียกเข้าใจผิดว่า provider ล่ม
+        # [รีวิว PR #21 ข้อ 2] CONTRACT.md §8 กำหนด code สำหรับกรณี provider ใช้ไม่ได้ไว้แค่
+        # LLM_UNAVAILABLE เท่านั้น จึงคงใช้ code เดิมตาม Contract (ไม่เพิ่ม code ใหม่ ไม่ต้องคุย/
+        # แก้ Contract กับเจ้าของ 03) แต่ยังแยก except ไว้จาก LLMUnavailableError ทั่วไป เพื่อใส่
+        # detail อธิบายสาเหตุที่แท้จริงว่าเป็นเพราะคำตอบยาวเกิน token budget ไม่ใช่ provider ล่มจริง ๆ
         return _problem(
             status=503,
-            code="ANSWER_TOO_LONG",
-            title="Answer exceeded token budget",
+            code="LLM_UNAVAILABLE",
+            title="LLM providers unavailable",
             detail=(
                 f"Groq และ Gemini ตอบสำเร็จแต่คำตอบยาวเกิน GENERAL_MAX_TOKENS "
                 f"({settings.GENERAL_MAX_TOKENS}) ทุกครั้ง — ไม่ใช่ provider ล่ม "
