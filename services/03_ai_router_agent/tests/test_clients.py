@@ -9,6 +9,24 @@ from app.router import UpstreamError
 
 
 class ClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_gemini_only_is_not_labeled_fallback(self):
+        class FakeCompletions:
+            async def create(self, **kwargs):
+                return type("Response", (), {
+                    "choices": [type("Choice", (), {"message": type("Message", (), {
+                        "content": '{"intent": "trivia_history", "confidence": 0.9}'})()})()],
+                    "usage": None})()
+
+        class FakeOpenAI:
+            def __init__(self, **kwargs):
+                self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+        with patch.dict("os.environ", {"GROQ_API_KEY": "", "GROQ_MODEL": "",
+                                    "GEMINI_API_KEY": "test", "GEMINI_MODEL": "test"}), \
+             patch("openai.AsyncOpenAI", FakeOpenAI):
+            result = await ServiceClients(None).llm_decide("question", "req")
+        self.assertIsNone(result["fallback"])
+
     async def test_gemini_is_tried_after_groq_stalls(self):
         calls = []
 

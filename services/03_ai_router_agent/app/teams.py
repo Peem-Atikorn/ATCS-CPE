@@ -36,7 +36,8 @@ class TeamDirectory:
     def find(self, query: str) -> list[Team]:
         found = []
         for team in self.teams:
-            names = (team.short_name, team.name, *team.aliases)
+            full_name = re.sub(r"\s+(?:A?FC)$", "", team.name, flags=re.IGNORECASE)
+            names = (team.short_name, team.name, full_name, *team.aliases)
             first_position = None
             for name in names:
                 if not name:
@@ -47,6 +48,10 @@ class TeamDirectory:
                 if name[-1].isascii() and name[-1].isalnum():
                     pattern += r"(?![A-Za-z0-9])"
                 match = re.search(pattern, query, re.IGNORECASE)
+                if (match and name == "ซิตี้" and
+                        re.search(r"(?:เลสเตอร์|สโต๊ก|สโต๊ค|คาร์ดิฟฟ์|ฮัลล์|เบอร์มิงแฮม|บริสตอล)\s*$",
+                                  query[:match.start()])):
+                    continue
                 if match and (first_position is None or match.start() < first_position):
                     first_position = match.start()
             if first_position is not None:

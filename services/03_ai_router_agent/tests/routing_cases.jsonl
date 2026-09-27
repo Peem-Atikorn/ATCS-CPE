@@ -1,4 +1,5 @@
 {"query":"ใครได้บัลลงดอร์ปี 2008","route":"football_rag","intent":"trivia_history"}
+{"query":"อาร์เซนอลได้แชมป์พรีเมียร์ลีกกี่ครั้ง","route":"football_rag","intent":"trivia_history"}
 {"query":"เมื่อวานปืนใหญ่ชนะไหม","route":"football_rag","intent":"match_result"}
 {"query":"หงส์แดงเตะกับใครต่อ","route":"football_rag","intent":"fixture_schedule"}
 {"query":"ตอนนี้ใครจ่าฝูงพรีเมียร์ลีก","route":"football_rag","intent":"standings_stats"}

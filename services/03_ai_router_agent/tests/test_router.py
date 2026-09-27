@@ -96,6 +96,20 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("ไม่ได้อ้างอิงคลังข้อมูล", result["answer"])
         self.assertEqual([x[0] for x in self.clients.calls], ["search", "general", "generate"])
 
+    async def test_team_trivia_reaches_unlabeled_trivia_chunk(self):
+        async def search(payload, request_id):
+            self.clients.calls.append(("search", payload, request_id))
+            if "team_ids" in payload["filters"]:
+                return {"chunks": []}
+            return {"chunks": [{"text": "Arsenal won three titles", "source": {
+                "doc_id": "trivia-0001", "title": "Arsenal titles", "category": "trivia",
+                "origin": "trivia", "ref": 1}}]}
+        self.clients.search = search
+        result = await self.run_query("อาร์เซนอลได้แชมป์พรีเมียร์ลีกกี่ครั้ง")
+        self.assertEqual(result["route"], "football_rag")
+        self.assertEqual([x[0] for x in self.clients.calls], ["search", "generate"])
+        self.assertEqual(result["sources"][0]["doc_id"], "trivia-0001")
+
     async def test_ambiguous_team_does_not_call_upstream(self):
         result = await self.run_query("ยูไนเต็ดนัดล่าสุดชนะไหม")
         self.assertEqual(result["route"], "clarify")

@@ -78,11 +78,14 @@ class ServiceClients:
             ("GROQ_API_KEY", "GROQ_MODEL", "https://api.groq.com/openai/v1"),
             ("GEMINI_API_KEY", "GEMINI_MODEL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
         ]
+        tried_primary = False
         for index, (key_name, model_name, base_url) in enumerate(providers):
             key = os.getenv(key_name)
             model = os.getenv(model_name)
             if not key or not model:
                 continue
+            if index == 0:
+                tried_primary = True
             try:
                 client = AsyncOpenAI(api_key=key, base_url=base_url,
                                      timeout=LLM_PROVIDER_TIMEOUT, max_retries=0)
@@ -96,7 +99,7 @@ class ServiceClients:
                 data = json.loads(response.choices[0].message.content or "{}")
                 if not isinstance(data, dict):
                     raise ValueError("invalid classification")
-                data["fallback"] = "llm_fallback_provider" if index else None
+                data["fallback"] = "llm_fallback_provider" if index and tried_primary else None
                 data["token_usage"] = {
                     "input": response.usage.prompt_tokens if response.usage else 0,
                     "output": response.usage.completion_tokens if response.usage else 0,

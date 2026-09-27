@@ -12,12 +12,12 @@ CONTEXT = {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00
 
 
 class DecisionTests(unittest.TestCase):
-    def test_forty_routing_cases(self):
+    def test_routing_cases(self):
         cases = [json.loads(line) for line in CASES.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(cases), 40)
+        self.assertEqual(len(cases), 41)
         self.assertEqual({route: sum(case["route"] == route for case in cases)
                           for route in {case["route"] for case in cases}},
-                         {"football_rag": 8, "general_ai": 8, "local_ai": 8,
+                         {"football_rag": 9, "general_ai": 8, "local_ai": 8,
                           "clarify": 8, "decline": 8})
         for case in cases:
             with self.subTest(query=case["query"]):
@@ -81,6 +81,28 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(result.intent, "trivia_history")
         self.assertEqual(result.filters["category"], ["trivia"])
         self.assertNotIn("season", result.filters)
+
+    def test_team_trivia_does_not_filter_unlabeled_trivia_documents(self):
+        result = decide("อาร์เซนอลได้แชมป์พรีเมียร์ลีกกี่ครั้ง", CONTEXT, [], TEAMS)
+        self.assertEqual(result.team_ids, [57])
+        self.assertEqual(result.filters, {"category": ["trivia"]})
+
+    def test_full_manchester_club_names_are_recognized(self):
+        for name, team_id in (("Manchester United", 66), ("Manchester City", 65)):
+            with self.subTest(name=name):
+                result = decide(f"{name} นัดล่าสุดชนะไหม", CONTEXT, [], TEAMS)
+                self.assertEqual(result.team_ids, [team_id])
+                self.assertEqual(result.intent, "match_result")
+
+    def test_other_city_club_is_not_man_city(self):
+        result = decide("เลสเตอร์ ซิตี้ ได้แชมป์ปีไหน", CONTEXT, [], TEAMS)
+        self.assertNotIn(65, result.team_ids if result else [])
+
+    def test_out_of_range_matchweek_is_clarified(self):
+        for query in ("นัดที่ 45 ผลแข่งปืนใหญ่", "matchweek 0 Arsenal result"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(result.route, "clarify")
 
     def test_english_top_scorer_uses_standings(self):
         result = decide("who is the top scorer", CONTEXT, [], TEAMS)

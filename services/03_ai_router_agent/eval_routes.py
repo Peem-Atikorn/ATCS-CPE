@@ -1,4 +1,4 @@
-"""Run the 40 routing cases through the complete router with deterministic service replies."""
+"""Run routing cases through the complete router with deterministic service replies."""
 
 import asyncio
 import json
@@ -36,8 +36,8 @@ class EvalClients:
 
 async def evaluate():
     cases = [json.loads(line) for line in (ROOT / "tests" / "routing_cases.jsonl").read_text(encoding="utf-8").splitlines()]
-    if len(cases) != 40:
-        raise ValueError("Expected 40 routing cases")
+    if len(cases) != 41:
+        raise ValueError("Expected 41 routing cases")
     teams = TeamDirectory.from_file(ROOT / "data" / "team_aliases.json")
     router = Router(EvalClients(), teams)
     failures = []

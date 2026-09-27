@@ -16,6 +16,8 @@ INTENT_MAP = {
     "out_of_scope": ("decline", None),
 }
 
+MATCHWEEK_PATTERN = re.compile(r"(?:นัดที่\s*|matchweek\s*)(\d+)")
+
 
 @dataclass
 class Decision:
@@ -124,9 +126,13 @@ def enrich(decision: Decision, query: str, context: dict, history: list[dict], t
         found = [team for team in teams.teams if team.team_id == favorite_team_id]
     decision.team_ids = [team.team_id for team in found]
     if decision.route == "football_rag":
+        if decision.intent == "trivia_history":
+            decision.rewritten_query = _rewrite(query, decision.intent,
+                                                [team.short_name for team in found], decision.filters)
+            return decision
         if decision.team_ids:
             decision.filters["team_ids"] = decision.team_ids
-        if context.get("season") and decision.intent != "trivia_history":
+        if context.get("season"):
             decision.filters["season"] = str(context["season"])
         text = query.lower()
         now = datetime.fromisoformat(context["now"]) if context.get("now") else datetime.now().astimezone()
@@ -139,7 +145,7 @@ def enrich(decision: Decision, query: str, context: dict, history: list[dict], t
         elif "สัปดาห์นี้" in text or "this week" in text:
             monday = (now - timedelta(days=now.weekday())).date()
             decision.filters.update(date_from=monday.isoformat(), date_to=(monday + timedelta(days=6)).isoformat())
-        match = re.search(r"(?:นัดที่\s*|matchweek\s*)(\d{1,2})", text)
+        match = MATCHWEEK_PATTERN.search(text)
         if match:
             decision.filters["matchweek"] = int(match.group(1))
         elif decision.intent in ("weekly_summary", "standings_stats") and context.get("current_matchweek") and "สัปดาห์นี้" not in text:
@@ -154,6 +160,9 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
     text = query.lower().strip()
     if not text:
         return Decision("clarify", None, "guard", 1.0, "ไม่มีคำถาม")
+    matchweek = MATCHWEEK_PATTERN.search(text)
+    if matchweek and not 1 <= int(matchweek.group(1)) <= 38:
+        return Decision("clarify", None, "guard", 1.0, "เลขนัดต้องอยู่ระหว่าง 1 ถึง 38")
     found = teams.find(query)
     if not found and ("ยูไนเต็ด" in text or re.search(r"(?<![A-Za-z])united(?![A-Za-z])", text)):
         return Decision("clarify", None, "guard", 1.0, "ชื่อ United กำกวม")
