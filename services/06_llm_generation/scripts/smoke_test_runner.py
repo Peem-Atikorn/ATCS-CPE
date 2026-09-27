@@ -31,7 +31,7 @@ import json
 import time
 from pathlib import Path
 
-import requests
+import httpx
 
 BASE_URL = "http://127.0.0.1:8000"
 CASES_DIR = Path(__file__).resolve().parents[1] / "curl_tests" / "cases"
@@ -65,13 +65,13 @@ def run_case(case_file: Path) -> dict:
     status_code = None
     body = {}
     try:
-        resp = requests.post(url, json=payload, timeout=deadline + 10)
+        resp = httpx.post(url, json=payload, timeout=deadline + 10)
         status_code = resp.status_code
         try:
             body = resp.json()
         except ValueError:
             body = {}
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         error = str(e)
     elapsed_measured = time.perf_counter() - start
 
