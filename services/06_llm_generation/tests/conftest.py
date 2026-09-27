@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import os
 
-os.environ.setdefault("LLM_MOCK", "true")
-
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import settings
-from app.main import app
+os.environ.setdefault("LLM_MOCK", "true")
+
+# ต้อง import หลังตั้ง LLM_MOCK ด้านบน เพราะ app.config อ่านค่า env ตอน import
+# (pydantic-settings) — ตั้งใจไม่ให้อยู่บนสุดของไฟล์ จึงปิด E402 ตรงนี้
+from app.config import settings  # noqa: E402
+from app.main import app  # noqa: E402
 
 settings.llm_mock = True
 
