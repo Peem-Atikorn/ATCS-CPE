@@ -39,11 +39,35 @@ SYSTEM_PROMPT_EN = (
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    """CONTRACT.md §0: ถ้าไม่มี X-Request-ID ให้สร้าง UUID แล้วส่งต่อ/ใส่ log ทุกครั้ง"""
+    """
+    CONTRACT.md §0: ถ้าไม่มี X-Request-ID ให้สร้าง UUID แล้วส่งต่อ/ใส่ log ทุกครั้ง
+
+    [ข้อ 4] ครอบ call_next ด้วย try/except เอง เพราะถ้า exception หลุดออกจาก call_next
+    Starlette จะจัดการผ่าน ServerErrorMiddleware ซึ่งอยู่ชั้นนอกสุด (นอก middleware นี้)
+    — โค้ดด้านล่าง (ใส่ X-Request-ID, log http_request) จะไม่ถูกรันเลย ทำให้ response ของ error
+    ไม่มี request_id ให้ไล่ข้ามบริการ ขัด CONTRACT §0 จึงต้องจับเองตรงนี้แทนที่จะพึ่ง
+    @app.exception_handler(Exception) เพียงอย่างเดียว
+    """
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request.state.request_id = request_id
     t0 = time.monotonic()
-    response = await call_next(request)
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logger.error(
+            '{"event":"unhandled_exception","error":"%s","request_id":"%s"}',
+            str(exc),
+            request_id,
+        )
+        response = _problem(
+            status=500,
+            code="INTERNAL_ERROR",
+            title="Internal server error",
+            detail="เกิดข้อผิดพลาดที่ไม่คาดคิดใน engines",
+            request_id=request_id,
+        )
+
     ms = int((time.monotonic() - t0) * 1000)
     response.headers["X-Request-ID"] = request_id
     logger.info(

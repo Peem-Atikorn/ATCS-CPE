@@ -45,11 +45,27 @@ NEW_ROWS = [
 
 
 def main():
+    # [ข้อ 6] เช็คว่าแถวมีอยู่แล้วก่อน append กันรันซ้ำแล้วได้แถวซ้ำ
+    # (ถ้าซ้ำแล้วตกไปอยู่ทั้งชุด train/test held-out accuracy จะสูงเกินจริง)
+    with open(DATA_PATH, encoding="utf-8") as f:
+        existing_texts = {row["text"] for row in csv.DictReader(f)}
+
+    rows_to_add = [row for row in NEW_ROWS if row[0] not in existing_texts]
+    skipped = len(NEW_ROWS) - len(rows_to_add)
+
+    if not rows_to_add:
+        print(f"ไม่มีแถวใหม่ให้เพิ่ม — ทั้ง {len(NEW_ROWS)} แถวมีอยู่ใน {DATA_PATH} แล้ว (ข้ามการรันซ้ำ)")
+        return
+
     with open(DATA_PATH, "a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        for text, intent, lang in NEW_ROWS:
+        for text, intent, lang in rows_to_add:
             w.writerow([text, intent, lang])
-    print(f"เพิ่ม {len(NEW_ROWS)} แถวเข้า {DATA_PATH}")
+
+    msg = f"เพิ่ม {len(rows_to_add)} แถวเข้า {DATA_PATH}"
+    if skipped:
+        msg += f" (ข้าม {skipped} แถวที่มีอยู่แล้ว)"
+    print(msg)
 
 
 if __name__ == "__main__":
