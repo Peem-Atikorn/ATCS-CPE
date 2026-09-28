@@ -56,7 +56,9 @@ def classify_one(text: str, request_id: str) -> tuple[str, str]:
         messages=messages,
         max_tokens=CLASSIFY_MAX_TOKENS,
         request_id=request_id,
-        reasoning_effort="low",  # แค่ต้องการ label เดียว ไม่ต้องคิดลึก — ดู docstring ข้อ 3
+        # แค่ต้องการ label เดียว ไม่ต้องคิดลึก — ดู docstring ข้อ 3
+        # (llm_client ส่งต่อเฉพาะ Groq gpt-oss; ตอน fallback ไป Gemini จะไม่ส่ง field นี้)
+        reasoning_effort="low",
     )
     match = re.search(r'"intent"\s*:\s*"(\w+)"', content)
     label = match.group(1) if match else content.strip()

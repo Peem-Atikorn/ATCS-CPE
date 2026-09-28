@@ -5,7 +5,7 @@ import pytest
 from openai import APITimeoutError
 
 from app import config
-from app.llm_client import AnswerTooLongError, call_general_ai
+from app.llm_client import AnswerTooLongError, LLMUnavailableError, call_general_ai
 
 
 def _mock_response(content="ok", finish_reason="stop"):
@@ -77,8 +77,9 @@ def test_call_general_ai_uses_configured_timeout_for_every_hop(mock_client_facto
     assert content == "Gemini answer"
     # Groq ถูกเรียก 2 ครั้ง (primary + retry low-effort เพราะ reason == "length" ทั้งคู่)
     assert groq_mock.chat.completions.create.call_count == 2
+    # timeout ถูกส่งเป็น httpx.Timeout (read = ค่าตาม settings, connect สั้นกว่า) — ดูรีวิว PR #21
     groq_timeouts = [
-        call.kwargs["timeout"] for call in groq_mock.chat.completions.create.call_args_list
+        call.kwargs["timeout"].read for call in groq_mock.chat.completions.create.call_args_list
     ]
     assert groq_timeouts == [
         config.settings.PRIMARY_TIMEOUT_SECONDS,
@@ -86,7 +87,8 @@ def test_call_general_ai_uses_configured_timeout_for_every_hop(mock_client_facto
     ]
 
     gemini_timeout = gemini_mock.chat.completions.create.call_args.kwargs["timeout"]
-    assert gemini_timeout == config.settings.FALLBACK_TIMEOUT_SECONDS
+    assert gemini_timeout.read == config.settings.FALLBACK_TIMEOUT_SECONDS
+    assert gemini_timeout.connect <= 2.0
 
 
 def test_generic_error_skips_groq_retry_and_goes_straight_to_gemini():
@@ -177,3 +179,113 @@ def test_answer_too_long_maps_to_contract_llm_unavailable_code():
     body = r.json()
     assert body["code"] == "LLM_UNAVAILABLE"
     assert "GENERAL_MAX_TOKENS" in body["detail"]
+
+
+def _two_clients(groq_mock, gemini_mock):
+    def _side_effect(base_url, api_key):
+        return groq_mock if base_url == config.settings.GROQ_BASE_URL else gemini_mock
+
+    return _side_effect
+
+
+@patch("app.llm_client._client")
+def test_reasoning_effort_sent_to_groq_gpt_oss_but_never_to_gemini(mock_client_factory):
+    """
+    [รีวิว PR #21] Groq (gpt-oss) ได้ extra_body reasoning_effort, Gemini ต้องไม่ได้ (extra_body=None)
+    กัน endpoint OpenAI-compatible ของ Gemini ตอบ 400 จน fallback พัง
+    """
+    groq_mock, gemini_mock = MagicMock(), MagicMock()
+    groq_mock.chat.completions.create.side_effect = _timeout_error()
+    gemini_mock.chat.completions.create.return_value = _mock_response("Gemini answer")
+    mock_client_factory.side_effect = _two_clients(groq_mock, gemini_mock)
+
+    call_general_ai(
+        messages=[{"role": "user", "content": "x"}],
+        max_tokens=100,
+        request_id="req-effort-gemini",
+        reasoning_effort="low",
+    )
+
+    groq_kwargs = groq_mock.chat.completions.create.call_args.kwargs
+    gemini_kwargs = gemini_mock.chat.completions.create.call_args.kwargs
+    assert groq_kwargs["extra_body"] == {"reasoning_effort": "low"}
+    assert gemini_kwargs["extra_body"] is None
+
+
+@patch("app.llm_client._client")
+def test_non_reasoning_groq_model_gets_no_effort_and_no_wasted_retry(mock_client_factory):
+    """
+    [รีวิว PR #21] ถ้า GROQ_MODEL ไม่ใช่ gpt-oss: ไม่ส่ง reasoning_effort และเจอ length แล้วต้อง
+    ไม่ retry Groq ซ้ำ (request เดิมเป๊ะ) — ไป Gemini ทันที
+    """
+    groq_mock, gemini_mock = MagicMock(), MagicMock()
+    groq_mock.chat.completions.create.return_value = _mock_response("", finish_reason="length")
+    gemini_mock.chat.completions.create.return_value = _mock_response("Gemini answer")
+    mock_client_factory.side_effect = _two_clients(groq_mock, gemini_mock)
+
+    with patch.object(config.settings, "GROQ_MODEL", "llama-3.3-70b-versatile"):
+        content, _, _ = call_general_ai(
+            messages=[{"role": "user", "content": "x"}],
+            max_tokens=100,
+            request_id="req-non-reasoning",
+            reasoning_effort="low",
+        )
+
+    assert content == "Gemini answer"
+    assert groq_mock.chat.completions.create.call_count == 1
+    assert groq_mock.chat.completions.create.call_args.kwargs["extra_body"] is None
+
+
+@patch("app.llm_client._client")
+def test_total_deadline_exhausted_skips_gemini(mock_client_factory):
+    """
+    [รีวิว PR #21] ถ้า Groq กินเวลาเกือบหมดงบรวม (20s) จนเหลือ < 1s ต้องไม่เรียก Gemini ต่อ
+    แต่ raise LLMUnavailableError ทันที (ไม่ให้ router timeout ที่ 25s ไปก่อน)
+    ใช้นาฬิกาปลอมแทนการ sleep จริง
+    """
+    clock = [1000.0]
+    groq_mock, gemini_mock = MagicMock(), MagicMock()
+
+    def _slow_groq_timeout(**kwargs):
+        clock[0] += 19.5  # งบรวม = 25 - 5 = 20s เหลือ 0.5s
+        raise _timeout_error()
+
+    groq_mock.chat.completions.create.side_effect = _slow_groq_timeout
+    mock_client_factory.side_effect = _two_clients(groq_mock, gemini_mock)
+
+    with patch("app.llm_client.time.monotonic", side_effect=lambda: clock[0]):
+        with pytest.raises(LLMUnavailableError):
+            call_general_ai(
+                messages=[{"role": "user", "content": "x"}],
+                max_tokens=100,
+                request_id="req-deadline",
+            )
+
+    assert gemini_mock.chat.completions.create.call_count == 0
+
+
+@patch("app.llm_client._client")
+def test_hop_timeout_is_capped_by_remaining_budget(mock_client_factory):
+    """
+    [รีวิว PR #21] Groq ช้าจนเหลือเวลา 3s ต้องให้ Gemini timeout ไม่เกิน 3s (ไม่ใช่ 6s เต็ม)
+    """
+    clock = [1000.0]
+    groq_mock, gemini_mock = MagicMock(), MagicMock()
+
+    def _slow_groq_timeout(**kwargs):
+        clock[0] += 17.0  # เหลือ 3s
+        raise _timeout_error()
+
+    groq_mock.chat.completions.create.side_effect = _slow_groq_timeout
+    gemini_mock.chat.completions.create.return_value = _mock_response("Gemini answer")
+    mock_client_factory.side_effect = _two_clients(groq_mock, gemini_mock)
+
+    with patch("app.llm_client.time.monotonic", side_effect=lambda: clock[0]):
+        content, _, _ = call_general_ai(
+            messages=[{"role": "user", "content": "x"}],
+            max_tokens=100,
+            request_id="req-cap",
+        )
+
+    assert content == "Gemini answer"
+    assert gemini_mock.chat.completions.create.call_args.kwargs["timeout"].read == pytest.approx(3.0)

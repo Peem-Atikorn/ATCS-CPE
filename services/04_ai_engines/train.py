@@ -52,16 +52,33 @@ def _load_jsonl_cases(path: Path) -> list[dict]:
     return cases
 
 
+def _case_intent(c: dict) -> str | None:
+    # ไฟล์จริงบน develop ใช้ key "intent"; ชุดจำลองของเราใช้ "expected_intent" — รองรับทั้งสอง
+    return c.get("expected_intent", c.get("intent"))
+
+
 def evaluate_on_routing_cases(pipeline: Pipeline, path: Path, label: str) -> None:
     if not path.exists():
         print(f"[skip] ไม่พบ {label} ที่ {path}")
         return
-    cases = _load_jsonl_cases(path)
+    all_cases = _load_jsonl_cases(path)
+
+    # classifier ทายได้เฉพาะ 8 คลาสที่เทรน — เคสที่ label อยู่นอกนี้ (เช่น clarify) วัดไม่ได้
+    # จึงกรองออก ไม่งั้นจะนับเป็นผิดทุกครั้ง
+    labels = set(pipeline.classes_)
+    cases = [c for c in all_cases if _case_intent(c) in labels]
+    skipped = len(all_cases) - len(cases)
+    if not cases:
+        print(f"[skip] {label}: ไม่มีเคสที่ label อยู่ในคลาสของโมเดลเลย (จากทั้งหมด {len(all_cases)} เคส)")
+        return
+
     texts = [c["query"] for c in cases]
-    y_true = [c["expected_intent"] for c in cases]
+    y_true = [_case_intent(c) for c in cases]
     y_pred = pipeline.predict(texts)
     acc = accuracy_score(y_true, y_pred)
     print(f"\n=== ผลบน {label} ({len(cases)} เคส) — ไม่ได้เทรนด้วยชุดนี้ ===")
+    if skipped:
+        print(f"(ข้าม {skipped} เคสที่ label ไม่อยู่ใน {len(labels)} คลาสของโมเดล เช่น clarify)")
     print(f"accuracy: {acc:.3f}")
     misses = [
         {"query": t, "expected": e, "predicted": p}

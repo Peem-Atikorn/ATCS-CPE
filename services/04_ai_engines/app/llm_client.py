@@ -5,6 +5,7 @@
 import logging
 import time
 
+import httpx
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI, RateLimitError
 
 from .config import settings
@@ -51,6 +52,22 @@ def _client(base_url: str, api_key: str) -> OpenAI:
     return OpenAI(base_url=base_url, api_key=api_key or "missing-key", max_retries=0)
 
 
+# connect timeout สูงสุดต่อครั้ง — กัน connect ช้ากินงบไปก่อนที่จะได้เริ่มรอคำตอบ
+CONNECT_TIMEOUT_SECONDS = 2.0
+# ถ้างบเวลารวมเหลือน้อยกว่านี้ ไม่คุ้มที่จะเรียก provider ถัดไป
+MIN_REMAINING_SECONDS = 1.0
+
+
+def _supports_reasoning_effort(provider: str, model: str) -> bool:
+    """
+    [รีวิว PR #21] reasoning_effort ส่งเฉพาะ provider+model ที่รู้ว่ารับจริง (Groq + gpt-oss)
+    ไม่ส่งให้ Gemini หรือโมเดลที่ไม่ใช่ reasoning เพราะ endpoint แบบ OpenAI-compatible
+    อาจตอบ 400 แทนที่จะเมิน field แปลก ๆ ซึ่งจะทำให้ fallback พังตามไปด้วย
+    ถ้าเปลี่ยน GROQ_MODEL เป็นโมเดลที่ไม่มี reasoning ฟังก์ชันนี้จะคืน False เอง
+    """
+    return provider == "groq" and "gpt-oss" in model.lower()
+
+
 def _try_provider(
     *,
     provider: str,
@@ -70,16 +87,23 @@ def _try_provider(
     # ใช้ "คิด" ก่อนตอบ เพื่อเหลือ token ในงบ max_tokens ให้คำตอบจริงมากขึ้น โดยไม่ต้องขยับ
     # max_tokens/GENERAL_MAX_TOKENS เอง — SDK เวอร์ชันที่ pin ไว้ (openai==1.51.0) ยังไม่มี
     # พารามิเตอร์นี้ตรง ๆ จึงส่งผ่าน extra_body (Groq รับ "reasoning_effort" เป็นฟิลด์บน request
-    # body ของโมเดลตระกูล gpt-oss) ถ้า provider ไม่รองรับฟิลด์นี้ (เช่น Gemini) จะถูกเมินเฉย ๆ
-    # ไม่ error เพราะ Groq/Gemini เดินผ่าน endpoint แบบ OpenAI-compatible ที่ไม่เข้มงวดกับ unknown field
-    extra_body = {"reasoning_effort": reasoning_effort} if reasoning_effort else None
+    # body ของโมเดลตระกูล gpt-oss)
+    # [รีวิว PR #21] ส่งเฉพาะ provider/model ที่รองรับ (ดู _supports_reasoning_effort) — ไม่ส่งให้
+    # Gemini เพราะยังไม่ยืนยันว่า endpoint ของ Gemini เมิน field นี้หรือตอบ 400
+    extra_body = (
+        {"reasoning_effort": reasoning_effort}
+        if reasoning_effort and _supports_reasoning_effort(provider, model)
+        else None
+    )
 
     t0 = time.monotonic()
     resp = client.chat.completions.create(
         model=model,
         messages=messages,
         max_tokens=max_tokens,
-        timeout=timeout,
+        # [รีวิว PR #21] float timeout ของ httpx จำกัดแยกรายช่วง (connect/read/write/pool)
+        # จึงกำหนด connect ให้สั้นลง ส่วนงบรวมคุมด้วย deadline ใน call_general_ai
+        timeout=httpx.Timeout(timeout, connect=min(CONNECT_TIMEOUT_SECONDS, timeout)),
         extra_body=extra_body,
     )
     ms = int((time.monotonic() - t0) * 1000)
@@ -126,7 +150,7 @@ def call_general_ai(
     ลอง Groq ก่อน ถ้า error / 429 / timeout / response ใช้งานไม่ได้ ค่อยลอง Gemini หนึ่งครั้ง
     ทั้งคู่ล่ม -> LLMUnavailableError (หรือ AnswerTooLongError ถ้าล่มเพราะ "length" ล้วน ๆ)
 
-    reasoning_effort: ส่งต่อให้ทุก provider ที่ลองเรียก (ใช้ตอนที่รู้ล่วงหน้าว่าอยากได้คำตอบสั้น
+    reasoning_effort: ส่งต่อเฉพาะ provider/model ที่รองรับ (Groq gpt-oss) — Gemini ไม่ได้รับ (ใช้ตอนที่รู้ล่วงหน้าว่าอยากได้คำตอบสั้น
     เช่น eval/llm_classifier.py ที่ต้องการแค่ JSON บรรทัดเดียว) ปล่อยเป็น None ตามปกติสำหรับ /general
 
     [ข้อ 4] ถ้า Groq ตอบครั้งแรกแล้วโดนตัดเพราะ "length" (ไม่ใช่ error/timeout จริง) จะลอง Groq
@@ -145,13 +169,25 @@ def call_general_ai(
     def _reason(err: Exception) -> str | None:
         return getattr(err, "reason", None)
 
+    # [รีวิว PR #21] deadline รวมข้ามทุก hop (groq, groq low-effort retry, gemini) เท่ากับงบที่
+    # config.py assert ไว้ (ROUTER_TIMEOUT - TIMEOUT_SAFETY_MARGIN) แต่ละ hop ได้ timeout =
+    # min(ค่าของ provider, เวลาที่เหลือ) งบรวมจึงคุมได้จริง ไม่ใช่แค่ผลบวกของ timeout รายช่วง
+    deadline = (
+        time.monotonic()
+        + settings.ROUTER_TIMEOUT_SECONDS
+        - settings.TIMEOUT_SAFETY_MARGIN_SECONDS
+    )
+
+    def _remaining() -> float:
+        return deadline - time.monotonic()
+
     try:
         return _try_provider(
             provider="groq",
             base_url=settings.GROQ_BASE_URL,
             api_key=settings.GROQ_API_KEY,
             model=settings.GROQ_MODEL,
-            timeout=settings.PRIMARY_TIMEOUT_SECONDS,
+            timeout=min(settings.PRIMARY_TIMEOUT_SECONDS, _remaining()),
             messages=messages,
             max_tokens=max_tokens,
             request_id=request_id,
@@ -166,14 +202,21 @@ def call_general_ai(
 
         # [ข้อ 4] เจอ length ตั้งแต่ครั้งแรกและยังไม่เคยลด reasoning_effort มาก่อน -> ลอง Groq
         # อีกรอบแบบ "คิดน้อยลง" ก่อนจะเสียเวลาไป Gemini
-        if _reason(primary_err) == "length" and reasoning_effort is None:
+        # [รีวิว PR #21] ลองซ้ำเฉพาะเมื่อ Groq model รองรับ reasoning_effort จริง และเหลือเวลาพอ
+        # ไม่งั้นจะเป็นการเรียกซ้ำด้วย request เดิมเป๊ะ ๆ เสียเวลาไปเปล่า
+        if (
+            _reason(primary_err) == "length"
+            and reasoning_effort is None
+            and _supports_reasoning_effort("groq", settings.GROQ_MODEL)
+            and _remaining() > MIN_REMAINING_SECONDS
+        ):
             try:
                 return _try_provider(
                     provider="groq",
                     base_url=settings.GROQ_BASE_URL,
                     api_key=settings.GROQ_API_KEY,
                     model=settings.GROQ_MODEL,
-                    timeout=settings.PRIMARY_TIMEOUT_SECONDS,
+                    timeout=min(settings.PRIMARY_TIMEOUT_SECONDS, _remaining()),
                     messages=messages,
                     max_tokens=max_tokens,
                     request_id=request_id,
@@ -188,13 +231,19 @@ def call_general_ai(
                 )
                 primary_err = retry_err  # ใช้ตัวหลังสุดตัดสิน reason ตอนสร้าง error รวมท้ายสุด
 
+        # [รีวิว PR #21] งบรวมหมดแล้ว ไม่เรียก Gemini ต่อ เพราะ router จะ timeout ไปก่อนอยู่ดี
+        if _remaining() < MIN_REMAINING_SECONDS:
+            raise LLMUnavailableError(
+                f"groq: {primary_err} | gemini: ข้าม — งบเวลารวมหมดแล้ว"
+            ) from primary_err
+
         try:
             return _try_provider(
                 provider="gemini",
                 base_url=settings.GEMINI_BASE_URL,
                 api_key=settings.GEMINI_API_KEY,
                 model=settings.GEMINI_MODEL,
-                timeout=settings.FALLBACK_TIMEOUT_SECONDS,
+                timeout=min(settings.FALLBACK_TIMEOUT_SECONDS, _remaining()),
                 messages=messages,
                 max_tokens=max_tokens,
                 request_id=request_id,
