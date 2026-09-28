@@ -48,7 +48,8 @@ curl -X POST http://localhost:8004/local/predict \
 ## เทส
 
 ```bash
-pytest tests/ -v   # 20 เทส ครอบ /general, /local/classify, /local/predict, poisson math, token budget
+pytest tests/ -v   # ครอบ /general, llm_client (fallback + เพดานเวลาจริงระหว่าง call), งบเวลารวม,
+                   # /local/classify, /local/predict, poisson math, token budget, train.py
 ```
 
 ทุกเทส mock การเรียก LLM ภายนอก (ไม่ยิง Groq/Gemini จริง) — `/local/classify` ใช้โมเดลจริงที่เทรนไว้
@@ -136,6 +137,11 @@ pytest tests/ -v   # 20 เทส ครอบ /general, /local/classify, /local
 - `X-Request-ID`: middleware สร้างให้ถ้าไม่มีมา, ใส่กลับใน response header, log ทุก event เป็น JSON
   บรรทัดเดียว ตาม CONTRACT.md §0
 - error ทุกกรณีตอบ Problem-JSON (`application/problem+json`)
+- **เพดานเวลาจริงต่อ hop:** `httpx.Timeout` จำกัดเวลาแยกรายช่วง (connect/read/write/pool) และ read timeout
+  นับต่อการรอ chunk จึงไม่ใช่เพดานรวมของคำขอ — `_call_with_hard_timeout()` ใน `llm_client.py` รัน call ใน
+  daemon thread แล้วรอด้วย `Event.wait(min(timeout ของ provider, เวลาที่เหลือ))` ถ้าเกินจะปิด client และโยน
+  timeout เข้าเส้นทาง fallback เดิม งบรวมจึงไม่เกิน `ROUTER_TIMEOUT_SECONDS − TIMEOUT_SAFETY_MARGIN_SECONDS`
+  (ข้อแลกเปลี่ยน: thread ที่ถูกตัดอาจค้างจนกว่า client จะปิด แต่ผลถูกทิ้ง)
 
 ## โครงสร้างไฟล์
 
@@ -157,9 +163,11 @@ services/04_ai_engines/
 │   ├── llm_classifier.py
 │   └── method_comparison.md
 ├── tests/
-│   ├── test_general.py / test_llm_client.py       # D2
+│   ├── test_general.py / test_llm_client.py       # D2 (+ เพดานเวลา wall-clock ระหว่าง call)
+│   ├── test_llm_fallback_timeout.py               # งบเวลารวมของ fallback
 │   ├── test_local_engines.py / test_poisson.py    # D3/D5
 │   ├── test_token_budget.py                       # D4
+│   ├── test_train_eval.py                         # train.py: fixture `intent`/`expected_intent` + เคส clarify
 │   └── simulated_routing_cases.jsonl               # ใช้แทน routing_cases.jsonl ของจริงชั่วคราว
 ├── train.py                 # D3: เทรน + ประเมินผล
 ├── d4_augment_dataset.py    # D4: เพิ่มตัวอย่างจาก error ที่วิเคราะห์ได้

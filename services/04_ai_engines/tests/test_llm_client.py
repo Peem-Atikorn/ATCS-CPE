@@ -152,3 +152,120 @@ def test_client_created_with_max_retries_zero():
 
     _, kwargs = mock_openai_cls.call_args
     assert kwargs["max_retries"] == 0
+
+
+# ---------------------------------------------------------------------------
+# [รีวิว PR #21 รอบ 2] เพดานเวลา wall-clock ระหว่าง call (ไม่ใช่แค่ตรวจก่อนเริ่ม hop)
+# ---------------------------------------------------------------------------
+import threading
+import time
+
+from app.config import settings
+
+
+def _blocking_client(release: threading.Event, started: threading.Event | None = None):
+    """client ที่ create() ค้างจนกว่าจะถูกปล่อย — จำลอง provider ที่ตอบช้ากว่าเวลาคงเหลือระหว่าง call"""
+    closed = threading.Event()
+
+    def _create(**kw):
+        if started is not None:
+            started.set()
+        release.wait(timeout=10)  # ค้างเกินเพดานของ hop แน่นอน; test จะปล่อยตอนจบเพื่อเก็บ thread
+        return _fake_response("ตอบช้าเกินไป", 1, 1)
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_create)),
+        close=closed.set,
+    )
+    return client, closed
+
+
+def test_provider_hanging_mid_call_is_cut_at_deadline(monkeypatch):
+    """Groq ค้างระหว่าง call: ต้องได้ control กลับตาม deadline รวม ไม่รอให้ call คืนเอง"""
+    monkeypatch.setattr(settings, "ROUTER_TIMEOUT_SECONDS", 0.6)
+    monkeypatch.setattr(settings, "TIMEOUT_SAFETY_MARGIN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "PRIMARY_TIMEOUT_SECONDS", 30.0)  # timeout ราย provider ยาวกว่า deadline มาก
+    monkeypatch.setattr(settings, "FALLBACK_TIMEOUT_SECONDS", 30.0)
+
+    release = threading.Event()
+    groq_client, groq_closed = _blocking_client(release)
+    try:
+        with patch("app.llm_client._client") as factory:
+            factory.side_effect = [groq_client]  # เหลือเวลา < MIN_REMAINING → ต้องไม่ไปเรียก Gemini
+            t0 = time.monotonic()
+            with pytest.raises(LLMUnavailableError):
+                call_general_ai(
+                    messages=[{"role": "user", "content": "hello"}],
+                    max_tokens=100,
+                    request_id="r-hang-1",
+                )
+            elapsed = time.monotonic() - t0
+    finally:
+        release.set()
+
+    assert elapsed < 1.5, f"ควรตัดที่ ~0.6s แต่ใช้ {elapsed:.2f}s"
+    assert groq_closed.is_set(), "ต้องพยายามปิด client เพื่อยกเลิกคำขอที่ค้าง"
+
+
+def test_fallback_hop_hanging_mid_call_is_capped_by_remaining_budget(monkeypatch):
+    """Groq ล้มเร็ว แต่ Gemini ค้างระหว่าง call: ต้องไม่เกินงบรวม แม้ FALLBACK_TIMEOUT ยาวกว่า"""
+    monkeypatch.setattr(settings, "ROUTER_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(settings, "TIMEOUT_SAFETY_MARGIN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "PRIMARY_TIMEOUT_SECONDS", 30.0)
+    monkeypatch.setattr(settings, "FALLBACK_TIMEOUT_SECONDS", 30.0)
+    monkeypatch.setattr("app.llm_client.MIN_REMAINING_SECONDS", 0.05)
+
+    groq_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kw: (_ for _ in ()).throw(APITimeoutError(request=SimpleNamespace()))
+            )
+        )
+    )
+    release = threading.Event()
+    gemini_client, gemini_closed = _blocking_client(release)
+    try:
+        with patch("app.llm_client._client") as factory:
+            factory.side_effect = [groq_client, gemini_client]
+            t0 = time.monotonic()
+            with pytest.raises(LLMUnavailableError):
+                call_general_ai(
+                    messages=[{"role": "user", "content": "hello"}],
+                    max_tokens=100,
+                    request_id="r-hang-2",
+                )
+            elapsed = time.monotonic() - t0
+    finally:
+        release.set()
+
+    assert elapsed < 1.6, f"งบรวม 1.0s แต่ใช้ {elapsed:.2f}s"
+    assert gemini_closed.is_set()
+
+
+def test_slow_first_hop_then_fast_fallback_still_succeeds(monkeypatch):
+    """Groq ค้างจนโดนตัดที่ timeout ของ provider แล้ว Gemini ยังตอบทันในงบที่เหลือ"""
+    monkeypatch.setattr(settings, "ROUTER_TIMEOUT_SECONDS", 3.0)
+    monkeypatch.setattr(settings, "TIMEOUT_SAFETY_MARGIN_SECONDS", 0.0)
+    monkeypatch.setattr(settings, "PRIMARY_TIMEOUT_SECONDS", 0.3)
+    monkeypatch.setattr(settings, "FALLBACK_TIMEOUT_SECONDS", 2.0)
+
+    release = threading.Event()
+    groq_client, _ = _blocking_client(release)
+    gemini_client = SimpleNamespace(
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(create=lambda **kw: _fake_response("สำรองทัน", 2, 3))
+        )
+    )
+    try:
+        with patch("app.llm_client._client") as factory:
+            factory.side_effect = [groq_client, gemini_client]
+            content, _model, usage = call_general_ai(
+                messages=[{"role": "user", "content": "hello"}],
+                max_tokens=100,
+                request_id="r-hang-3",
+            )
+    finally:
+        release.set()
+
+    assert content == "สำรองทัน"
+    assert usage == {"input": 2, "output": 3}

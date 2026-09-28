@@ -3,6 +3,7 @@
 ลำดับ: Groq (หลัก) → error/429/timeout/response ผิดปกติ → Gemini (สำรอง) 1 ครั้ง → ล่มทั้งคู่ → LLMUnavailableError (ให้ router 503)
 """
 import logging
+import threading
 import time
 
 import httpx
@@ -58,6 +59,45 @@ CONNECT_TIMEOUT_SECONDS = 2.0
 MIN_REMAINING_SECONDS = 1.0
 
 
+def _call_with_hard_timeout(client: OpenAI, base_url: str, hard_timeout: float, **create_kwargs):
+    """
+    [รีวิว PR #21 รอบ 2] เพดานเวลา wall-clock จริงของ 1 hop
+    httpx.Timeout จำกัดแยกรายช่วง (connect/read/write/pool) และ read timeout นับต่อการรอ chunk
+    ไม่ใช่เวลารวมของคำขอ จึงรัน create() ใน daemon thread แล้วรอด้วย Event.wait(hard_timeout)
+    ถ้าเกินเวลา: ปิด client เพื่อตัด connection ที่ค้าง (best effort) แล้วโยน APITimeoutError
+    ให้ไหลเข้าเส้นทาง retryable/fallback เดิม — ผู้เรียกได้ control กลับตามเวลาเสมอ
+    ผลของ thread ที่ตามมาทีหลังจะถูกทิ้ง (daemon จึงไม่ค้าง process ตอนปิดเซอร์วิส)
+    """
+    if hard_timeout <= 0:
+        raise APITimeoutError(request=httpx.Request("POST", base_url))
+
+    box: dict = {}
+    done = threading.Event()
+
+    def _worker() -> None:
+        try:
+            box["resp"] = client.chat.completions.create(**create_kwargs)
+        except BaseException as e:  # noqa: BLE001 — ส่งต่อให้ thread หลัก raise ซ้ำ
+            box["err"] = e
+        finally:
+            done.set()
+
+    threading.Thread(target=_worker, name="llm-call", daemon=True).start()
+
+    if not done.wait(hard_timeout):
+        close = getattr(client, "close", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:  # noqa: BLE001 — ปิดไม่สำเร็จก็ไม่เป็นไร เพราะ raise timeout ต่ออยู่แล้ว
+                pass
+        raise APITimeoutError(request=httpx.Request("POST", base_url))
+
+    if "err" in box:
+        raise box["err"]
+    return box["resp"]
+
+
 def _supports_reasoning_effort(provider: str, model: str) -> bool:
     """
     [รีวิว PR #21] reasoning_effort ส่งเฉพาะ provider+model ที่รู้ว่ารับจริง (Groq + gpt-oss)
@@ -97,12 +137,15 @@ def _try_provider(
     )
 
     t0 = time.monotonic()
-    resp = client.chat.completions.create(
+    resp = _call_with_hard_timeout(
+        client,
+        base_url,
+        timeout,  # เพดาน wall-clock ของ hop นี้ (ผู้เรียกส่ง min(ค่าของ provider, เวลาที่เหลือ) มาแล้ว)
         model=model,
         messages=messages,
         max_tokens=max_tokens,
-        # [รีวิว PR #21] float timeout ของ httpx จำกัดแยกรายช่วง (connect/read/write/pool)
-        # จึงกำหนด connect ให้สั้นลง ส่วนงบรวมคุมด้วย deadline ใน call_general_ai
+        # httpx.Timeout ยังตั้งไว้เป็นชั้นแรก (ตัด connect/read ที่ค้างเร็ว) แต่ไม่ใช่เพดานรวม —
+        # เพดานรวมคือ _call_with_hard_timeout ด้านบน
         timeout=httpx.Timeout(timeout, connect=min(CONNECT_TIMEOUT_SECONDS, timeout)),
         extra_body=extra_body,
     )
