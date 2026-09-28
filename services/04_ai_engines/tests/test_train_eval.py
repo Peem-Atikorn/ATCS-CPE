@@ -88,3 +88,54 @@ def test_main_end_to_end_with_real_intent_fixture(tmp_path, monkeypatch, capsys)
     assert (model_dir / "intent_clf.joblib").exists()
     out = capsys.readouterr().out
     assert "ข้าม 1 เคส" in out
+
+
+# ---------------------------------------------------------------------------
+# [รีวิว PR #21 รอบ 3] กัน data leakage: ข้อมูลฝึกต้องไม่ซ้ำกับชุด routing cases
+# ---------------------------------------------------------------------------
+import pandas as pd  # noqa: E402
+
+
+def test_find_overlap_normalizes_whitespace_and_case():
+    cases = [{"query": "Who  won   the League"}, {"query": "ช่วยอธิบายหน่อย", "intent": "clarify"}]
+    assert train.find_overlap(["who won the league ", "อย่างอื่น"], cases) == {"who won the league"}
+    assert train.find_overlap(["ช่วยอธิบายหน่อย"], cases)  # clarify ก็นับว่าซ้ำ
+
+
+def test_drop_overlap_removes_rows_and_reports_count():
+    df = pd.DataFrame({"text": ["a b", "c", "A  B"], "intent": ["x", "y", "x"]})
+    out, dropped = train.drop_overlap(df, [{"query": "a b"}])
+    assert dropped == 2 and out["text"].tolist() == ["c"]
+
+
+def test_main_drops_overlapping_rows_before_training(tmp_path, monkeypatch, capsys):
+    data = tmp_path / "intents.csv"
+    _write_dataset(data)
+    # เติมแถวที่ซ้ำกับเคสของ router ตรง ๆ
+    with open(data, "a", encoding="utf-8") as f:
+        f.write("คำถามหมวด0 ตัวอย่างที่9 keyword000,intent_0\n")
+    cases_path = tmp_path / "routing_cases.jsonl"
+    _write_cases(cases_path, "intent")
+    model_dir = tmp_path / "models"
+    monkeypatch.setattr(train, "DATA_PATH", data)
+    monkeypatch.setattr(train, "MODEL_DIR", model_dir)
+    monkeypatch.setattr(train, "MODEL_PATH", model_dir / "intent_clf.joblib")
+    monkeypatch.setattr(train, "REAL_ROUTING_CASES", cases_path)
+
+    train.main()
+
+    out = capsys.readouterr().out
+    assert "ตัดแถวฝึกที่ซ้ำ" in out and "1 แถว" in out
+    import joblib
+    assert joblib.load(model_dir / "intent_clf.joblib")["trained_on_rows"] == 48
+
+
+@pytest.mark.parametrize("attr", ["REAL_ROUTING_CASES", "SIMULATED_ROUTING_CASES"])
+def test_repo_intents_do_not_overlap_routing_cases(attr):
+    """regression ของจริง: data/intents.csv ต้องไม่มีประโยคซ้ำกับ routing cases (ข้ามถ้าไม่มีไฟล์)"""
+    path = getattr(train, attr)
+    if not path.exists():
+        pytest.skip(f"ไม่พบ {path}")
+    df = train._load_dataset(train.DATA_PATH)
+    overlap = train.find_overlap(df["text"].tolist(), train._load_jsonl_cases(path))
+    assert not overlap, f"ข้อมูลฝึกซ้ำกับ {path.name}: {sorted(overlap)}"

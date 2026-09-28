@@ -59,12 +59,27 @@ CONNECT_TIMEOUT_SECONDS = 2.0
 MIN_REMAINING_SECONDS = 1.0
 
 
+def _close_client_in_background(client) -> None:
+    """ปิด client แบบ best effort ในเธรดแยก (daemon) โดยไม่รอผล — ผู้เรียกไม่ถูกบล็อกถ้า close() ช้า"""
+    close = getattr(client, "close", None)
+    if not callable(close):
+        return
+
+    def _close() -> None:
+        try:
+            close()
+        except Exception:  # noqa: BLE001 — ปิดไม่สำเร็จก็ไม่เป็นไร เพราะ raise timeout ต่ออยู่แล้ว
+            pass
+
+    threading.Thread(target=_close, name="llm-close", daemon=True).start()
+
+
 def _call_with_hard_timeout(client: OpenAI, base_url: str, hard_timeout: float, **create_kwargs):
     """
     [รีวิว PR #21 รอบ 2] เพดานเวลา wall-clock จริงของ 1 hop
     httpx.Timeout จำกัดแยกรายช่วง (connect/read/write/pool) และ read timeout นับต่อการรอ chunk
     ไม่ใช่เวลารวมของคำขอ จึงรัน create() ใน daemon thread แล้วรอด้วย Event.wait(hard_timeout)
-    ถ้าเกินเวลา: ปิด client เพื่อตัด connection ที่ค้าง (best effort) แล้วโยน APITimeoutError
+    ถ้าเกินเวลา: สั่งปิด client เพื่อตัด connection ที่ค้าง (best effort, ทำใน daemon thread ไม่รอผล) แล้วโยน APITimeoutError
     ให้ไหลเข้าเส้นทาง retryable/fallback เดิม — ผู้เรียกได้ control กลับตามเวลาเสมอ
     ผลของ thread ที่ตามมาทีหลังจะถูกทิ้ง (daemon จึงไม่ค้าง process ตอนปิดเซอร์วิส)
     """
@@ -85,12 +100,9 @@ def _call_with_hard_timeout(client: OpenAI, base_url: str, hard_timeout: float, 
     threading.Thread(target=_worker, name="llm-call", daemon=True).start()
 
     if not done.wait(hard_timeout):
-        close = getattr(client, "close", None)
-        if callable(close):
-            try:
-                close()
-            except Exception:  # noqa: BLE001 — ปิดไม่สำเร็จก็ไม่เป็นไร เพราะ raise timeout ต่ออยู่แล้ว
-                pass
+        # [รีวิว PR #21 รอบ 3] close() อาจบล็อก จึงไม่เรียกบนเธรดที่ตอบคำขอ — ส่งไปทำใน daemon thread
+        # แล้วโยน timeout ทันที เพดาน wall-clock จะได้ไม่ถูกลากยาวด้วยขั้น cleanup
+        _close_client_in_background(client)
         raise APITimeoutError(request=httpx.Request("POST", base_url))
 
     if "err" in box:

@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 from openai import APITimeoutError
 
-from app.llm_client import LLMUnavailableError, call_general_ai
+from app.llm_client import LLMUnavailableError, _call_with_hard_timeout, call_general_ai
 
 
 def _fake_response(text: str, prompt_tokens: int, completion_tokens: int, finish_reason: str = "stop"):
@@ -269,3 +269,49 @@ def test_slow_first_hop_then_fast_fallback_still_succeeds(monkeypatch):
 
     assert content == "สำรองทัน"
     assert usage == {"input": 2, "output": 3}
+
+
+def test_slow_close_does_not_block_deadline():
+    """[รีวิว PR #21 รอบ 3] close() ช้า (0.4s) ต้องไม่ลาก wall-clock เกิน hard_timeout — cleanup ทำเบื้องหลัง"""
+    release = threading.Event()
+    close_started = threading.Event()
+    close_finished = threading.Event()
+
+    def _slow_close():
+        close_started.set()
+        time.sleep(0.4)
+        close_finished.set()
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: release.wait(timeout=10))),
+        close=_slow_close,
+    )
+    try:
+        t0 = time.monotonic()
+        with pytest.raises(APITimeoutError):
+            _call_with_hard_timeout(client, "https://example.test", 0.05)
+        elapsed = time.monotonic() - t0
+
+        assert elapsed < 0.25, f"hard_timeout=0.05s แต่ใช้ {elapsed:.3f}s (close() ช้าไม่ควรบล็อกผู้เรียก)"
+        # cleanup ยังต้องถูกเรียกจริง (เบื้องหลัง) ไม่ใช่ถูกข้าม
+        assert close_started.wait(timeout=1.0), "ต้องยังสั่ง close() ตามเดิม"
+        assert close_finished.wait(timeout=2.0)
+    finally:
+        release.set()
+
+
+def test_close_raising_is_swallowed_and_timeout_still_raised():
+    release = threading.Event()
+
+    def _bad_close():
+        raise RuntimeError("close failed")
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kw: release.wait(timeout=10))),
+        close=_bad_close,
+    )
+    try:
+        with pytest.raises(APITimeoutError):
+            _call_with_hard_timeout(client, "https://example.test", 0.05)
+    finally:
+        release.set()

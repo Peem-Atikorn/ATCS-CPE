@@ -12,8 +12,10 @@ D3 — เทรน intent classifier: TF-IDF + LogisticRegression
    — ชุดนี้ "ห้ามเอามาเทรนเด็ดขาด" ตามที่ SCHEDULE.md กำชับ ใช้วัดผลอย่างเดียว
 """
 import json
+import re
 import sys
 import time
+import unicodedata
 from pathlib import Path
 
 import joblib
@@ -57,6 +59,26 @@ def _case_intent(c: dict) -> str | None:
     return c.get("expected_intent", c.get("intent"))
 
 
+def _normalize_text(text: str) -> str:
+    """normalize ก่อนเทียบซ้ำ: NFKC + ยุบช่องว่าง + lowercase (กันซ้ำแบบต่างแค่ช่องว่าง/ตัวพิมพ์)"""
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", str(text))).strip().lower()
+
+
+def find_overlap(texts: list[str], cases: list[dict]) -> set[str]:
+    """คืนชุดข้อความ (normalized) ที่อยู่ทั้งในข้อมูลฝึกและในชุด routing cases (ทุกเคส รวม clarify)"""
+    case_queries = {_normalize_text(c["query"]) for c in cases if "query" in c}
+    return {_normalize_text(t) for t in texts} & case_queries
+
+
+def drop_overlap(df: pd.DataFrame, cases: list[dict]) -> tuple[pd.DataFrame, int]:
+    """ตัดแถวฝึกที่ซ้ำกับชุด routing cases ออก คืน (df ใหม่, จำนวนที่ตัด) — ชุดนี้ใช้วัดผลอย่างเดียว"""
+    overlap = find_overlap(df["text"].tolist(), cases)
+    if not overlap:
+        return df, 0
+    keep = ~df["text"].map(_normalize_text).isin(overlap)
+    return df[keep].reset_index(drop=True), int((~keep).sum())
+
+
 def evaluate_on_routing_cases(pipeline: Pipeline, path: Path, label: str) -> None:
     if not path.exists():
         print(f"[skip] ไม่พบ {label} ที่ {path}")
@@ -95,6 +117,14 @@ def evaluate_on_routing_cases(pipeline: Pipeline, path: Path, label: str) -> Non
 
 def main():
     df = _load_dataset(DATA_PATH)
+
+    # กัน data leakage: ชุด routing cases ใช้วัดผลอย่างเดียว ถ้าประโยคไหนซ้ำกับข้อมูลฝึก
+    # ตัดออกจากข้อมูลฝึก "ก่อนแบ่ง split/เทรน/วัดผล" ทั้งสองรอบ แล้วเตือนให้ไปแก้ที่ data/intents.csv
+    routing_path = REAL_ROUTING_CASES if REAL_ROUTING_CASES.exists() else SIMULATED_ROUTING_CASES
+    if routing_path.exists():
+        df, dropped = drop_overlap(df, _load_jsonl_cases(routing_path))
+        if dropped:
+            print(f"[คำเตือน] ตัดแถวฝึกที่ซ้ำกับ {routing_path.name} ออก {dropped} แถว — ควรแก้ที่ data/intents.csv")
     X, y = df["text"].tolist(), df["intent"].tolist()
 
     # 1) วัด accuracy แบบ held-out (ไม่ปนกับโมเดลที่จะเอาไปใช้จริง)
