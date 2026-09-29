@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.3
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.4
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -466,9 +466,12 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 |---|---|---|
 | `trivia` | `trivia-<เลขลำดับ 4 หลัก>` | สร้างครั้งเดียวตอน ingest คลัง |
 | `match_report` | `match-<season>-mw<NN>-<home_id>-<away_id>` | ทับเมื่อได้ข้อมูลละเอียดจาก API-Football |
-| `standings` | `standings-<season>-mw<NN>` | 1 เอกสารต่อแมตช์วีค เก็บย้อนหลังได้ |
+| `standings` | `standings-<season>` | ล่าสุด 1 เอกสารต่อฤดูกาล ทับทุกครั้งที่ ingest; legacy `-mw<NN>` รองรับเฉพาะช่วง cleanup |
 | `fixtures` | `fixtures-<season>-team-<team_id>` | นัดที่เหลือของทีมนั้น ทับทุกครั้งที่ ingest |
 | `weekly_report` | `weekly-<season>-mw<NN>` | ที่มา `origin: generated` · **upsert เมื่อ publish เท่านั้น** และ delete เมื่อ unpublish (§7) |
+
+- **ช่วงเปลี่ยนผ่าน standings v1.4:** เมื่อ 07 ingest ฤดูกาลหนึ่งหลัง revision นี้มีผล ให้ upsert `standings-<season>` ก่อน แล้วค่อยลบ legacy `standings-<season>-mw01` ถึง `-mw38` ที่อาจค้างใน 05; งานลบล้มเหลวต้อง retry ได้ และห้ามลบก่อนเอกสารใหม่ index สำเร็จ ระหว่าง cleanup 05 ยังยอมรับ ID ทั้งสองรูปแบบ แต่หลัง cleanup ฝั่งเรียกควรใช้เฉพาะ ID ใหม่
+- เอกสาร `standings-<season>` ใน search คือ **snapshot ล่าสุดเท่านั้น** ไม่ใช่ประวัติรายแมตช์วีค; ผู้ใช้ที่ต้องการตารางย้อนหลังรายสัปดาห์ต้องใช้ข้อมูลหรือ endpoint สำหรับประวัติที่ตกลงแยก ไม่อนุมานจาก index นี้
 
 - 05 ตัด chunk: `trivia` = 1 คู่ถาม-ตอบ ต่อ 1 chunk · อื่น ๆ = ตามหัวข้อ (`## `) ไม่ตัดตามจำนวนตัวอักษร
 - upsert ต้องอัปเดตทั้ง BM25 และ FAISS ให้ตรงกัน ก่อนเปลี่ยน `index_version`
@@ -583,3 +586,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.1 | (D1) | **เพิ่มระบบ Admin** — §1.1 ใหม่ (`/api/admin/*`, สิทธิ์ `role=admin`, audit, error code ใหม่) · ย้าย `GET /api/stats` → `GET /api/admin/stats` · รายงานประจำสัปดาห์มีสถานะ `draft → published → unpublished` และเข้า KB เมื่อ publish เท่านั้น (+ env `REPORT_AUTO_PUBLISH`) · §6 เพิ่ม `POST /index/rebuild` · §7 เพิ่ม `GET /jobs`, endpoint จัดการรายงาน, `triggered_by` · field เดิมไม่ถูกลบ/เปลี่ยนชื่อ ยกเว้น path `/api/stats` ที่ย้าย |
 | v1.2 | (D4) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §4 / §6 เพิ่ม error `INDEX_NOT_READY` (503) · §6 ระบุขอบเขตของ upsert (1–100 เอกสาร, 5 MB, 422 ทั้งคำขอ) · §7 เพิ่ม retrieval เป็นผู้เรียก `GET /football/teams` · §4 ฝั่ง vector ของ 05 ใช้ `query` แทน `query_original` field และความหมายต่อผู้เรียกเหมือนเดิม — router ต้องส่ง `query` เป็นอังกฤษที่เขียนใหม่แล้ว · **มีผลเมื่อ PR #10 merge** (ก่อนนั้นโค้ดยัง embed `query_original`) · ตัวเลขที่ใช้ตัดสิน (ชุด match hit@1 0.70 → 0.90) วัดกับเอกสาร**จำลอง** 20 คำถามและคำอังกฤษที่เตรียมไว้ ไม่ใช่เอกสารของ 07 หรือคำที่ router เขียนจริง ต้องวัดซ้ำหลังต่อระบบ · §6 upsert / delete / rebuild ตอบ `INDEX_NOT_READY` ตอน index ยังโหลดไม่เสร็จ · §6 job ของ rebuild หายเมื่อ restart |
 | v1.3 | (26 ก.ย.) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §2 `RouteRequest.context` เพิ่ม `last_ingest_at` (optional, null ได้) ที่ api คัดจาก `GET /football/status` · §3 ข้อความ fallback ของ intent ข้อมูลแมตช์อ่านเวลาจาก `context.last_ingest_at` และตัดท่อนเวลาออกเมื่อเป็น null · เดิม §3 อ้าง `<last_ingest_at>` แต่ §2 ไม่ได้ส่งค่านี้ให้ router |
+| v1.4 | 28 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #23 merge เข้า `develop`) | **เปลี่ยนความหมาย §6 `standings` doc_id** จาก `standings-<season>-mw<NN>` ที่เก็บแยกตามแมตช์วีค เป็น `standings-<season>` ที่แทน snapshot ล่าสุด 1 เอกสารต่อฤดูกาล · 07 upsert ID ใหม่ก่อน queue ลบ legacy `-mw01`–`-mw38` แบบ retry ได้ · 05 ยอมรับทั้งสองรูปแบบเฉพาะช่วง cleanup · ไม่ใช้ search index นี้แทนประวัติตารางคะแนนรายสัปดาห์ · ต้องแจ้งทีมและได้ approval ตามกฎต้นไฟล์ก่อน merge |
