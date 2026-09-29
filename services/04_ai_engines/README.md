@@ -64,7 +64,9 @@ pytest tests/ -v   # ครอบ /general, llm_client (fallback + เพดา�
   กับประโยคไทย และไม่อยากเพิ่ม dependency ตัวตัดคำไทย (pythainlp) ตอนนี้
 - `train.py` เทรน 2 รอบ: (1) held-out split 80/20 เพื่อวัด accuracy แบบไม่โกง (2) เทรนจริงด้วยข้อมูล
   ทั้งหมดแล้วเซฟเป็น `app/models/intent_clf.joblib` ไปใช้ที่ `/local/classify`
-- ผลตอนนี้: **held-out accuracy = 0.804** (51 ตัวอย่าง จาก 254 แถวทั้งหมด)
+   - ผลตอนนี้: **held-out accuracy = 0.784** (51 ตัวอย่าง จาก 254 แถวทั้งหมด, หลังแก้ข้อมูลรั่ว —
+     ตรงกับ `eval/method_comparison.md`) ส่วน **0.958** (23/24) เป็นผลบน simulated routing cases
+     คนละชุด ไม่ใช่ held-out split เดียวกัน
 - `/local/classify` คืน `EngineResult` ตาม contract: `content: "intent: match_result (0.88)"`,
   `data: {label, score, top_k}` (top_k 3 อันดับ), `model: "tfidf-logreg-v1"`, `token_usage: {0,0}`
   (ไม่เรียก LLM เลยในเส้นนี้)
