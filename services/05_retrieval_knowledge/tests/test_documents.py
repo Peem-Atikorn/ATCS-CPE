@@ -34,6 +34,8 @@ def match_doc(text: str) -> Document:
         ("match_report", "match-2026-mw05-57-61", True),
         ("match_report", "match-2026-mw5-57-61", False),
         ("standings", "standings-2026-mw05", True),
+        ("standings", "standings-2026", True),
+        ("standings", "standings-2026-extra", False),
         ("fixtures", "fixtures-2026-team-64", True),
         ("weekly_report", "weekly-2026-mw05", True),
         ("weekly_report", "weekly-2026-mw05-extra", False),
