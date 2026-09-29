@@ -23,14 +23,32 @@ class AppValidationError(Exception):
         self.detail = detail
 
 
-def _request_id(request: Request) -> str:
-    rid = request.headers.get("X-Request-ID")
-    if rid:
-        return rid
-    return str(uuid.uuid4())
+async def _resolve_request_id(request: Request) -> str:
+    """เดียวกับ resolve_request_id() ใน routes/generate.py:
+    header > body.request_id > state (ตั้งโดย middleware) > uuid ใหม่
+
+    เดิมฟังก์ชันนี้ (ตอนนั้นชื่อ _request_id) เช็คแค่ header > uuid ใหม่ ข้าม
+    body.request_id ไปเลย ทำให้ error response ได้ request_id คนละตัวกับตอน
+    success (ที่ resolve_request_id() เลือก body.request_id เมื่อไม่มี header)
+    หากไคลเอนต์ส่ง request_id มาทาง body อย่างเดียวโดยไม่ส่ง header
+    """
+    header_rid = request.headers.get("X-Request-ID")
+    if header_rid:
+        return header_rid
+    try:
+        # request.body() ถูก cache ไว้ใน Starlette หลังอ่านครั้งแรก (ตอน validate
+        # body ปกติของ route) เรียกซ้ำที่นี่จึงไม่ทำให้ stream เสีย
+        body = await request.json()
+        if isinstance(body, dict):
+            body_rid = body.get("request_id")
+            if body_rid:
+                return str(body_rid)
+    except Exception:  # noqa: BLE001, S110
+        pass
+    return getattr(request.state, "request_id", None) or str(uuid.uuid4())
 
 
-def problem_response(
+async def problem_response(
     request: Request,
     *,
     status_code: int,
@@ -38,7 +56,7 @@ def problem_response(
     title: str,
     detail: str,
 ) -> JSONResponse:
-    rid = getattr(request.state, "request_id", None) or _request_id(request)
+    rid = await _resolve_request_id(request)
     body = {
         "type": f"{PROBLEM_BASE}/{code.lower().replace('_', '-')}",
         "title": title,
@@ -60,7 +78,7 @@ def problem_response(
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def validation_handler(request: Request, exc: RequestValidationError):
-        return problem_response(
+        return await problem_response(
             request,
             status_code=422,
             code="VALIDATION_ERROR",
@@ -70,7 +88,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(AppValidationError)
     async def app_validation_handler(request: Request, exc: AppValidationError):
-        return problem_response(
+        return await problem_response(
             request,
             status_code=422,
             code="VALIDATION_ERROR",
@@ -80,7 +98,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(LLMUnavailable)
     async def llm_unavailable_handler(request: Request, exc: LLMUnavailable):
-        return problem_response(
+        return await problem_response(
             request,
             status_code=503,
             code="LLM_UNAVAILABLE",
@@ -90,7 +108,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_handler(request: Request, exc: Exception):
-        return problem_response(
+        return await problem_response(
             request,
             status_code=500,
             code="INTERNAL_ERROR",

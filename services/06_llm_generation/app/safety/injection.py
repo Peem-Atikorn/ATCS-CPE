@@ -17,8 +17,10 @@ INJECTION_PATTERNS = [
     r"ลืมคำสั่งก่อนหน้า",
     r"เพิกเฉยคำสั่งก่อนหน้า",
     r"system prompt",
-    r"you are now",
-    r"act as",
+    r"you are now (an?|the) (ai|assistant|chatbot|bot|language model|llm)",
+    # เดิม r"act as" กว้างเกินไป จับ "act as captain" (บริบทกีฬาปกติ) ผิด
+    # แก้ให้เจาะจงเฉพาะกรณี "act as" ตามด้วยคำที่บ่งชี้ persona/AI/jailbreak จริง ๆ
+ r"act as (an?|the) (ai|assistant|chatbot|bot|language model|llm|gpt|dan|jailbreak|unrestricted|developer mode)",
     r"new instructions?:",
 ]
 

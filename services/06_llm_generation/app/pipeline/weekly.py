@@ -49,6 +49,19 @@ def _escape_pipe(name: str) -> str:
     return name.replace("|", "\\|")
 
 
+def _has_full_score(m: Match) -> bool:
+    """FINISHED แล้วต้องมีสกอร์ครบทั้งสองฝั่ง ไม่ใช่แค่ home
+    เดิมเช็คแค่ m.score.home is not None ทำให้กรณี away เป็น None (ข้อมูลไม่ครบ
+    จากต้นทาง) หลุดผ่านไป format ออกมาเป็น "2-None" — เพิ่มเช็ค away ด้วยทุกจุด
+    """
+    return (
+        m.status == "FINISHED"
+        and m.score is not None
+        and m.score.home is not None
+        and m.score.away is not None
+    )
+
+
 def _results_section(
     matches: list[Match], season: str, matchweek: int, language: str
 ) -> str:
@@ -60,8 +73,13 @@ def _results_section(
     lines = [f"## {'ผลการแข่งขัน' if language == 'th' else 'Results'}", "", header, ""]
     for m in matches:
         home, away = _escape_pipe(m.home.name), _escape_pipe(m.away.name)
-        if m.status == "FINISHED" and m.score and m.score.home is not None:
+        if _has_full_score(m):
             lines.append(f"- {home} {m.score.home}-{m.score.away} {away}")
+        elif m.status == "FINISHED":
+            lines.append(
+                f"- {home} vs {away} — "
+                f"{'ข้อมูลสกอร์ไม่ครบ' if language == 'th' else 'Score data incomplete'}"
+            )
         elif m.status == "POSTPONED":
             lines.append(
                 f"- {home} vs {away} — {'เลื่อนการแข่งขัน' if language == 'th' else 'Postponed'}"
@@ -135,11 +153,7 @@ def _fallback_highlights(
 ) -> list[str]:
     """สร้าง highlights แบบ template จากข้อมูลด้วยโค้ด เมื่อ LLM/guard ล้มเหลว"""
     out = []
-    finished = [
-        m
-        for m in matches
-        if m.status == "FINISHED" and m.score and m.score.home is not None
-    ]
+    finished = [m for m in matches if _has_full_score(m)]
     if finished:
         biggest = max(
             finished, key=lambda m: abs((m.score.home or 0) - (m.score.away or 0))
@@ -210,7 +224,7 @@ async def run_weekly_report(
 
     known_scores: set[tuple[int, int]] = set()
     for m in req.matches:
-        if m.status == "FINISHED" and m.score and m.score.home is not None:
+        if _has_full_score(m):
             known_scores.add((m.score.home, m.score.away))
 
     slim_data = {

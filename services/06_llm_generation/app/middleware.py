@@ -11,11 +11,17 @@ import uuid
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
+from app.config import settings
+
 logger = logging.getLogger("generation")
 _handler = logging.StreamHandler(sys.stdout)
 _handler.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(_handler)
 logger.propagate = False
+# เดิมไม่เคยตั้ง level เลย logger จะ inherit จาก root (default WARNING)
+# ทำให้ logger.info(...) ใน log_event() ไม่ถูกพิมพ์ออกมาเลยไม่ว่ากรณีไหน
+# ตั้งจาก settings.log_level (ค่าเริ่มต้น "INFO" ตาม config.py)
+logger.setLevel(settings.log_level)
 
 
 def log_event(event: str, request_id: str, **fields) -> None:

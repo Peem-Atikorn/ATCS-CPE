@@ -13,7 +13,11 @@ from app.errors import AppValidationError
 from app.language import language_matches, language_name
 from app.llm.client import LLMClient
 from app.middleware import log_event
-from app.numeric_guard import extract_standalone_numbers, normalize_text
+from app.numeric_guard import (
+    extract_standalone_numbers,
+    find_score_claims,
+    normalize_text,
+)
 from app.safety import gambling
 from app.schemas import GenerateRequest, GenerateResponse, SafetyInfo, TokenUsage
 
@@ -58,11 +62,28 @@ async def run_passthrough(
             purpose="translate",
         )
         translated = normalize_citations(result.text)
-        # ตรวจว่าชุดตัวเลขในผลแปล = ชุดตัวเลขใน draft
-        draft_nums = sorted(extract_standalone_numbers(normalize_text(draft)))
-        translated_nums = sorted(extract_standalone_numbers(normalize_text(translated)))
-        if draft_nums != translated_nums:
-            log_event("translate_number_mismatch", request_id)
+
+        draft_norm = normalize_text(draft)
+        translated_norm = normalize_text(translated)
+
+        # ตรวจว่าชุดตัวเลขในผลแปล = ชุดตัวเลขใน draft (จับตัวเลขทั่วไปที่หายไป/เกิน)
+        draft_nums = sorted(extract_standalone_numbers(draft_norm))
+        translated_nums = sorted(extract_standalone_numbers(translated_norm))
+
+        # เดิมเช็คแค่ standalone numbers ที่ sorted() แล้ว ทำให้สกอร์ที่ "กลับด้าน"
+        # เช่น 2-1 แปลผิดเป็น 1-2 (ทีมชนะ/แพ้สลับกัน) ตัวเลขหลัง sort เท่ากันทั้งคู่
+        # ([1,2] == [1,2]) เช็คผ่านทั้งที่ความหมายกลับด้านสนิท — เพิ่มการเช็คสกอร์แบบ
+        # รักษาลำดับ (find_score_claims คืน tuple (home, away) ไม่ sort) เพื่อจับกรณีนี้
+        draft_scores = find_score_claims(draft_norm)
+        translated_scores = find_score_claims(translated_norm)
+
+        if draft_nums != translated_nums or draft_scores != translated_scores:
+            log_event(
+                "translate_number_mismatch",
+                request_id,
+                draft_scores=str(draft_scores),
+                translated_scores=str(translated_scores),
+            )
             answer = draft
         else:
             answer = translated
