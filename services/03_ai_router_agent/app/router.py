@@ -116,7 +116,7 @@ class Router:
                             break
                         explicit_standings_week = (
                             decision.intent == "standings_stats"
-                            and MATCHWEEK_PATTERN.search(query) is not None
+                            and MATCHWEEK_PATTERN.search(query.lower()) is not None
                         )
                         if (
                             attempt == 0

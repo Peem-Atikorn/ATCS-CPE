@@ -98,6 +98,14 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(searches[0][1]["filters"]["matchweek"], 4)
         self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
 
+    async def test_english_explicit_old_standings_week_does_not_fall_back(self):
+        result = await self.run_query("Standings after Matchweek 4")
+        self.assertEqual(result["route"], "football_rag")
+        searches = [call for call in self.clients.calls if call[0] == "search"]
+        self.assertEqual(len(searches), 1)
+        self.assertEqual(searches[0][1]["filters"]["matchweek"], 4)
+        self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
+
     async def test_empty_trivia_falls_back_to_general(self):
         result = await self.run_query("ใครได้บัลลงดอร์ปี 2008")
         self.assertEqual(result["route"], "general_ai")
