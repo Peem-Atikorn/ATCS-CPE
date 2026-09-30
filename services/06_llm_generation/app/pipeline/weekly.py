@@ -140,8 +140,11 @@ def _scorers_section(
         else "| Player | Goals | Assists |"
     )
     lines.append("|---|---|---|")
+    # 07 sends assists=None when football-data.org did not report them; never show that as 0.
+    unreported = "ไม่มีข้อมูล" if language == "th" else "not reported"
     for s in sorted(scorers, key=lambda s: -s.goals)[:10]:
-        lines.append(f"| {_escape_pipe(s.player)} | {s.goals} | {s.assists or 0} |")
+        assists = unreported if s.assists is None else s.assists
+        lines.append(f"| {_escape_pipe(s.player)} | {s.goals} | {assists} |")
     return "\n".join(lines)
 
 
