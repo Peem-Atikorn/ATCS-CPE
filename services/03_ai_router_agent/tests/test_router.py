@@ -81,6 +81,24 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("2025/26", result["answer"])
         self.assertEqual(result["sources"][0]["doc_id"], "official-scorer-2025")
 
+    async def test_team_match_and_player_questions_skip_league_winner_shortcut(self):
+        queries = (
+            "Arsenal top scorer 2023/24",
+            "อาร์เซนอลใครยิงเยอะสุดฤดูกาล 2024/25",
+            "ทีมไหนยิงประตูมากที่สุดฤดูกาล 2024/25",
+            "ทีมไหนเสียประตูมากที่สุดฤดูกาล 2024/25",
+            "ผู้รักษาประตูคนไหนเซฟมากที่สุด 2024/25",
+            "ใครยิงเยอะสุดนัดที่ 3 ฤดูกาล 2024/25",
+            "Salah ยิงมากที่สุดในเกมไหน 2024/25",
+            "Everton top scorer 2024/25",
+        )
+        for query in queries:
+            with self.subTest(query=query):
+                self.clients.calls.clear()
+                result = await self.run_query(query)
+                self.assertNotIn("historical_scorer", [call[0] for call in self.clients.calls])
+                self.assertNotIn("official-scorer-", str(result["sources"]))
+
     async def test_rag_calls_search_and_grounded_generation(self):
         source = {"ref": 1, "doc_id": "match-1", "title": "Arsenal result", "category": "match_report",
                   "origin": "football-data.org", "season": "2026", "matchweek": 5,
