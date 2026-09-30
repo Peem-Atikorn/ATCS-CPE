@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import monitor
+import preflight
 
 
 class MonitorTests(unittest.TestCase):
@@ -19,7 +20,7 @@ class MonitorTests(unittest.TestCase):
             (root / ".env").write_text("POSTGRES_PASSWORD=test\n", encoding="utf-8")
             output = "\n".join(json.dumps(item) for item in items)
             result = subprocess.CompletedProcess(args=[], returncode=0, stdout=output, stderr="")
-            with patch.object(monitor, "ROOT", root), patch.object(monitor.shutil, "which", return_value="docker"), \
+            with patch.object(monitor, "ROOT", root), patch.object(monitor, "find_docker", return_value="docker"), \
                  patch.object(monitor.subprocess, "run", return_value=result):
                 return monitor.snapshot()
 
@@ -38,6 +39,17 @@ class MonitorTests(unittest.TestCase):
         self.assertFalse(self.run_snapshot(items))
         items.append({"Service": "generation", "State": "running", "Health": "unhealthy"})
         self.assertFalse(self.run_snapshot(items))
+
+
+class DockerDiscoveryTests(unittest.TestCase):
+    def test_user_install_outside_path_is_found(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            binary = Path(folder) / "Programs/DockerDesktop/resources/bin/docker.exe"
+            binary.parent.mkdir(parents=True)
+            binary.touch()
+            with patch.object(preflight.shutil, "which", return_value=None), \
+                 patch.dict(preflight.os.environ, {"LOCALAPPDATA": folder}):
+                self.assertEqual(preflight.find_docker(), str(binary))
 
 
 if __name__ == "__main__":

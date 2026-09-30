@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+from preflight import find_docker
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED = {
@@ -18,7 +19,7 @@ EXPECTED = {
 
 
 def snapshot() -> bool:
-    docker = shutil.which("docker")
+    docker = find_docker()
     if docker is None:
         print("FAIL Docker CLI missing", file=sys.stderr)
         return False
@@ -34,6 +35,9 @@ def snapshot() -> bool:
         )
     except subprocess.TimeoutExpired:
         print("FAIL Docker Compose status timed out", file=sys.stderr)
+        return False
+    except OSError as exc:
+        print(f"FAIL Docker Compose unavailable: {exc}", file=sys.stderr)
         return False
     if result.returncode:
         print(f"FAIL Docker Compose status: {result.stderr.strip()[:300]}", file=sys.stderr)

@@ -70,12 +70,22 @@ def main() -> int:
         count = len(results)
         route_ok = sum(bool(row.get("route_ok")) for row in results)
         answer_ok = sum(bool(row.get("answer_contains_expected")) for row in results)
+        failed = [row for row in results if not row.get("route_ok") or not row.get("answer_contains_expected")]
+        failures = "" if not failed else (
+            "<p>Cases below need manual review; exact substring misses translations and formatting variants.</p>"
+            "<table><thead><tr><th>Case</th><th>Route</th><th>Sources</th><th>Error</th></tr></thead><tbody>"
+            + "".join("<tr>" + "".join(f"<td>{esc(value)}</td>" for value in (
+                row.get("id"), row.get("route", ""), row.get("source_count", 0), row.get("error", "")
+            )) + "</tr>" for row in failed)
+            + "</tbody></table>"
+        )
         sections.append(
             "<section><h2>Live chat through API 02</h2>"
             f"<p>Source: <code>eval/results/live_chat.json</code>; generated {esc(data.get('generated_at'))}; "
             f"API: {esc(data.get('api_url'))}. Trivia answer matching is exact substring, not semantic grading.</p>"
             f"<p>Cases: {count}; football_rag route: {route_ok}/{count}; expected answer substring: {answer_ok}/{count}.</p>"
-            "</section>"
+            + failures
+            + "</section>"
         )
     else:
         sections.append("<section><h2>Live integration</h2><p>No live chat result is present. "

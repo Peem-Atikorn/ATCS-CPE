@@ -42,12 +42,22 @@ Web suite check behavior.
 
 As of 2026-09-30, this checkout includes all seven service directories from
 `origin/develop` (`688024a`). The local `.env` has generated passwords and
-configured provider keys. Docker CLI is unavailable on this Windows host;
-Ubuntu WSL also reports that Docker Desktop integration is disabled. `make
-preflight` therefore reports only Docker as a blocker. Compose syntax alone
-does not prove that images build or the stack runs. A full container pass
-requires Docker with Compose, followed by `make up`, `make monitor`, and `make
-smoke` on the same checkout.
+configured provider keys. On this Windows host Docker Desktop is installed in
+the user's LocalAppData directory, even though `docker` is absent from PATH;
+the PowerShell runner and Python checks locate its CLI there. Ubuntu WSL does
+not have Docker Desktop integration enabled. Compose syntax alone does not
+prove that images build or the stack runs: use `up`, `monitor`, and `smoke` on
+the same checkout.
+
+On 2026-09-30, the above checkout built and started successfully on Docker
+Desktop 4.91.0. `monitor` found 11/11 containers running (all services with
+health checks were healthy); `smoke` passed 15/15 checks. `warmup` ingested
+fixtures, drained the index queue, and published the 2026 matchweek 5 report.
+Live trivia eval routed 20/20 cases to `football_rag` and matched the expected
+answer substring in 17/20. Two mismatches were a Thai translation or Unicode
+space variant; one answer abstained despite the golden document being present.
+This is a contract and operational pass, with one answer quality issue still
+requiring review.
 
 The optional Prometheus/Grafana stack in `docs/SCHEDULE.md` is not included.
 The existing Admin dashboard (`/api/admin/stats`) supplies response metrics;

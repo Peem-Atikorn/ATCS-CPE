@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,18 @@ PYTHON_SERVICES = {
     "generation": "06_llm_generation",
     "football-data": "07_football_data",
 }
+
+
+def find_docker() -> str | None:
+    found = shutil.which("docker")
+    if found:
+        return found
+    local_app_data = os.getenv("LOCALAPPDATA")
+    if local_app_data:
+        desktop = Path(local_app_data) / "Programs/DockerDesktop/resources/bin/docker.exe"
+        if desktop.is_file():
+            return str(desktop)
+    return None
 
 
 def main() -> int:
@@ -61,7 +74,7 @@ def main() -> int:
             if values.get("JWT_SECRET_KEY") and len(values["JWT_SECRET_KEY"]) < 32:
                 failures.append(".env: JWT_SECRET_KEY must be at least 32 characters")
 
-        docker = shutil.which("docker")
+        docker = find_docker()
         if docker is None:
             failures.append("Docker CLI missing")
         else:
@@ -73,6 +86,8 @@ def main() -> int:
                     result = subprocess.run(command, capture_output=True, text=True, check=False, timeout=15)
                 except subprocess.TimeoutExpired:
                     failures.append(f"{label} timed out")
+                except OSError as exc:
+                    failures.append(f"{label} unavailable: {exc}")
                 else:
                     if result.returncode:
                         failures.append(f"{label} unavailable: {(result.stderr or result.stdout).strip()[:180]}")
@@ -84,6 +99,8 @@ def main() -> int:
                     )
                 except subprocess.TimeoutExpired:
                     failures.append("Compose config check timed out")
+                except OSError as exc:
+                    failures.append(f"Compose config unavailable: {exc}")
                 else:
                     if result.returncode:
                         failures.append(f"Compose config invalid: {(result.stderr or result.stdout).strip()[:300]}")

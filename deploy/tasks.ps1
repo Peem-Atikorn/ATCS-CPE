@@ -5,6 +5,11 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$docker = (Get-Command docker -ErrorAction SilentlyContinue).Source
+if (-not $docker) {
+    $desktopCli = Join-Path $env:LOCALAPPDATA 'Programs\DockerDesktop\resources\bin\docker.exe'
+    if (Test-Path -LiteralPath $desktopCli) { $docker = $desktopCli }
+}
 if ($Task -in @('up', 'preflight')) {
     $python = Get-Command python -ErrorAction SilentlyContinue
     if (-not $python) { throw 'Python 3.12+ is required for deploy/preflight.py.' }
@@ -34,5 +39,6 @@ switch ($Task) {
     'config' { $composeArgs += @('config', '--quiet') }
 }
 
-& docker @composeArgs
+if (-not $docker) { throw 'Docker CLI not found. Install or start Docker Desktop.' }
+& $docker @composeArgs
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
