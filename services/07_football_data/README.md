@@ -60,6 +60,24 @@ Worker จะกู้งาน publish/unpublish ที่ค้างหลั
 
 เครดิตข้อมูลย้อนหลัง: © 2024 **Joshua C. Fjelstul, Ph.D.**, [Fjelstul English Football Database](https://github.com/jfjelstul/englishfootball), [CC-BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/legalcode); ดัดแปลงโดย normalize ชื่อทีมและแปลงตารางเป็นสรุปข้อความ ร่วมกับ [openfootball/england](https://github.com/openfootball/england) (CC0 1.0) เอกสาร/ข้อมูลย้อนหลังที่สร้างเผยแพร่ภายใต้ CC-BY-SA 4.0
 
+## ทำนายผลและจำลองฤดูกาล (CONTRACT v1.7)
+
+- `GET /football/predict?home_team_id=&away_team_id=` — คำนวณความแข็งของสองทีมแล้วเรียก 04 `/local/predict` · ถ้ามีนัดที่ยังไม่แข่งระหว่างสองทีม ใช้ฝั่งเหย้าตามโปรแกรมนัดถัดไป (ลำดับใน query ไม่มีผล) · ไม่เก็บผล
+- นัดที่กำลังแข่ง (`LIVE`) ถูกจำลองต่อเฉพาะเมื่อตารางคะแนนยังไม่นับนัดนั้น (ดูจาก `played` เทียบกับนัดที่จบแล้ว) · ถ้าตารางนับแล้วจะไม่จำลองซ้ำ
+- `GET /football/simulation` — ผลจำลอง 10,000 ครั้ง (seed 42) ของฤดูกาลปัจจุบัน · เก็บในตาราง `simulation_snapshots` ตาม hash ของ input · คำนวณใหม่หลัง ingest · 04 ล่ม → คืนผลเก่าพร้อม `stale: true` · ไม่เคยมีผล → 503 `SIMULATION_UNAVAILABLE`
+- ความแข็งทีม (`app/strengths.py`) = ฤดูกาลนี้ผสมอัตราต่อนัดของฤดูกาลก่อน (k = 10) · ทีมเลื่อนชั้นใช้ค่าเฉลี่ยของ 3 ทีมที่ตกชั้น · ไม่มีข้อมูลฤดูกาลก่อน → ค่าเฉลี่ยลีก 1.35
+- env `ENGINES_URL` (ค่าเริ่ม `http://engines:8000`)
+- เติมข้อมูลฤดูกาลก่อนให้แม่นขึ้น — ข้อมูลนี้อยู่ใน Postgres ของแต่ละเครื่อง ไม่ได้มากับ git ต้องรันเองครั้งแรก และรันใหม่หลังลบ volume ของ Postgres ถ้าไม่รัน ระบบยังทำงานได้แต่ใช้ค่าเฉลี่ยลีก 1.35 แทนฟอร์มฤดูกาลก่อนของแต่ละทีม (ดู log `strength_prior_league_average`)
+
+  ```bash
+  docker compose -p football-assistant exec football-data sh -c 'python scripts/ingest_history.py --database-url "$DATABASE_URL"'
+  ```
+
+  - คำสั่งนี้ดาวน์โหลดข้อมูล openfootball / fjelstul ตาม commit ที่ pin ไว้ แล้วเขียนตาราง `historical_matches` และ `historical_standings` · รันซ้ำได้ (upsert) · สำเร็จแล้วจะพิมพ์สรุปที่มี `"seasons": 34`
+  - ใน container ไม่มีไฟล์ `.env` ของ repo · script ใช้ env ของ container แทน (`DATABASE_URL` มาจาก `docker-compose.yml`)
+  - บนเครื่องที่มี repo ครบ รันจากโฟลเดอร์ `services/07_football_data` ได้ตรง ๆ ตาม [HISTORICAL_DATA.md](HISTORICAL_DATA.md) (ค่าเริ่มต้นเขียนลง SQLite ในเครื่อง ไม่ใช่ DB ของ Docker)
+  - เมื่อขึ้นฤดูกาลใหม่ ต้องเลื่อน commit ที่ pin ใน `scripts/ingest_history.py` / `scripts/download_history.py` ให้มีผลของฤดูกาลที่เพิ่งจบ แล้วรันคำสั่งนี้อีกครั้ง
+
 ## งานที่ต้องทำต่อ (integration/deploy)
 
 - รีวิวล่าสุด: ตารางคะแนนใน index เปลี่ยนเป็น `standings-<season>` เดียวพร้อม cleanup แบบ retry ได้; ดาวซัลโวย้อนหลังเพิ่มเฉพาะแหล่งที่ผ่านตรวจ (2022/23 และ 2025/26) โดย cache API ของ 2023/24 และ 2024/25 ขัดกับ PL และถูกกันไว้ ดูรายละเอียดใน HISTORICAL_DATA.md

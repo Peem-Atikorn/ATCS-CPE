@@ -39,3 +39,6 @@
 {"query":"ช่วยเขียนโค้ด Python จัดการไฟล์","route":"decline","intent":"out_of_scope"}
 {"query":"แนะนำร้านอาหารใกล้บ้าน","route":"decline","intent":"out_of_scope"}
 {"query":"What is the price of Bitcoin?","route":"decline","intent":"out_of_scope"}
+{"query":"ใครจะได้แชมป์พรีเมียร์ลีกปีนี้","route":"local_ai","intent":"prediction"}
+{"query":"อาร์เซนอลมีโอกาสติดท็อป 4 กี่เปอร์เซ็นต์","route":"local_ai","intent":"prediction"}
+{"query":"ใครเสี่ยงตกชั้นมากที่สุด","route":"local_ai","intent":"prediction"}

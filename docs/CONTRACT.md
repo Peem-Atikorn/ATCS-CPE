@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.6
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.7
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -81,7 +81,7 @@
   "intent": "match_result",
   "rewritten_query": "Arsenal latest match result",   // null ถ้าไม่ได้ rewrite
   "filters": { "category": ["match_report"], "team_ids": [57] },
-  "fallback": null,                            // null | "retrieval_empty" | "retrieval_down" | "llm_fallback_provider"
+  "fallback": null,                            // null | "retrieval_empty" | "retrieval_down" | "llm_fallback_provider" | "simulation_down" | "prediction_needs_team" | "prediction_team_not_found"
   "steps": [
     { "name": "router.rules",        "ms": 3 },
     { "name": "retrieval.search",    "ms": 140 },
@@ -123,6 +123,8 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 | GET | `/api/football/matches/{match_id}` | – | ส่งต่อจาก §7 |
 | GET | `/api/football/reports/weekly` | `?season=&matchweek=` (ไม่ใส่ = ล่าสุด) | ส่งต่อจาก §7 · **เฉพาะรายงานที่ `published` เท่านั้น** |
 | GET | `/api/football/status` | – | `{current_season, current_matchweek, last_ingest_at, quota}` |
+| GET | `/api/football/predict` | `?home_team_id=&away_team_id=` (≥1, ต่างกัน) | ส่งต่อจาก §7 `/football/predict` · cache 5 นาที (v1.7) |
+| GET | `/api/football/simulation` | `?season=` (ไม่ใส่ = ปัจจุบัน) | ส่งต่อจาก §7 `/football/simulation` (`SimulationSnapshot`) · cache 5 นาที (v1.7) |
 
 ```jsonc
 // User
@@ -166,6 +168,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 | `ROUTER_UNAVAILABLE` | 502 | router ตอบ error หรือ circuit breaker เปิด |
 | `ROUTER_TIMEOUT` | 504 | router เกิน 45s |
 | `FOOTBALL_DATA_UNAVAILABLE` | 502 | 07 ล่ม (เฉพาะ `/api/football/*`) |
+| `SIMULATION_UNAVAILABLE` | 503 | 07 ทำนาย / จำลองไม่ได้ (04 ล่มและไม่มีผลเก่า) · ส่งผ่านจาก 07 (v1.7) |
 
 ## 1.1 web → api — ระบบ Admin (prefix `/api/admin`)
 
@@ -288,9 +291,27 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 
 ### `POST /local/predict` (Local AI — ทำนายผล · **Could**)
 ```jsonc
-{ "request_id": "uuid", "home_team_id": 64, "away_team_id": 65, "season": "2026" }
+{ "request_id": "uuid", "home_team_id": 64, "away_team_id": 65, "season": "2026",
+  // v1.7 optional — ไม่ส่ง strength → 501 NOT_IMPLEMENTED เหมือนเดิม
+  "home_strength": { "attack": 1.9, "defense": 0.8, "matches_used": 43 },
+  "away_strength": { "attack": 1.6, "defense": 1.1, "matches_used": 43 },
+  "league_avg_goals": 1.38, "home_name": "Liverpool", "away_name": "Man City" }
 ```
-ถ้ายังไม่ทำ ให้ตอบ `501 {code: "NOT_IMPLEMENTED"}` แล้ว router แปลงเป็นคำตอบ "ฟีเจอร์ทำนายผลยังไม่เปิดใช้งาน"
+ผู้เรียก: **football-data** (v1.7 · router เรียกผ่าน 07 `/football/predict`) · ไม่ส่ง strength → `501 {code: "NOT_IMPLEMENTED"}` แล้ว router แปลงเป็นคำตอบ "ฟีเจอร์ทำนายผลยังไม่เปิดใช้งาน"
+`data` = `{home_win, draw, away_win, method: "poisson-v1", matches_used, home_xg, away_xg, most_likely_score: {home, away}}` · `model: "poisson-v1"`
+
+### `POST /local/simulate` (v1.7 · ผู้เรียก: football-data)
+```jsonc
+{ "request_id": "uuid",
+  "inputs": { "season": "2026", "as_of": "2026-09-30T22:50:00+07:00",
+    "table": [ { "team_id": 57, "name": "Arsenal", "points": 12, "goal_difference": 4, "goals_for": 9, "played": 5 } ],
+    "remaining": [ { "match_id": "uuid", "home_team_id": 57, "away_team_id": 61 } ],
+    "strengths": { "57": { "attack": 1.9, "defense": 0.8, "matches_used": 43 } },
+    "league_avg_goals": 1.38, "relegation_places": 3 },
+  "n_sims": 10000,   // 1,000–20,000
+  "seed": 42 }       // optional · ผลซ้ำได้
+```
+`data` = `{season, as_of, n_sims, remaining_matches, teams: [{team_id, points, expected_points, p_title, p_top4, p_relegation, position_probs: [N ค่า]}]}` เรียง `expected_points` มาก → น้อย · `model: "poisson-mc-v1"` · ทีมใน `remaining` ไม่อยู่ใน `table` / `strengths` หรือ `table` ว่าง → 422 `VALIDATION_ERROR`
 
 ทั้งสามตอบ `EngineResult`
 
@@ -493,6 +514,8 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | GET | `/football/matches/{match_id}` | api | `Match` (มี `events`, `lineups`, `statistics` ถ้ามี) |
 | GET | `/football/reports/weekly` | api | `WeeklyReport` · query `season, matchweek` (ไม่ใส่ = ล่าสุด) · **คืนเฉพาะ `published`** · ไม่มี → 404 |
 | GET | `/football/teams` | api, router, retrieval | `{teams: [Team]}` (รวม aliases — router cache ไว้ใช้ในชั้น rules · retrieval ใช้ขยายคำค้น BM25 ดึงใหม่ทุก 1 ชม. ถ้าดึงไม่ได้ใช้ไฟล์สำรองของตัวเอง) |
+| GET | `/football/predict` | router, api | `EngineResult` ของ 04 + `data.as_of` · query `home_team_id, away_team_id` (ถ้ามีนัดที่ยังไม่แข่งระหว่างสองทีม ใช้ฝั่งเหย้าตามโปรแกรมนัดถัดไป) · 404 ทีมไม่อยู่ฤดูกาลนี้ · 422 ทีมเดียวกัน · 503 `SIMULATION_UNAVAILABLE` (v1.7) |
+| GET | `/football/simulation` | router, api | `SimulationSnapshot` · query `season?` (ฤดูกาลอื่น → 404) · 503 `SIMULATION_UNAVAILABLE` เมื่อไม่มีผลเก่าและ 04 ล่ม (v1.7) |
 | POST | `/ingest/run` | beat ของ api / admin | `202 {job_id, scope}` · body `{scope: "fixtures" \| "details" \| "all", triggered_by}` |
 | POST | `/reports/weekly/run` | beat ของ api / admin | `202 {job_id}` · body `{season?, matchweek?, triggered_by}` (ไม่ใส่ = แมตช์วีคล่าสุดที่จบครบ) |
 | GET | `/jobs` | api (admin) | `{jobs: [Job]}` · query `kind, status, limit=20` เรียงใหม่ → เก่า |
@@ -538,7 +561,15 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
   "generated_at": "2026-09-22T09:02:00+07:00", "data_as_of": "2026-09-22T09:00:00+07:00",
   "edited_at": null, "edited_by": null,
   "published_at": null, "published_by": null }
+
+// SimulationSnapshot (v1.7)
+{ "season": "2026", "as_of": "...", "computed_at": "...", "stale": false,
+  "n_sims": 10000, "model": "poisson-mc-v1",
+  "teams": [ { "team_id": 57, "name": "Arsenal FC", "short_name": "Arsenal", "points": 12, "expected_points": 74.3,
+               "p_title": 0.31, "p_top4": 0.82, "p_relegation": 0.0, "position_probs": [0.31, 0.24] } ] }
 ```
+
+- v1.7: football-data เรียก engines `/local/predict` และ `/local/simulate` (env `ENGINES_URL`) · ความแข็งทีม = ฤดูกาลนี้ผสมฤดูกาลก่อน k = 10 · เก็บผลจำลองในตาราง `simulation_snapshots` และคำนวณใหม่หลัง ingest
 
 **สถานะของรายงานประจำสัปดาห์**
 
@@ -565,6 +596,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | `REPORT_NOT_EDITABLE` | 409 | PATCH รายงานที่ `published` |
 | `REPORT_ALREADY_PUBLISHED` | 409 | run ทับรายงานที่ `published` อยู่ |
 | `INDEX_UPDATE_FAILED` | 502 | publish / unpublish แล้ว 05 upsert / delete ไม่สำเร็จ (สถานะรายงานไม่เปลี่ยน) |
+| `SIMULATION_UNAVAILABLE` | 503 | 04 ล่มและยังไม่มีผลจำลองเก่า / ทำนายนัดไม่ได้ (v1.7) |
 | `NOT_FOUND` | 404 | ไม่มีนัด / รายงานนั้น |
 
 ## 8. LLM provider (ใช้ร่วมทุก service ที่เรียก LLM: 03, 04, 06)
@@ -593,3 +625,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.4 | 28 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #23 merge เข้า `develop`) | **เปลี่ยนความหมาย §6 `standings` doc_id** จาก `standings-<season>-mw<NN>` ที่เก็บแยกตามแมตช์วีค เป็น `standings-<season>` ที่แทน snapshot ล่าสุด 1 เอกสารต่อฤดูกาล · 07 upsert ID ใหม่ก่อน queue ลบ legacy `-mw01`–`-mw38` แบบ retry ได้ · 05 ยอมรับทั้งสองรูปแบบเฉพาะช่วง cleanup · ไม่ใช้ search index นี้แทนประวัติตารางคะแนนรายสัปดาห์ · ต้องแจ้งทีมและได้ approval ตามกฎต้นไฟล์ก่อน merge |
 | v1.5 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR นี้ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `player` (§0 enum, §6 ตาราง `doc_id` `players-<season>-team-<team_id>`) · intent ใหม่ `player_info` ในตารางที่ล็อก (8 → 9 หมวด) ส่ง `filters.category = ["player"]` และถอยแบบเดียวกับ intent ข้อมูลแมตช์ (ห้ามถอยไป `general_ai`) · ผลต่อโมดูล: 05 รับ category ใหม่, 04 เพิ่ม intent และเทรนใหม่, 03 map intent, 02/01 เพิ่มค่าใน enum, 07 ส่งเอกสารเมื่อเปิดธง |
 | v1.6 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #33 และ #34 merge เข้า `develop`) | **เพิ่ม optional field** `scope_team_ids` ใน §5 `POST /generate` จาก 03 ไป 06 เพื่อระบุขอบเขตทีมของคำถามจัดอันดับผู้เล่น · 06 รุ่นก่อนเพิกเฉยต่อ field ใหม่ได้ · ต้องมีทั้งสอง PR จึงใช้การแยกขอบเขตทีมได้ครบ |
+| v1.7 | 1 ต.ค. 2026 (เสนอ; มีผลเมื่อ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §3 `/local/predict` เพิ่ม field optional `home_strength`, `away_strength`, `league_avg_goals`, `home_name`, `away_name` และ `data.home_xg`, `away_xg`, `most_likely_score` · ผู้เรียกเปลี่ยนเป็น football-data · §3 เพิ่ม `POST /local/simulate` · §7 เพิ่ม `GET /football/predict`, `GET /football/simulation`, `SimulationSnapshot` และทิศ football-data → engines · §1 เพิ่ม `GET /api/football/predict`, `GET /api/football/simulation` · error `SIMULATION_UNAVAILABLE` (503) · `trace.fallback` เพิ่ม `simulation_down`, `prediction_needs_team`, `prediction_team_not_found` |

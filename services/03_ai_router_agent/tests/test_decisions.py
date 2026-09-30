@@ -2,7 +2,8 @@ import json
 import unittest
 from pathlib import Path
 
-from app.decisions import classify_intent, decide, from_intent, historical_scorer_season
+from app.decisions import (classify_intent, decide, from_intent, historical_scorer_season,
+                           prediction_kind)
 from app.teams import TeamDirectory
 
 
@@ -12,6 +13,34 @@ CONTEXT = {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00
 
 
 class DecisionTests(unittest.TestCase):
+    def test_season_questions_are_prediction_intent(self):
+        for query in ("ใครจะได้แชมป์พรีเมียร์ลีกปีนี้", "อาร์เซนอลมีโอกาสติดท็อป 4 กี่เปอร์เซ็นต์",
+                      "ใครเสี่ยงตกชั้นมากที่สุด", "ทีมไหนจะตกชั้น", "Who will be relegated this season?",
+                      "What are Arsenal's chances of winning the title?"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).intent, "prediction")
+
+    def test_history_questions_stay_trivia(self):
+        for query in ("อาร์เซนอลได้แชมป์พรีเมียร์ลีกกี่ครั้ง", "ลิเวอร์พูลได้แชมป์ครั้งล่าสุดเมื่อไร",
+                      "เชลซีเคยได้แชมป์พรีเมียร์ลีกกี่ครั้ง"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).intent, "trivia_history")
+
+    def test_prediction_kind(self):
+        cases = (
+            ("ลิเวอร์พูลกับซิตี้ใครจะชนะ", [64, 65], "match"),
+            ("อาร์เซนอลกับลิเวอร์พูล ใครจะได้แชมป์", [57, 64], "season"),
+            ("Arsenal, City or Liverpool, who will win the title?", [57, 65, 64], "season"),
+            ("ใครจะได้แชมป์ปีนี้", [], "season"),
+            ("อาร์เซนอลมีโอกาสติดท็อป 4 กี่ %", [57], "season"),
+            ("ใครเสี่ยงตกชั้น", [], "season"),
+            ("อาร์เซนอลมีโอกาสชนะไหม", [57], "needs_team"),
+            ("ทำนายผลหน่อย", [], "needs_team"),
+        )
+        for query, team_ids, expected in cases:
+            with self.subTest(query=query):
+                self.assertEqual(prediction_kind(query, team_ids), expected)
+
     def test_historical_scorer_year_forms(self):
         cases = (
             ("ลีคปี 2025 ใครยิงเยอะสุด", ("2025", True)),
@@ -52,10 +81,10 @@ class DecisionTests(unittest.TestCase):
 
     def test_routing_cases(self):
         cases = [json.loads(line) for line in CASES.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(cases), 41)
+        self.assertEqual(len(cases), 44)
         self.assertEqual({route: sum(case["route"] == route for case in cases)
                           for route in {case["route"] for case in cases}},
-                         {"football_rag": 9, "general_ai": 8, "local_ai": 8,
+                         {"football_rag": 9, "general_ai": 8, "local_ai": 11,
                           "clarify": 8, "decline": 8})
         for case in cases:
             with self.subTest(query=case["query"]):
