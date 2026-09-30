@@ -240,6 +240,12 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("1. Man City 38%", result["answer"])
                 self.assertIn("จำลอง 10,000 ครั้ง", result["answer"])
 
+    async def test_two_teams_title_question_uses_the_simulation(self):
+        result = await self.run_query("อาร์เซนอลกับแมนซิตี้ ใครจะได้แชมป์")
+        self.assertEqual(self.clients.calls[0][0], "season_simulation")
+        self.assertIn("Arsenal: แต้มตอนนี้ 12", result["answer"])
+        self.assertIn("Man City: แต้มตอนนี้ 15", result["answer"])
+
     async def test_single_team_season_question_shows_that_team(self):
         result = await self.run_query("อาร์เซนอลมีโอกาสติดท็อป 4 กี่เปอร์เซ็นต์")
         self.assertIn("Arsenal: แต้มตอนนี้ 12", result["answer"])

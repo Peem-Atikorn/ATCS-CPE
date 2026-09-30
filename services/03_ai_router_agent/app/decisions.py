@@ -50,11 +50,13 @@ def season_prediction(query: str) -> bool:
 
 
 def prediction_kind(query: str, team_ids: list[int]) -> str:
-    """match = two teams · season = title / top 4 / relegation outlook · otherwise ask."""
+    """season = title / top 4 / relegation outlook · match = two teams · otherwise ask."""
+    text = query.lower()
+    if season_prediction(text):
+        return "season"
     if len(team_ids) >= 2:
         return "match"
-    text = query.lower()
-    if season_prediction(text) or _has(text, SEASON_WORDS):
+    if _has(text, SEASON_WORDS):
         return "season"
     return "needs_team"
 

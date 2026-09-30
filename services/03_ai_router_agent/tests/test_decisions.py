@@ -29,6 +29,8 @@ class DecisionTests(unittest.TestCase):
     def test_prediction_kind(self):
         cases = (
             ("ลิเวอร์พูลกับซิตี้ใครจะชนะ", [64, 65], "match"),
+            ("อาร์เซนอลกับลิเวอร์พูล ใครจะได้แชมป์", [57, 64], "season"),
+            ("Arsenal, City or Liverpool, who will win the title?", [57, 65, 64], "season"),
             ("ใครจะได้แชมป์ปีนี้", [], "season"),
             ("อาร์เซนอลมีโอกาสติดท็อป 4 กี่ %", [57], "season"),
             ("ใครเสี่ยงตกชั้น", [], "season"),

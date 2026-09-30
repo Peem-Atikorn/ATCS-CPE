@@ -54,14 +54,16 @@ def match_prediction_text(result: dict) -> str:
     return f"{result.get('content', '').strip()}\n\n{_disclaimer(data.get('as_of'))}"
 
 
-def summarize_simulation(snapshot: dict, focus: str, team_id: int | None) -> str:
+def summarize_simulation(snapshot: dict, focus: str, team_ids: list[int]) -> str:
     teams = snapshot.get("teams") or []
-    if team_id is not None:
-        row = next((t for t in teams if t["team_id"] == team_id), None)
-        if row is None:
-            lines = ["ไม่พบทีมนี้ในผลจำลองฤดูกาลปัจจุบัน"]
-        else:
-            lines = [
+    if team_ids:
+        lines = []
+        for team_id in team_ids:
+            row = next((t for t in teams if t["team_id"] == team_id), None)
+            if row is None:
+                lines.append("ไม่พบทีมนี้ในผลจำลองฤดูกาลปัจจุบัน")
+                continue
+            lines += [
                 f"{row['short_name']}: แต้มตอนนี้ {row['points']} · "
                 f"แต้มที่คาดเมื่อจบฤดูกาล {round(row['expected_points'])}",
                 f"โอกาสแชมป์ {percent(row['p_title'])} · ท็อป 4 {percent(row['p_top4'])} · "

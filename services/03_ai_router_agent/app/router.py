@@ -213,8 +213,8 @@ class Router:
                         else:
                             snapshot = await self.clients.season_simulation(request_id)
                             step("football_data.simulation", predict_at)
-                            team_id = decision.team_ids[0] if decision.team_ids else None
-                            draft = summarize_simulation(snapshot, simulation_focus(query), team_id)
+                            draft = summarize_simulation(snapshot, simulation_focus(query),
+                                                         decision.team_ids)
                         engines.append("local_ai")
                     except UpstreamError as exc:
                         if kind == "match" and exc.status == 404:
