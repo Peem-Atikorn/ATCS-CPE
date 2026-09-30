@@ -167,6 +167,7 @@ def reset_state() -> None:
     INDEX_DOCS.update(docs)
     JOBS.clear()
     PREDICT_CALLS.clear()
+    SIMULATION_STATE.update(calls=0, stale=False)
 
 
 def _job(kind: str, scope: str | None, triggered_by: str) -> dict[str, Any]:
@@ -256,13 +257,17 @@ async def predict(home_team_id: int, away_team_id: int) -> dict[str, Any] | JSON
     }
 
 
+SIMULATION_STATE: dict[str, Any] = {"calls": 0, "stale": False}
+
+
 @app.get("/football/simulation")
 async def simulation(season: str | None = None) -> dict[str, Any]:
+    SIMULATION_STATE["calls"] += 1
     return {
         "season": season or "2026",
         "as_of": FETCHED_AT,
         "computed_at": FETCHED_AT,
-        "stale": False,
+        "stale": SIMULATION_STATE["stale"],
         "n_sims": 10000,
         "model": "poisson-mc-v1",
         "teams": [

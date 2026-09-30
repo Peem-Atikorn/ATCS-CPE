@@ -69,7 +69,9 @@ class FootballDataClient:
         if cached is not None:
             return cached
         data = await self._client.get(path, **params)
-        await self._store.set_json(key, data, PREDICTION_CACHE_SECONDS)
+        # A stale snapshot means 07 could not reach 04; ask again next time so recovery shows.
+        if not (isinstance(data, dict) and data.get("stale") is True):
+            await self._store.set_json(key, data, PREDICTION_CACHE_SECONDS)
         return data
 
     async def prediction(self, home_team_id: int, away_team_id: int) -> Any:

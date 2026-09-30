@@ -107,3 +107,18 @@ async def test_simulation_is_proxied(demo: httpx.AsyncClient) -> None:
 
 async def test_prediction_requires_login(client: httpx.AsyncClient) -> None:
     assert_problem(await client.get("/api/football/simulation"), 401, "UNAUTHENTICATED")
+
+
+async def test_simulation_is_cached(demo: httpx.AsyncClient) -> None:
+    await demo.get("/api/football/simulation")
+    await demo.get("/api/football/simulation")
+    assert football_data_stub.SIMULATION_STATE["calls"] == 1
+
+
+async def test_stale_simulation_is_not_cached(demo: httpx.AsyncClient) -> None:
+    # a stale snapshot means 04 was down; ask 07 again next time so recovery shows at once
+    football_data_stub.SIMULATION_STATE["stale"] = True
+    first = await demo.get("/api/football/simulation")
+    await demo.get("/api/football/simulation")
+    assert first.json()["stale"] is True
+    assert football_data_stub.SIMULATION_STATE["calls"] == 2
