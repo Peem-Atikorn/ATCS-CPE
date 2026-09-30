@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from .decisions import MATCHWEEK_PATTERN, decide, enrich, classify_intent, from_intent
+from .decisions import MATCHWEEK_PATTERN, decide, enrich, classify_intent, from_intent, historical_scorer_season
 from .teams import TeamDirectory
 
 
@@ -47,6 +47,39 @@ class Router:
             async with asyncio.timeout(40):
                 decided_at = time.monotonic()
                 decision = decide(query, context, history, self.teams, user.get("favorite_team_id"))
+                historical_scorer = historical_scorer_season(query, context.get("season"))
+                if historical_scorer and (decision is None or decision.route == "football_rag"):
+                    season, assumed = historical_scorer
+                    season_label = f"{season}/{(int(season) + 1) % 100:02d}"
+                    trace.update(decided_at_layer="rules", intent="trivia_history",
+                                 rewritten_query=f"Premier League {season_label} top scorer",
+                                 filters={"season": season, "source": "official_scorer_reference"})
+                    step("router.rules", decided_at)
+                    try:
+                        source_at = time.monotonic()
+                        record = await self.clients.historical_scorer(season, request_id)
+                        step("football_data.verified_scorer", source_at)
+                        engines.append("football_data")
+                    except UpstreamError as exc:
+                        trace["fallback"] = "historical_scorer_unavailable"
+                        if exc.status == 404:
+                            return finish(f"ยังไม่มีข้อมูลดาวซัลโวพรีเมียร์ลีกฤดูกาล {season_label} ที่ตรวจสอบได้ในระบบ",
+                                          "football_rag", 0.9, "ไม่มีแหล่งอันดับดาวซัลโวที่ยืนยันได้")
+                        return finish("ตอนนี้ระบบข้อมูลย้อนหลังไม่พร้อมใช้งาน ลองใหม่อีกครั้งในภายหลัง",
+                                      "football_rag", 0.9, "แหล่งข้อมูลย้อนหลังไม่พร้อมใช้งาน")
+                    if record["season"] != season or not isinstance(record["goals"], int):
+                        trace["fallback"] = "historical_scorer_invalid"
+                        return finish("ข้อมูลดาวซัลโวย้อนหลังไม่ตรงกับฤดูกาลที่ถาม",
+                                      "football_rag", 0.0, "ข้อมูลต้นทางไม่ถูกต้อง")
+                    source = {"ref": 1, "doc_id": f"official-scorer-{season}",
+                              "title": f"Premier League Golden Boot {season_label}",
+                              "category": "historical", "origin": "premierleague.com",
+                              "season": season, "matchweek": None, "team_ids": [],
+                              "fetched_at": None, "url": record["source_url"]}
+                    prefix = "ถ้าหมายถึงพรีเมียร์ลีกฤดูกาล" if assumed else "พรีเมียร์ลีกฤดูกาล"
+                    answer = f"{prefix} {season_label} ดาวซัลโวคือ {record['player']} ทำ {record['goals']} ประตู [1]"
+                    return finish(answer, "football_rag", 0.95,
+                                  "อันดับดาวซัลโวจากแหล่งพรีเมียร์ลีกที่ตรวจสอบแล้ว", [source])
                 if decision is None:
                     try:
                         classify_at = time.monotonic()
