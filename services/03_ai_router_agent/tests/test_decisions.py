@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from app.decisions import classify_intent, decide
+from app.decisions import classify_intent, decide, from_intent
 from app.teams import TeamDirectory
 
 
@@ -142,3 +142,62 @@ class DecisionTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlayerInfoTests(unittest.TestCase):
+    """CONTRACT v1.5: the classifier (04) does not know player_info, so rules must catch it."""
+
+    PLAYER_QUERIES = [
+        ("อาร์เซนอลมีนักเตะใครบ้าง", [57]),
+        ("ขอดูสควอดของเชลซีหน่อย", [61]),
+        ("โค้ชของลิเวอร์พูลคือใคร", [64]),
+        ("ผู้จัดการทีมแมนซิตี้คนปัจจุบันคือใคร", [65]),
+        ("ซาก้าเล่นตำแหน่งอะไร", []),
+        ("ฮาลันด์อายุเท่าไหร่", []),
+        ("นักเตะสัญชาติไทยในพรีเมียร์ลีกมีใครบ้าง", []),
+        ("ผู้รักษาประตูของนิวคาสเซิลมีใครบ้าง", [67]),
+        ("Which players are in the Chelsea squad", [61]),
+        ("What position does Salah play", []),
+        ("Who is the manager of Arsenal", [57]),
+        ("How old is Erling Haaland", []),
+    ]
+
+    def test_player_questions_route_to_player_documents(self):
+        for query, team_ids in self.PLAYER_QUERIES:
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertIsNotNone(result)
+                self.assertEqual(result.intent, "player_info")
+                self.assertEqual(result.route, "football_rag")
+                self.assertEqual(result.layer, "rules")
+                self.assertEqual(result.filters["category"], ["player"])
+                self.assertEqual(result.filters.get("team_ids", []), team_ids)
+                self.assertNotIn("matchweek", result.filters)
+
+    def test_player_rewrite_is_english_and_keeps_the_question(self):
+        query = "อาร์เซนอลมีนักเตะใครบ้าง"
+        result = decide(query, CONTEXT, [], TEAMS)
+        self.assertIn("Arsenal", result.rewritten_query)
+        self.assertIn("squad", result.rewritten_query)
+        self.assertIn(query, result.rewritten_query)
+
+    def test_neighbouring_questions_keep_their_intent(self):
+        cases = [
+            ("ใครนำดาวซัลโวตอนนี้", "standings_stats"),
+            ("ดาวซัลโวของอาร์เซนอลคือใคร", "standings_stats"),
+            ("อาร์เซนอลอยู่ตำแหน่งไหนในตารางคะแนน", "standings_stats"),
+            ("ผู้รักษาประตูใช้มือได้ตอนไหน", "general_football"),
+            ("ผู้เล่นคนไหนโดนใบแดงเมื่อวาน", "match_result"),
+            ("โค้ชคนไหนพาทีมได้แชมป์พรีเมียร์ลีกมากที่สุด", "trivia_history"),
+            # Rules never handled these; they must keep falling through to the classifier/LLM.
+            ("นักเตะคนไหนยิงประตูมากที่สุดฤดูกาลนี้", None),
+            ("What position is Arsenal in the table", None),
+        ]
+        for query, intent in cases:
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(result.intent if result else None, intent)
+
+    def test_classifier_and_llm_labels_map_to_player_documents(self):
+        self.assertEqual(classify_intent("player_info", 0.8).filters, {"category": ["player"]})
+        self.assertEqual(from_intent("player_info", 0.6).route, "football_rag")

@@ -14,7 +14,17 @@ INTENT_MAP = {
     "general_football": ("general_ai", None),
     "prediction": ("local_ai", None),
     "out_of_scope": ("decline", None),
+    "player_info": ("football_rag", "player"),
 }
+
+# CONTRACT v1.5: the 04 classifier does not know player_info, so these rules are its main entry.
+PLAYER_WORDS = ("นักเตะ", "ผู้เล่น", "สควอด", "ผู้รักษาประตู", "กองหน้า", "กองกลาง", "กองหลัง",
+                "โค้ช", "ผู้จัดการทีม", "กุนซือ", "ตำแหน่งอะไร", "เล่นตำแหน่ง", "อายุเท่า", "สัญชาติ",
+                "squad", "players", "who plays for", "head coach", "manager of", "coach of",
+                "how old is", "nationality")
+# Goal and table questions stay with the scorer/standings rules or fall through to the LLM.
+NOT_PLAYER_WORDS = ("ยิง", "ทำประตู", "กี่ประตู", "กี่ลูก", "ตาราง", "goals", "scored", "assist",
+                    "table")
 
 MATCHWEEK_PATTERN = re.compile(r"(?:นัดที่\s*|แมตช์วีค\s*|สัปดาห์ที่\s*|matchweek\s*)(\d+)")
 
@@ -77,6 +87,9 @@ def _intent(query: str) -> str | None:
         return "fixture_schedule"
     if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "ดาวซัลโว", "standings", "points", "scorer", "golden boot")):
         return "standings_stats"
+    if (_has(text, PLAYER_WORDS) or re.search(r"\bposition\b.*\bplay", text)) and not _has(
+            text, NOT_PLAYER_WORDS):
+        return "player_info"
     if _has(text, ("เมื่อวาน", "นัดล่าสุด", "นัดก่อน", "ชนะไหม", "ผลนัด", "ผลแข่ง", "จบเท่าไร", "สกอร์", "result")) or re.search(r"\bscore\b", text):
         return "match_result"
     if _has(text, ("ใครได้", "เคยได้", "ประวัติ", "กี่ครั้ง", "บัลลงดอร์", "ใครยิง", "trivia", "history")):
@@ -104,6 +117,8 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
         return keep_question(teams, "Premier League", topic, season, matchweek)
     if intent == "weekly_summary":
         return keep_question(teams, "Premier League weekly report summary", season, matchweek, dates)
+    if intent == "player_info":
+        return keep_question(teams, "Premier League squad players position nationality coach", season)
     if "บัลลงดอร์" in query:
         years = " ".join(re.findall(r"(?:19|20)\d{2}", query))
         return keep_question("Ballon d'Or winner", years)

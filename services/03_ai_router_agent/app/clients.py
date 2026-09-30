@@ -69,7 +69,7 @@ class ServiceClients:
 
         system = ("Classify the user's Premier League football question. Return a JSON object with "
                   "intent (one of trivia_history, match_result, fixture_schedule, standings_stats, "
-                  "weekly_summary, general_football, prediction, out_of_scope, clarify), "
+                  "weekly_summary, player_info, general_football, prediction, out_of_scope, clarify), "
                   "confidence (0 to 1), and rewritten_query (an English search query when factual). "
                   "Do not answer the question. Gambling and non-football requests are out_of_scope. "
                   "Ambiguous team or match references are clarify."
