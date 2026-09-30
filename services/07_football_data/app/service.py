@@ -45,6 +45,7 @@ from app.football import (
 
 BANGKOK = ZoneInfo("Asia/Bangkok")
 INDEX_MAX_BYTES = 5_000_000
+TOP_SCORERS_SHOWN = 10
 logger = logging.getLogger(__name__)
 
 
@@ -638,6 +639,7 @@ class FootballService:
             season,
             request_id,
             self._primary_throttle,
+            params={"limit": 100},
         )
         fetched_at = now_iso()
         teams = [team_payload(item) for item in teams_raw.get("teams", [])]
@@ -709,7 +711,8 @@ class FootballService:
             await db.merge(ServiceState(key="last_ingest_at", value=fetched_at))
             documents = self._documents(matches, standing, season, fetched_at, scorers)
             if self.settings.player_index_enabled:
-                documents += [squad_document(squad, season) for squad in squads]
+                stats = {s["player_id"]: s for s in scorers if s["player_id"] is not None}
+                documents += [squad_document(squad, season, stats) for squad in squads]
             await self._queue_documents(db, documents, request_id)
             cleanup_key = f"standings_legacy_cleanup_queued_{season}"
             if (
@@ -860,8 +863,15 @@ class FootballService:
                 text += "\n".join(
                     f"{rank}. {scorer['player']} "
                     f"({names.get(scorer['team_id'], scorer['team_id'])}): "
-                    f"{scorer['goals']} goals, {scorer['assists']} assists."
-                    for rank, scorer in enumerate(scorers, start=1)
+                    + (
+                        f"{scorer['goals']} goals, "
+                        + (
+                            f"{scorer['assists']} assists."
+                            if scorer["assists"] is not None
+                            else "assists not reported."
+                        )
+                    )
+                    for rank, scorer in enumerate(scorers[:TOP_SCORERS_SHOWN], start=1)
                 )
             documents.append(
                 {
@@ -1116,7 +1126,7 @@ class FootballService:
             scorers_row = await db.get(Scorers, season)
             match_data = [row.payload for row in matches]
             standings_data = standings.payload["rows"]
-            scorers_data = scorers_row.payload["items"] if scorers_row else []
+            scorers_data = scorers_row.payload["items"][:TOP_SCORERS_SHOWN] if scorers_row else []
         try:
             response = await self.http.post(
                 f"{self.settings.generation_url.rstrip('/')}/report/weekly",
