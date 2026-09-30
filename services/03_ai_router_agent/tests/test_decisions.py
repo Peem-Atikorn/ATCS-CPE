@@ -37,6 +37,7 @@ class DecisionTests(unittest.TestCase):
         cases = (
             ("ดาวซัลโว Everton ตอนนี้", "standings_stats"),
             ("ดาวซัลโวฤดูกาล 2026", "standings_stats"),
+            ("ดาวซัลโวฤดูกาล 2026/2027", "standings_stats"),
             ("ดาวซัลโวซีซั่น 2025/26", "trivia_history"),
             ("ผู้รักษาประตูคนไหนเซฟมากที่สุด", "player_info"),
             ("ทีมไหนเสียประตูมากที่สุด", None),

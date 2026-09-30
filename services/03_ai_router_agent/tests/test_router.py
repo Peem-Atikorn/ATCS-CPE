@@ -91,6 +91,13 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
             "ใครยิงเยอะสุดนัดที่ 3 ฤดูกาล 2024/25",
             "Salah ยิงมากที่สุดในเกมไหน 2024/25",
             "Everton top scorer 2024/25",
+            "ดาวซัลโวลาลีกาฤดูกาล 2023/24",
+            "ดาวซัลโวแชมเปียนส์ลีก 2023/24",
+            "ใครได้รองดาวซัลโว 2023/24",
+            "Who was second top scorer in 2023/24",
+            "ใครยิงเยอะสุดตั้งแต่ปี 2020",
+            "ใครยิงเยอะสุดถึง 2020",
+            "ใครยิงเยอะสุดในเดือนสิงหาคม 2025",
         )
         for query in queries:
             with self.subTest(query=query):

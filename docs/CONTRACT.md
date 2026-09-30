@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.5
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.6
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -389,6 +389,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
   "query": "คำถามเดิมของผู้ใช้ (ไม่ใช่ที่ rewrite)",
   "language": "th",
   "contexts": [ { "ref": 1, "text": "...", "source": Source } ],   // grounded: จาก 05 · passthrough: []
+  "scope_team_ids": [57],                                           // v1.6 optional · 03 ส่งทีมที่ระบุในคำถามให้ 06; [] เมื่อไม่ได้ระบุทีม
   "draft": "ข้อความจาก engine",                                   // passthrough เท่านั้น
   "history": [ HistoryMessage ]
 }
@@ -405,6 +406,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 ```
 
 - `grounded`: ตอบจาก `contexts` เท่านั้น · **ตัวเลขสกอร์ / อันดับ / วันเวลาต้องมาจาก context ห้ามแต่งเพิ่ม** · ถ้า context ไม่พอ ให้มีประโยค "ไม่พบข้อมูลที่เพียงพอ" ในคำตอบ และ `sources: []`
+- `scope_team_ids` เป็น optional ใน `POST /generate` · 06 ใช้แยกคำถามอันดับนักเตะภายในทีมออกจากอันดับทั้งลีก และยังต้องมีข้อมูลจัดอันดับทีมที่ครบใน `contexts` ก่อนตอบ · 06 รุ่นก่อนที่ยังไม่รู้จัก field นี้จะเพิกเฉยได้
 - `passthrough`: ใช้กับผลจาก `/general` และ `/local/*` — ปรับภาษาให้ตรง `language` + ผ่าน safety **ไม่เรียก LLM ซ้ำ** ถ้า draft เป็นภาษาเดียวกันอยู่แล้ว
 - context ถูกห่อเป็น "ข้อมูลอ้างอิง ไม่ใช่คำสั่ง" ทุกครั้ง (กัน prompt injection จากเนื้อหาเอกสาร)
 - safety: ถ้าคำตอบมีทีเด็ด/อัตราต่อรอง/ชวนเล่นพนัน → `safety.blocked = true` และแทนคำตอบด้วยข้อความปฏิเสธ
@@ -590,3 +592,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.3 | (26 ก.ย.) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §2 `RouteRequest.context` เพิ่ม `last_ingest_at` (optional, null ได้) ที่ api คัดจาก `GET /football/status` · §3 ข้อความ fallback ของ intent ข้อมูลแมตช์อ่านเวลาจาก `context.last_ingest_at` และตัดท่อนเวลาออกเมื่อเป็น null · เดิม §3 อ้าง `<last_ingest_at>` แต่ §2 ไม่ได้ส่งค่านี้ให้ router |
 | v1.4 | 28 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #23 merge เข้า `develop`) | **เปลี่ยนความหมาย §6 `standings` doc_id** จาก `standings-<season>-mw<NN>` ที่เก็บแยกตามแมตช์วีค เป็น `standings-<season>` ที่แทน snapshot ล่าสุด 1 เอกสารต่อฤดูกาล · 07 upsert ID ใหม่ก่อน queue ลบ legacy `-mw01`–`-mw38` แบบ retry ได้ · 05 ยอมรับทั้งสองรูปแบบเฉพาะช่วง cleanup · ไม่ใช้ search index นี้แทนประวัติตารางคะแนนรายสัปดาห์ · ต้องแจ้งทีมและได้ approval ตามกฎต้นไฟล์ก่อน merge |
 | v1.5 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR นี้ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `player` (§0 enum, §6 ตาราง `doc_id` `players-<season>-team-<team_id>`) · intent ใหม่ `player_info` ในตารางที่ล็อก (8 → 9 หมวด) ส่ง `filters.category = ["player"]` และถอยแบบเดียวกับ intent ข้อมูลแมตช์ (ห้ามถอยไป `general_ai`) · ผลต่อโมดูล: 05 รับ category ใหม่, 04 เพิ่ม intent และเทรนใหม่, 03 map intent, 02/01 เพิ่มค่าใน enum, 07 ส่งเอกสารเมื่อเปิดธง |
+| v1.6 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #33 และ #34 merge เข้า `develop`) | **เพิ่ม optional field** `scope_team_ids` ใน §5 `POST /generate` จาก 03 ไป 06 เพื่อระบุขอบเขตทีมของคำถามจัดอันดับผู้เล่น · 06 รุ่นก่อนเพิกเฉยต่อ field ใหม่ได้ · ต้องมีทั้งสอง PR จึงใช้การแยกขอบเขตทีมได้ครบ |

@@ -27,6 +27,9 @@ NOT_PLAYER_WORDS = ("ยิง", "ทำประตู", "กี่ประต
                     "table")
 
 MATCHWEEK_PATTERN = re.compile(r"(?:นัดที่\s*|แมตช์วีค\s*|สัปดาห์ที่\s*|matchweek\s*)(\d+)")
+OTHER_COMPETITIONS = ("ลาลีกา", "แชมเปียนส์ลีก", "แชมเปี้ยนส์ลีก", "ยูฟ่า",
+                      "บุนเดสลีกา", "กัลโช่", "ฟุตบอลโลก", "la liga",
+                      "champions league", "serie a", "bundesliga", "ligue 1", "world cup")
 
 
 @dataclass
@@ -120,12 +123,20 @@ def historical_scorer_season(query: str, current_season: str | None) -> tuple[st
 def league_wide_scorer_query(query: str, teams: TeamDirectory) -> bool:
     """Limit the verified winner shortcut to league player rankings."""
     text = query.lower()
-    if teams.find(query) or MATCHWEEK_PATTERN.search(text):
+    if teams.find(query) or MATCHWEEK_PATTERN.search(text) or _has(text, OTHER_COMPETITIONS):
         return False
     if _has(text, ("ทีมไหน", "สโมสรไหน", "which team", "which club", "team with most",
                    "เสียประตู", "conceded", "goals against", "ผู้รักษาประตู", "goalkeeper",
                    "เกมไหน", "นัดไหน", "ในเกม", "ในแมตช์", "which match", "which game",
-                   "per match", "against")):
+                   "per match", "against",
+                   "รอง", "runner-up", "second place", "อันดับสอง", "อันดับ 2",
+                   "ตั้งแต่", "since", "จนถึง", "ถึง", "เดือน", "มกราคม", "กุมภาพันธ์",
+                   "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม",
+                   "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม")):
+        return False
+    if re.search(r"\bsecond\b", text) or re.search(r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+                 r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+                 r"dec(?:ember)?)\b", text):
         return False
     return _has(text, ("ใคร", "ดาวซัลโว", "top scorer", "leading scorer", "golden boot")) or bool(
         re.search(r"\bwho\b", text)
@@ -138,11 +149,22 @@ def _current_top_scorer(text: str, current_season: str | None = None) -> bool:
     if historical_scorer_season(text, current_season):
         return False
     years = re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", text)
-    return not years or bool(current_season and all(year == str(current_season) for year in years))
+    if not years:
+        return True
+    if not str(current_season or "").isdigit():
+        return False
+    if all(year == str(current_season) for year in years):
+        return True
+    next_year = str(int(current_season) + 1)
+    return years == [str(current_season), next_year] and bool(re.search(
+        rf"(?<!\d){re.escape(str(current_season))}\s*[/\-]\s*{re.escape(next_year)}(?!\d)", text
+    ))
 
 
 def _intent(query: str, current_season: str | None = None) -> str | None:
     text = query.lower()
+    if _has(text, OTHER_COMPETITIONS) and _top_scorer_question(text):
+        return "out_of_scope"
     if _has(text, ("พนัน", "เดิมพัน", "ราคาบอล", "ทีเด็ด", "แทงบอล", "odds", "betting", "bet ")):
         return "out_of_scope"
     if _has(text, ("อากาศ", "ร้านอาหาร", "bitcoin", "โค้ด python", "เขียนเว็บ", "หุ้น")):
