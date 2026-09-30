@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from app.decisions import classify_intent, decide, from_intent
+from app.decisions import classify_intent, decide, from_intent, historical_scorer_season
 from app.teams import TeamDirectory
 
 
@@ -12,6 +12,25 @@ CONTEXT = {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00
 
 
 class DecisionTests(unittest.TestCase):
+    def test_historical_scorer_year_forms(self):
+        cases = (
+            ("ลีคปี 2025 ใครยิงเยอะสุด", ("2025", True)),
+            ("พรีเมียร์ลีกฤดูกาล 2025/26 ดาวซัลโว", ("2025", False)),
+            ("2025-2026 Premier League top scorer", ("2025", False)),
+            ("พรีเมียร์ลีก 25/26 ใครทำประตูมากที่สุด", ("2025", False)),
+            ("ใครยิงเยอะสุดตอนนี้", None),
+            ("ใครยิงประตูมากที่สุดตลอดกาลปี 2025", None),
+        )
+        for query, expected in cases:
+            with self.subTest(query=query):
+                self.assertEqual(historical_scorer_season(query, "2026"), expected)
+
+    def test_explicit_current_season_scorer_uses_live_standings(self):
+        result = decide("พรีเมียร์ลีกฤดูกาล 2026/27 ดาวซัลโว", CONTEXT, [], TEAMS)
+        self.assertEqual(result.intent, "standings_stats")
+        self.assertEqual(result.filters["season"], "2026")
+        self.assertIn("top scorer", result.rewritten_query)
+
     def test_routing_cases(self):
         cases = [json.loads(line) for line in CASES.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(len(cases), 41)

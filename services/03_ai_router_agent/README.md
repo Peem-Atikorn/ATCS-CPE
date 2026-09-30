@@ -34,6 +34,7 @@ Run the offline tests with `python -m unittest discover -s tests -v`. Run `pytho
 - 02 now includes optional `context.last_ingest_at` from 07 status. For an empty live-data search, 03 shows that timestamp when present and does not invent one when 07 status is unavailable or the field is null.
 - Scorer questions in Thai or English use the `standings` category required by `docs/CONTRACT.md` §4. When the user omits a matchweek, 03 filters to `context.current_matchweek` first, then retries without that filter if 05 returns no chunks. A factual scorer answer still depends on 07 publishing scorer data in the indexed standings document and 05 returning it; the retry cannot guarantee the newest document ranks first.
 - Trivia searches use the `trivia` category without a team or time filter because the indexed trivia documents have no team IDs. Team names remain in the rewritten search text.
+- Historical top-scorer questions with an explicit season start year use 07's curated Premier League reference directly. A bare year such as `2025` is interpreted as season `2025/26` and labeled as an assumption in the answer. Unsupported years return no ranking, while current-season questions continue through indexed standings. This covers verified scorer winners only; the full historical index remains separate.
 
 The deploy owner supplies the service container and Compose wiring. This module contains only the router implementation and its own tests.
 

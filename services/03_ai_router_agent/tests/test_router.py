@@ -13,6 +13,14 @@ class FakeClients:
         self.chunks = []
         self.classifier = {"data": {"label": "general_football", "score": 0.9}}
 
+    async def historical_scorer(self, season, request_id):
+        self.calls.append(("historical_scorer", season, request_id))
+        if season != "2025":
+            raise UpstreamError("football-data", 404)
+        return {"season": "2025", "season_label": "2025/26",
+                "player": "Erling Haaland", "goals": 27,
+                "source_url": "https://www.premierleague.com/en/news/4668605"}
+
     async def search(self, payload, request_id):
         self.calls.append(("search", payload, request_id))
         return {"chunks": self.chunks}
@@ -52,6 +60,21 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
 
     async def run_query(self, query):
         return await self.router.route({**self.request, "query": query})
+
+    async def test_bare_historical_year_uses_verified_scorer_and_names_season(self):
+        result = await self.run_query("ลีคปี 2025 ใครยิงเยอะสุด")
+        self.assertIn("ถ้าหมายถึงพรีเมียร์ลีกฤดูกาล 2025/26", result["answer"])
+        self.assertIn("Erling Haaland", result["answer"])
+        self.assertEqual(result["trace"]["intent"], "trivia_history")
+        self.assertEqual(result["sources"][0]["url"],
+                         "https://www.premierleague.com/en/news/4668605")
+        self.assertEqual(self.clients.calls[0][0], "historical_scorer")
+
+    async def test_unverified_historical_year_does_not_guess(self):
+        result = await self.run_query("พรีเมียร์ลีกปี 2020 ใครยิงเยอะสุด")
+        self.assertIn("ยังไม่มีข้อมูล", result["answer"])
+        self.assertEqual(result["sources"], [])
+        self.assertEqual([call[0] for call in self.clients.calls], ["historical_scorer"])
 
     async def test_rag_calls_search_and_grounded_generation(self):
         source = {"ref": 1, "doc_id": "match-1", "title": "Arsenal result", "category": "match_report",

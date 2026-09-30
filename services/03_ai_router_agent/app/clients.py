@@ -33,6 +33,23 @@ class ServiceClients:
         except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError) as exc:
             raise UpstreamError("football-data") from exc
 
+    async def historical_scorer(self, season: str, request_id: str):
+        try:
+            response = await self.http.get(
+                self.football_data_url + f"/football/history/top-scorer/{season}",
+                headers={"X-Request-ID": request_id}, timeout=5,
+            )
+            if response.status_code >= 400:
+                raise UpstreamError("football-data", response.status_code)
+            data = response.json()
+            if not isinstance(data, dict) or not all(
+                key in data for key in ("season", "season_label", "player", "goals", "source_url")
+            ):
+                raise ValueError("invalid historical scorer response")
+            return data
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise UpstreamError("football-data") from exc
+
     async def _post(self, base: str, path: str, payload: dict, request_id: str, timeout: float, service: str):
         try:
             response = await self.http.post(base + path, json=payload,
