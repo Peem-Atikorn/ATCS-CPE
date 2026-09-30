@@ -8,6 +8,7 @@ on:
       - ".env.example"
       - "Makefile"
       - "deploy/**"
+      - "eval/**"
       - ".github/workflows/**"
   push:
     branches: [develop, main]
@@ -17,6 +18,7 @@ on:
       - ".env.example"
       - "Makefile"
       - "deploy/**"
+      - "eval/**"
       - ".github/workflows/**"
   workflow_dispatch:
 permissions:
@@ -35,4 +37,7 @@ jobs:
           python-version: "3.12"
       - run: cp .env.example .env
       - run: docker compose --env-file .env -f docker-compose.yml config --quiet
-      - run: python -m py_compile deploy/smoke.py deploy/warmup.py
+      - run: python -m py_compile deploy/smoke.py deploy/warmup.py deploy/preflight.py deploy/monitor.py eval/run_live.py eval/build_report.py
+      - run: python -m unittest discover -s deploy -p 'test_tools.py'
+      - run: python eval/build_report.py
+      - run: git diff --exit-code -- eval/report.html

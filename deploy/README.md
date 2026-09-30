@@ -1,20 +1,54 @@
-# ส่งต่องาน 08 Deploy — Atikorn
+# Deploy & Monitoring (Peem)
 
-Compose ที่ root ใช้บริการจริงตามแผนของทีม ทุกบริการคุยกันด้วยชื่อในเครือข่าย Compose และเปิด port ให้เครื่องเจ้าของงานเฉพาะ Web กับ API เท่านั้น ไฟล์ Compose จำลองในโมดูล 01 ไม่ใช่หลักฐานว่าระบบจริงเชื่อมครบแล้ว
+Root `docker-compose.yml` connects the real services: Postgres, Redis, API, worker,
+beat, retrieval, engines, generation, football data, router, and web. Only API
+(`127.0.0.1:8000`) and web (`127.0.0.1:3000`) expose host ports. `checks` is a
+one-off tools profile, so it is not expected to remain running.
 
-## วิธีรัน
+## Runbook
 
-1. คัดลอก `.env.example` เป็น `.env` แล้วเปลี่ยนรหัสฐานข้อมูล, JWT, admin และ demo ใช้รหัสฐานข้อมูลที่ปลอดภัยสำหรับ URL เพราะค่านั้นอยู่ใน SQLAlchemy URL
-2. Linux/macOS: รัน `make up`, `make smoke`, `make warmup`, `make logs`, `make down` ที่ root ของ repo บน Windows PowerShell ใช้ `./deploy/tasks.ps1 up` และเปลี่ยนชื่องานตามต้องการ
-3. `warmup` ต้องมี `FOOTBALL_DATA_API_KEY` และจะดึง fixtures เท่านั้น ยังไม่สร้างหรือเผยแพร่รายงานประจำสัปดาห์ `smoke` ตรวจ health ของ 7 บริการและสิทธิ์ guest/demo/admin ยังไม่ได้พิสูจน์คำตอบครบ 5 route หรือความถูกต้องของข้อมูล
+1. Copy `.env.example` to `.env` and replace the four local passwords/secrets.
+   `JWT_SECRET_KEY` needs at least 32 characters. Set provider keys needed for the
+   desired demo. `FOOTBALL_DATA_API_KEY` is required for warmup. Use a Postgres
+   password safe for a URL because Compose inserts it in `DATABASE_URL`.
+2. Run `make preflight` then `make up`. On Windows PowerShell, run
+   `./deploy/tasks.ps1 preflight` and `./deploy/tasks.ps1 up`.
+3. Run `make monitor` for status of every long-running container, including
+   `worker` and `beat`; `python3 deploy/monitor.py --watch 30` repeats. Run
+   `make smoke` for HTTP readiness, authentication, admin permissions, and all
+   five chat routes. A smoke pass checks connectivity and response shape, not
+   factual correctness.
+4. Run `make warmup` only against the intended demo database. It ingests
+   fixtures/teams/standings/scorers, waits for indexing, generates the latest
+   complete weekly report, publishes it, and checks public visibility. It
+   needs a completed matchweek and working generation provider. The action is
+   attributed to `admin`, not to the scheduled beat.
+5. Run `make eval` to build `eval/report.html` from available measured results.
+   For a live trivia check, start the stack, export `SEED_DEMO_PASSWORD` and
+   run `make eval-live`, then `make eval` again. The live check uses exact answer
+   substring matching, which is a limited measure of answer quality. The
+   retrieval results currently use synthetic match fixtures and in-process
+   timing; the report labels them accordingly.
+6. Check `make logs` when a service fails; `make down` stops the stack without
+   deleting persistent volumes.
 
-   **หมายเหตุ:** `warmup` เป็นคำสั่งที่คนสั่งรันเอง แต่ job history และหน้า Admin Pipeline จะแสดง `triggered_by: "beat"` เพราะ CONTRACT §7 ยังรับเพียง `beat` หรือ `admin:<user_id>` รายการ `beat` จาก warmup จึงไม่ใช่หลักฐานว่า Celery beat เริ่มงานตามเวลา
-4. หลัง PR ของทุกบริการเข้า `develop` ให้ใช้ `pnpm test:integration` ของ Web กับชุดข้อมูลทดสอบที่ตรวจจากฐานข้อมูลจริง ตาม `services/01_web_app/INTEGRATION.md` บันทึก commit ของทั้ง 7 บริการ เวลา snapshot ของข้อมูล และผลผ่าน/ไม่ผ่านจริง ตรวจ 5 route, admin pipeline และวงจรรายงาน ก่อนสาธิตหรือรวมเข้า `main`
+The Web integration suite in `services/01_web_app/INTEGRATION.md` remains the
+end-to-end gate for seeded data, chat, admin pipeline, and weekly reports.
+Record the service commits, input data snapshot, and measured results when
+running it. `make monitor` checks container health, while `make smoke` and the
+Web suite check behavior.
 
-ณ 2026-09-26 `develop` มีบริการ 02 และ 05 เท่านั้น โค้ดของ 01/03/06/07 ยังอยู่ใน PR ส่วนเจ้าของ 04 ยังใช้ `services/04_ai_model_selection` ซึ่งต้องย้ายเป็น `services/04_ai_engines` ตามแผนก่อน build ได้ เครื่อง Windows ที่ทำงานนี้ไม่มี Docker และ Make จึงยังไม่ได้รัน Compose จริง
+## Current checkout and prerequisites
 
-## CI และการรวมงาน
+As of 2026-09-30, this checkout includes all seven service directories from
+`origin/develop` (`688024a`). The local `.env` has generated passwords and
+configured provider keys. Docker CLI is unavailable on this Windows host;
+Ubuntu WSL also reports that Docker Desktop integration is disabled. `make
+preflight` therefore reports only Docker as a blocker. Compose syntax alone
+does not prove that images build or the stack runs. A full container pass
+requires Docker with Compose, followed by `make up`, `make monitor`, and `make
+smoke` on the same checkout.
 
-Workflow ใหม่ตรวจ 01/03/04/07 ตามคำสั่งทดสอบของเจ้าของโมดูล PR ของ 06 เพิ่ม `generation-06.yml` เองใน commit `a1d884e` แล้ว จึงไม่สร้างไฟล์ชื่อซ้ำใน branch นี้ Workflow 08 ตรวจไวยากรณ์ Compose และสคริปต์ แต่ยัง build/test บริการที่ไม่ได้ merge ไม่ได้ เมื่อ workflow นี้เข้า `develop` ให้ rerun CI ของทุก PR ที่ commit ล่าสุด แล้วทดสอบ Compose และ Web integration กับข้อมูลจริง ผลจาก stub ไม่นับเป็นผลระบบจริง
-
-ตาม `docs/GIT_FLOW.md` Sakda (`sakda1306`) เป็นผู้กด merge เข้า `develop` หลัง review ตามเจ้าของโฟลเดอร์และ CI ผ่าน Atikorn เปิด PR งานนี้และประสานทดสอบเชื่อมระบบ ห้าม push เข้า `develop` โดยตรง
+The optional Prometheus/Grafana stack in `docs/SCHEDULE.md` is not included.
+The existing Admin dashboard (`/api/admin/stats`) supplies response metrics;
+`monitor.py` supplies an operational snapshot of all Compose containers.
