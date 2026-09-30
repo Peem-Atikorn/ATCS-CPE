@@ -2,7 +2,7 @@ import json
 import unittest
 from pathlib import Path
 
-from app.decisions import classify_intent, decide, from_intent
+from app.decisions import classify_intent, decide, from_intent, historical_scorer_season
 from app.teams import TeamDirectory
 
 
@@ -12,6 +12,44 @@ CONTEXT = {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00
 
 
 class DecisionTests(unittest.TestCase):
+    def test_historical_scorer_year_forms(self):
+        cases = (
+            ("ลีคปี 2025 ใครยิงเยอะสุด", ("2025", True)),
+            ("พรีเมียร์ลีกฤดูกาล 2025/26 ดาวซัลโว", ("2025", False)),
+            ("2025-2026 Premier League top scorer", ("2025", False)),
+            ("พรีเมียร์ลีก 25/26 ใครทำประตูมากที่สุด", ("2025", False)),
+            ("ใครยิงเยอะสุดตอนนี้", None),
+            ("ใครยิงประตูมากที่สุดตลอดกาลปี 2025", None),
+            ("Who was the top scorer last season", ("2025", False)),
+            ("ใครเป็นดาวซัลโวซีซั่นที่แล้ว", ("2025", False)),
+        )
+        for query, expected in cases:
+            with self.subTest(query=query):
+                self.assertEqual(historical_scorer_season(query, "2026"), expected)
+
+    def test_explicit_current_season_scorer_uses_live_standings(self):
+        result = decide("พรีเมียร์ลีกฤดูกาล 2026/27 ดาวซัลโว", CONTEXT, [], TEAMS)
+        self.assertEqual(result.intent, "standings_stats")
+        self.assertEqual(result.filters["season"], "2026")
+        self.assertIn("top scorer", result.rewritten_query)
+
+    def test_scorer_review_edge_cases(self):
+        cases = (
+            ("ดาวซัลโว Everton ตอนนี้", "standings_stats"),
+            ("ดาวซัลโวฤดูกาล 2026", "standings_stats"),
+            ("ดาวซัลโวฤดูกาล 2026/2027", "standings_stats"),
+            ("ดาวซัลโวซีซั่น 2025/26", "trivia_history"),
+            ("ผู้รักษาประตูคนไหนเซฟมากที่สุด", "player_info"),
+            ("ทีมไหนเสียประตูมากที่สุด", None),
+            ("Who was the top scorer last season", "trivia_history"),
+            ("ใครเป็นดาวซัลโวซีซั่นที่แล้ว", "trivia_history"),
+            ("ดาวซัลโวปีที่แล้ว", "trivia_history"),
+        )
+        for query, expected in cases:
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(decision.intent if decision else None, expected)
+
     def test_routing_cases(self):
         cases = [json.loads(line) for line in CASES.read_text(encoding="utf-8").splitlines()]
         self.assertEqual(len(cases), 41)
@@ -118,6 +156,30 @@ class DecisionTests(unittest.TestCase):
         result = decide("ใครนำดาวซัลโวตอนนี้", CONTEXT, [], TEAMS)
         self.assertEqual(result.filters["matchweek"], 5)
 
+    def test_current_top_scorer_phrases_use_standings(self):
+        for query in (
+            "ใครยิงเยอะสุดในลีกตอนนี้",
+            "ครยิงเยอะสุดในลีกตอนนี้",
+            "ใครทำประตูมากที่สุดในพรีเมียร์ลีกฤดูกาลนี้",
+            "ใครทำประตูเยอะที่สุด",
+            "ใครยิงเยอะที่สุดตอนนี้",
+            "นักเตะคนไหนยิงประตูมากที่สุดฤดูกาลนี้",
+            "Who has the most goals this season",
+        ):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(result.intent, "standings_stats")
+                self.assertEqual(result.filters["category"], ["standings"])
+                self.assertEqual(result.filters["matchweek"], 5)
+                if query != "Who has the most goals this season":
+                    self.assertIn("top scorer", result.rewritten_query)
+
+    def test_historical_scorer_does_not_use_current_standings(self):
+        for query in ("ใครยิงมากที่สุดในลีกปี 2020", "ใครยิงประตูมากที่สุดตลอดกาลของพรีเมียร์ลีก"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(result.intent, "trivia_history")
+
     def test_ambiguous_united(self):
         self.assertEqual(decide("ยูไนเต็ดนัดล่าสุดชนะไหม", CONTEXT, [], TEAMS).route, "clarify")
 
@@ -189,8 +251,8 @@ class PlayerInfoTests(unittest.TestCase):
             ("ผู้รักษาประตูใช้มือได้ตอนไหน", "general_football"),
             ("ผู้เล่นคนไหนโดนใบแดงเมื่อวาน", "match_result"),
             ("โค้ชคนไหนพาทีมได้แชมป์พรีเมียร์ลีกมากที่สุด", "trivia_history"),
-            # Rules never handled these; they must keep falling through to the classifier/LLM.
-            ("นักเตะคนไหนยิงประตูมากที่สุดฤดูกาลนี้", None),
+            ("นักเตะคนไหนยิงประตูมากที่สุดฤดูกาลนี้", "standings_stats"),
+            # This question still falls through to the classifier/LLM.
             ("What position is Arsenal in the table", None),
         ]
         for query, intent in cases:
