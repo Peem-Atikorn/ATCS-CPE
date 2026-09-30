@@ -185,6 +185,15 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
             result = await self.run_query("เมื่อวานปืนใหญ่ชนะไหม")
         self.assertEqual(result["trace"]["fallback"], "router_timeout")
 
+    async def test_empty_player_data_never_calls_general(self):
+        result = await self.run_query("อาร์เซนอลมีนักเตะใครบ้าง")
+        self.assertEqual(result["route"], "football_rag")
+        self.assertEqual(result["trace"]["intent"], "player_info")
+        self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
+        self.assertEqual(self.clients.calls[0][1]["filters"]["category"], ["player"])
+        self.assertEqual(self.clients.calls[0][1]["filters"]["team_ids"], [57])
+        self.assertNotIn("general", [call[0] for call in self.clients.calls])
+
 
 if __name__ == "__main__":
     unittest.main()

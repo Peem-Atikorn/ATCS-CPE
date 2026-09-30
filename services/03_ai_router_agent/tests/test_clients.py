@@ -70,3 +70,29 @@ class ClientTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LlmPromptTests(unittest.IsolatedAsyncioTestCase):
+    async def test_llm_prompt_lists_every_contract_intent(self):
+        seen = {}
+
+        class FakeCompletions:
+            async def create(self, **kwargs):
+                seen["system"] = kwargs["messages"][0]["content"]
+                return type("Response", (), {
+                    "choices": [type("Choice", (), {"message": type("Message", (), {
+                        "content": '{"intent": "player_info", "confidence": 0.9}'})()})()],
+                    "usage": None})()
+
+        class FakeOpenAI:
+            def __init__(self, **kwargs):
+                self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+        with patch.dict("os.environ", {"GROQ_API_KEY": "test", "GROQ_MODEL": "test",
+                                    "GEMINI_API_KEY": "", "GEMINI_MODEL": ""}),              patch("openai.AsyncOpenAI", FakeOpenAI):
+            result = await ServiceClients(None).llm_decide("who plays for arsenal", "req")
+        for intent in ("trivia_history", "match_result", "fixture_schedule", "standings_stats",
+                       "weekly_summary", "player_info", "general_football", "prediction",
+                       "out_of_scope", "clarify"):
+            self.assertIn(intent, seen["system"])
+        self.assertEqual(result["intent"], "player_info")
