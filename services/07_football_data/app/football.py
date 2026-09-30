@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import unicodedata
@@ -64,6 +65,63 @@ def team_payload(raw: dict) -> dict:
         "tla": raw.get("tla") or "",
         "aliases": aliases,
         "crest_url": raw.get("crest"),
+    }
+
+
+def squad_payload(raw_team: dict, fetched_at: str) -> dict | None:
+    squad = raw_team.get("squad")
+    players = [
+        {
+            "id": item.get("id"),
+            "name": item["name"],
+            "position": item.get("position"),
+            "date_of_birth": item.get("dateOfBirth"),
+            "nationality": item.get("nationality"),
+        }
+        for item in (squad if isinstance(squad, list) else [])
+        if isinstance(item, dict) and item.get("name")
+    ]
+    if not players:
+        return None
+    coach = raw_team.get("coach")
+    coach = coach if isinstance(coach, dict) else {}
+    return {
+        "team_id": raw_team["id"],
+        "team_name": raw_team["name"],
+        "coach": (
+            {"id": coach.get("id"), "name": coach["name"], "nationality": coach.get("nationality")}
+            if coach.get("name")
+            else None
+        ),
+        "players": players,
+        "fetched_at": fetched_at,
+    }
+
+
+def squad_document(squad: dict, season: str) -> dict:
+    team = squad["team_name"]
+    intro = f"Premier League {season} squad: {team}."
+    if squad["coach"]:
+        intro += f" Coach: {squad['coach']['name']}."
+    sections = [
+        f"## {player['name']}\n"
+        f"Team: {team}. Position: {player['position'] or 'unknown'}. "
+        f"Date of birth: {player['date_of_birth'] or 'unknown'}. "
+        f"Nationality: {player['nationality'] or 'unknown'}."
+        for player in squad["players"]
+    ]
+    return {
+        "doc_id": f"players-{season}-team-{squad['team_id']}",
+        "title": f"{team} squad {season}",
+        "text": intro + "\n\n" + "\n\n".join(sections),
+        "category": "player",
+        "origin": "football-data.org",
+        "season": season,
+        "matchweek": None,
+        "team_ids": [squad["team_id"]],
+        "date": squad["fetched_at"][:10],
+        "fetched_at": squad["fetched_at"],
+        "url": None,
     }
 
 
@@ -239,13 +297,57 @@ class UpstreamError(Exception):
     pass
 
 
+class PrimaryThrottle:
+    """Pause before the next call once football-data.org reports the minute quota spent."""
+
+    WINDOW_SECONDS = 60
+
+    def __init__(self, sleep=asyncio.sleep):
+        self._sleep = sleep
+        self._remaining: int | None = None
+        self._reset = self.WINDOW_SECONDS
+
+    @staticmethod
+    def _header_int(headers: httpx.Headers, name: str) -> int | None:
+        try:
+            value = int(headers.get(name, ""))
+        except ValueError:
+            return None
+        return value if value >= 0 else None
+
+    def observe(self, headers: httpx.Headers) -> None:
+        remaining = self._header_int(headers, "x-requests-available-minute")
+        if remaining is None:
+            return
+        self._remaining = remaining
+        reset = self._header_int(headers, "X-RequestCounter-Reset")
+        self._reset = reset if reset is not None else self.WINDOW_SECONDS
+
+    def block(self, headers: httpx.Headers) -> None:
+        """Treat a 429 as an exhausted minute even when it carries no counters."""
+        self.observe(headers)
+        self._remaining = 0
+
+    async def wait(self) -> None:
+        if self._remaining == 0:
+            self._remaining = None
+            await self._sleep(self._reset)
+
+
 async def fetch_primary(
-    http: httpx.AsyncClient, settings: Settings, path: str, season: str, request_id: str
+    http: httpx.AsyncClient,
+    settings: Settings,
+    path: str,
+    season: str,
+    request_id: str,
+    throttle: PrimaryThrottle | None = None,
 ) -> dict:
     if not settings.football_data_api_key:
         raise UpstreamError("FOOTBALL_DATA_API_KEY is not configured")
     url = f"{settings.football_data_base_url.rstrip('/')}/{path.lstrip('/')}"
     for attempt in range(3):
+        if throttle:
+            await throttle.wait()
         try:
             response = await http.get(
                 url,
@@ -256,9 +358,12 @@ async def fetch_primary(
                 },
                 timeout=10,
             )
+            if throttle:
+                throttle.observe(response.headers)
+            if response.status_code == 429 and throttle and attempt < 2:
+                throttle.block(response.headers)
+                continue
             if response.status_code in (429, 500, 502, 503, 504) and attempt < 2:
-                import asyncio
-
                 await asyncio.sleep((1, 3)[attempt])
                 continue
             response.raise_for_status()
@@ -266,8 +371,6 @@ async def fetch_primary(
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             if attempt == 2:
                 raise UpstreamError(str(exc)) from exc
-            import asyncio
-
             await asyncio.sleep((1, 3)[attempt])
         except (httpx.HTTPStatusError, ValueError) as exc:
             raise UpstreamError(str(exc)) from exc
