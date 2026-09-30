@@ -76,6 +76,11 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["sources"], [])
         self.assertEqual([call[0] for call in self.clients.calls], ["historical_scorer"])
 
+    async def test_last_season_uses_previous_verified_season(self):
+        result = await self.run_query("Who was the top scorer last season")
+        self.assertIn("2025/26", result["answer"])
+        self.assertEqual(result["sources"][0]["doc_id"], "official-scorer-2025")
+
     async def test_rag_calls_search_and_grounded_generation(self):
         source = {"ref": 1, "doc_id": "match-1", "title": "Arsenal result", "category": "match_report",
                   "origin": "football-data.org", "season": "2026", "matchweek": 5,

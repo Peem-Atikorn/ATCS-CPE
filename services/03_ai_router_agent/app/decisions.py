@@ -66,9 +66,22 @@ def _has(text: str, words: tuple[str, ...]) -> bool:
     return any(word in text for word in words)
 
 
+def _has_historical_marker(text: str) -> bool:
+    if _has(text, ("ตลอดกาล", "ประวัติศาสตร์", "ย้อนหลัง", "ฤดูกาลที่แล้ว",
+                   "ซีซั่นที่แล้ว", "ปีที่แล้ว", "ฤดูกาลก่อน", "ซีซั่นก่อน")):
+        return True
+    return bool(re.search(r"\b(?:all[- ]time|ever|in history|last season|previous season)\b", text))
+
+
+def _previous_season(text: str) -> bool:
+    return _has(text, ("ฤดูกาลที่แล้ว", "ซีซั่นที่แล้ว", "ปีที่แล้ว", "ฤดูกาลก่อน", "ซีซั่นก่อน")) or bool(
+        re.search(r"\b(?:last season|previous season)\b", text)
+    )
+
+
 def _top_scorer_question(text: str) -> bool:
     return _has(text, ("ดาวซัลโว", "top scorer", "leading scorer", "golden boot")) or (
-        _has(text, ("ยิง", "ทำประตู", "ประตู", "goals", "scored"))
+        _has(text, ("ยิง", "ทำประตู", "goals", "scored"))
         and _has(text, ("เยอะสุด", "เยอะที่สุด", "มากที่สุด", "สูงสุด", "most goals", "top scorer", "leading scorer"))
     )
 
@@ -76,8 +89,8 @@ def _top_scorer_question(text: str) -> bool:
 def historical_scorer_season(query: str, current_season: str | None) -> tuple[str, bool] | None:
     """Read explicit season years; a bare year means its starting season."""
     text = query.lower()
-    if not _top_scorer_question(text) or _has(
-        text, ("ตลอดกาล", "ประวัติศาสตร์", "all-time", "all time", "ever", "in history")
+    if not _top_scorer_question(text) or _has(text, ("ตลอดกาล", "ประวัติศาสตร์")) or re.search(
+        r"\b(?:all[- ]time|ever|in history)\b", text
     ):
         return None
     full = re.search(r"(?<!\d)((?:19|20)\d{2})\s*[/\-]\s*((?:19|20)\d{2}|\d{2})(?!\d)", text)
@@ -91,25 +104,29 @@ def historical_scorer_season(query: str, current_season: str | None) -> tuple[st
         assumed = False
     else:
         years = re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", text)
-        if len(years) != 1:
+        if len(years) == 1:
+            start = int(years[0])
+            assumed = True
+        elif not years and _previous_season(text) and str(current_season or "").isdigit():
+            start = int(current_season) - 1
+            assumed = False
+        else:
             return None
-        start = int(years[0])
-        assumed = True
     if str(start) == str(current_season):
         return None
     return str(start), assumed
 
 
-def _current_top_scorer(text: str) -> bool:
-    historical = _has(text, ("ตลอดกาล", "ประวัติศาสตร์", "ย้อนหลัง", "ฤดูกาลที่แล้ว",
-                             "all-time", "all time", "ever", "in history", "last season"))
-    dated = re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)", text) and not _has(
-        text, ("ตอนนี้", "ปัจจุบัน", "ฤดูกาลนี้", "ซีซั่นนี้", "this season", "currently")
-    )
-    return _top_scorer_question(text) and not historical and not dated
+def _current_top_scorer(text: str, current_season: str | None = None) -> bool:
+    if not _top_scorer_question(text) or _has_historical_marker(text):
+        return False
+    if historical_scorer_season(text, current_season):
+        return False
+    years = re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", text)
+    return not years or bool(current_season and all(year == str(current_season) for year in years))
 
 
-def _intent(query: str) -> str | None:
+def _intent(query: str, current_season: str | None = None) -> str | None:
     text = query.lower()
     if _has(text, ("พนัน", "เดิมพัน", "ราคาบอล", "ทีเด็ด", "แทงบอล", "odds", "betting", "bet ")):
         return "out_of_scope"
@@ -124,14 +141,15 @@ def _intent(query: str) -> str | None:
         return "general_football"
     if _has(text, ("สรุป", "ไฮไลต์", "weekly summary")) and _has(text, ("สัปดาห์", "นัด", "week", "พรีเมียร์ลีก")):
         return "weekly_summary"
-    if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history")) or (
-        not _current_top_scorer(text)
-        and _has(text, ("ดาวซัลโว", "ใครยิงประตูมากที่สุด"))
-    ):
+    if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history")):
         return "trivia_history"
     if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule")):
         return "fixture_schedule"
-    if _current_top_scorer(text) or _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "standings", "points", "scorer", "golden boot")):
+    if _top_scorer_question(text):
+        return "standings_stats" if _current_top_scorer(text, current_season) else "trivia_history"
+    if re.search(r"\bscorers?\b", text):
+        return "trivia_history" if _has_historical_marker(text) else "standings_stats"
+    if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "standings", "points")):
         return "standings_stats"
     if (_has(text, PLAYER_WORDS) or re.search(r"\bposition\b.*\bplay", text)) and not _has(
             text, NOT_PLAYER_WORDS):
@@ -231,18 +249,11 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
         return Decision("clarify", None, "guard", 1.0, "ขาดทีมที่อ้างถึง")
     if len(found) > 2:
         return Decision("clarify", None, "guard", 1.0, "พบหลายทีมในคำถาม")
-    intent = _intent(query)
-    if intent == "trivia_history" and _top_scorer_question(text) and not _has(
-        text, ("ตลอดกาล", "ประวัติศาสตร์", "all-time", "all time", "ever", "in history")
-    ):
-        current_year = str(context.get("season") or "")
-        if current_year and re.search(rf"(?<!\d){re.escape(current_year)}(?!\d)", text):
-            if historical_scorer_season(query, current_year) is None:
-                intent = "standings_stats"
+    intent = _intent(query, context.get("season"))
     if intent is None and history and re.search(r"(แล้ว|นัดก่อน|นัดนั้น)", text):
         for item in reversed(history[-10:]):
             if item.get("role") == "user":
-                intent = _intent(item.get("content", ""))
+                intent = _intent(item.get("content", ""), context.get("season"))
                 if intent is not None:
                     break
     if intent is None:

@@ -20,6 +20,8 @@ class DecisionTests(unittest.TestCase):
             ("พรีเมียร์ลีก 25/26 ใครทำประตูมากที่สุด", ("2025", False)),
             ("ใครยิงเยอะสุดตอนนี้", None),
             ("ใครยิงประตูมากที่สุดตลอดกาลปี 2025", None),
+            ("Who was the top scorer last season", ("2025", False)),
+            ("ใครเป็นดาวซัลโวซีซั่นที่แล้ว", ("2025", False)),
         )
         for query, expected in cases:
             with self.subTest(query=query):
@@ -30,6 +32,22 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(result.intent, "standings_stats")
         self.assertEqual(result.filters["season"], "2026")
         self.assertIn("top scorer", result.rewritten_query)
+
+    def test_scorer_review_edge_cases(self):
+        cases = (
+            ("ดาวซัลโว Everton ตอนนี้", "standings_stats"),
+            ("ดาวซัลโวฤดูกาล 2026", "standings_stats"),
+            ("ดาวซัลโวซีซั่น 2025/26", "trivia_history"),
+            ("ผู้รักษาประตูคนไหนเซฟมากที่สุด", "player_info"),
+            ("ทีมไหนเสียประตูมากที่สุด", None),
+            ("Who was the top scorer last season", "trivia_history"),
+            ("ใครเป็นดาวซัลโวซีซั่นที่แล้ว", "trivia_history"),
+            ("ดาวซัลโวปีที่แล้ว", "trivia_history"),
+        )
+        for query, expected in cases:
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(decision.intent if decision else None, expected)
 
     def test_routing_cases(self):
         cases = [json.loads(line) for line in CASES.read_text(encoding="utf-8").splitlines()]

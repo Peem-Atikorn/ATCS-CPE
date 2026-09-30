@@ -170,6 +170,7 @@ class Router:
                             generated_at = time.monotonic()
                             result = await self.clients.generate({"request_id": request_id, "mode": "grounded",
                                 "query": query, "language": user.get("language", "th"), "contexts": contexts,
+                                "scope_team_ids": decision.team_ids,
                                 "draft": None, "history": history}, request_id)
                             step("generation.grounded", generated_at)
                             engines.append("generation")
