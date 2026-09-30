@@ -165,3 +165,49 @@ async def test_normal_context_not_falsely_blocked_as_injection():
 
     assert fake_llm.calls == 1  # ต้องเรียก LLM ตามปกติ ไม่ถูกบล็อกผิด
     assert resp.safety.blocked is False
+
+
+@pytest.mark.asyncio
+async def test_player_search_sample_cannot_claim_league_top_scorer():
+    player_chunk = Context(
+        ref=1,
+        text="## Bukayo Saka\nPremier League 2026: 3 goals.",
+        source=Source(ref=1, doc_id="players-2026-team-57", title="Arsenal players",
+                      category="player", origin="football-data.org", season="2026",
+                      matchweek=None, team_ids=[57], fetched_at="2026-09-30T09:00:00+07:00",
+                      url=None),
+    )
+    req = GenerateRequest(request_id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                          mode="grounded", query="ใครทำประตูเยอะที่สุด", language="th",
+                          contexts=[player_chunk], history=[])
+    fake_llm = _FakeLLM("Bukayo Saka ยิงมากที่สุด 3 ลูก [1]")
+
+    resp = await run_grounded(req, llm=fake_llm, settings=Settings(llm_mock=True),
+                              request_id=req.request_id)
+
+    assert resp.answer.startswith("ไม่พบข้อมูลที่เพียงพอ")
+    assert resp.sources == []
+    assert fake_llm.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_ranked_standings_can_answer_top_scorer():
+    standings = Context(
+        ref=1,
+        text="## Current top scorers / Golden Boot\n1. Erling Haaland: 5 goals.",
+        source=Source(ref=1, doc_id="standings-2026", title="Premier League standings",
+                      category="standings", origin="football-data.org", season="2026",
+                      matchweek=6, team_ids=None, fetched_at="2026-09-30T09:00:00+07:00",
+                      url=None),
+    )
+    req = GenerateRequest(request_id="bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                          mode="grounded", query="ใครทำประตูเยอะที่สุด", language="th",
+                          contexts=[standings], history=[])
+    fake_llm = _FakeLLM("Erling Haaland ยิงมากที่สุด 5 ลูก [1]")
+
+    resp = await run_grounded(req, llm=fake_llm, settings=Settings(llm_mock=True),
+                              request_id=req.request_id)
+
+    assert "Erling Haaland" in resp.answer
+    assert resp.sources and resp.sources[0].doc_id == "standings-2026"
+    assert fake_llm.calls == 1
