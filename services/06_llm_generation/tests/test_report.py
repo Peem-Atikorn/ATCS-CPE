@@ -140,3 +140,39 @@ def test_weekly_report_pipe_in_team_name_safe(client):
     assert resp.status_code == 200
     data = resp.json()
     assert "Team \\| Pipe" in data["markdown"]
+
+
+def _scorer_report(client, language, scorers):
+    body = {
+        "season": "2026",
+        "matchweek": 5,
+        "language": language,
+        "matches": [_base_match()],
+        "standings": [],
+        "top_scorers": scorers,
+    }
+    resp = client.post("/report/weekly", json=body)
+    assert resp.status_code == 200
+    return resp.json()["markdown"]
+
+
+def test_unreported_assists_are_not_shown_as_zero(client):
+    scorers = [
+        {"player": "E. Haaland", "team_id": 65, "goals": 7, "assists": None},
+        {"player": "B. Saka", "team_id": 57, "goals": 5, "assists": 0},
+        {"player": "C. Palmer", "team_id": 61, "goals": 4, "assists": 3},
+    ]
+    th = _scorer_report(client, "th", scorers)
+    assert "| E. Haaland | 7 | ไม่มีข้อมูล |" in th
+    assert "| B. Saka | 5 | 0 |" in th
+    assert "| C. Palmer | 4 | 3 |" in th
+    en = _scorer_report(client, "en", scorers)
+    assert "| E. Haaland | 7 | not reported |" in en
+    assert "| B. Saka | 5 | 0 |" in en
+
+
+def test_missing_assists_key_is_treated_as_unreported(client):
+    th = _scorer_report(
+        client, "th", [{"player": "E. Haaland", "team_id": 65, "goals": 7}]
+    )
+    assert "| E. Haaland | 7 | ไม่มีข้อมูล |" in th
