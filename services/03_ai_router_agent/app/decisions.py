@@ -30,9 +30,14 @@ MATCHWEEK_PATTERN = re.compile(r"(?:นัดที่\s*|แมตช์วี�
 OTHER_COMPETITIONS = ("ลาลีกา", "แชมเปียนส์ลีก", "แชมเปี้ยนส์ลีก", "ยูฟ่า",
                       "บุนเดสลีกา", "กัลโช่", "ฟุตบอลโลก", "la liga",
                       "champions league", "serie a", "bundesliga", "ligue 1", "world cup")
-# Only match predictions are supported; a whole-season title question gets its own answer.
-SEASON_TITLE_PREDICTION = re.compile(
-    r"จะ\s*(?:ได้|เป็น|คว้า)?\s*แชมป์|\bwho will win the (?:premier league|league|title)\b")
+# Whole-season outlook questions (CONTRACT v1.7): answered from 07 /football/simulation.
+SEASON_PREDICTION = re.compile(
+    r"จะ\s*(?:ได้|เป็น|คว้า)?\s*แชมป์|จะ\s*ตกชั้น|จะ\s*(?:ติด|จบ)\s*(?:ท็อป|อันดับ)|เสี่ยง\s*ตกชั้น"
+    r"|มีโอกาส\s*(?:ได้\s*)?(?:แชมป์|ติดท็อป|ท็อป|ตกชั้น|จบอันดับ)"
+    r"|\bwho will (?:win the (?:premier league|league|title)|be relegated|finish)\b"
+    r"|\bchances? of (?:winning the (?:league|title)|(?:a )?top[- ]?(?:4|four)|relegation|being relegated)\b")
+SEASON_WORDS = ("แชมป์", "ท็อปโฟร์", "ท็อป 4", "ท็อป4", "top 4", "top four", "ตกชั้น", "relegat",
+                "อันดับ", "title", "finish")
 
 
 def normalize_thai(text: str) -> str:
@@ -40,8 +45,18 @@ def normalize_thai(text: str) -> str:
     return text.replace("เเ", "แ")
 
 
-def season_title_prediction(query: str) -> bool:
-    return bool(SEASON_TITLE_PREDICTION.search(query.lower()))
+def season_prediction(query: str) -> bool:
+    return bool(SEASON_PREDICTION.search(query.lower()))
+
+
+def prediction_kind(query: str, team_ids: list[int]) -> str:
+    """match = two teams · season = title / top 4 / relegation outlook · otherwise ask."""
+    if len(team_ids) >= 2:
+        return "match"
+    text = query.lower()
+    if season_prediction(text) or _has(text, SEASON_WORDS):
+        return "season"
+    return "needs_team"
 
 
 @dataclass
@@ -182,7 +197,7 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
     if _has(text, ("อากาศ", "ร้านอาหาร", "bitcoin", "โค้ด python", "เขียนเว็บ", "หุ้น")):
         return "out_of_scope"
     if _has(text, ("ทำนาย", "คาดการณ์", "พยากรณ์ผล", "predict", "who will win", "โอกาสชนะ", "จะชนะ")) or (
-            season_title_prediction(text)):
+            season_prediction(text)):
         return "prediction"
     if _has(text, ("ใบเหลือง", "ใบแดง", "ลูกโทษ")) and _has(
             text, ("เมื่อวาน", "เมื่อคืน", "นัดล่าสุด", "นัดก่อน", "นัดที่", "แมตช์", "เกมล่าสุด", "ผลแข่ง")):

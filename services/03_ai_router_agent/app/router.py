@@ -3,7 +3,9 @@ import time
 
 from .decisions import (MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
                         historical_scorer_season, league_wide_scorer_query, normalize_thai,
-                        season_title_prediction)
+                        prediction_kind)
+from .prediction_text import (NEEDS_TEAM_TEXT, TEAM_NOT_FOUND_TEXT, UNAVAILABLE_TEXT,
+                              match_prediction_text, simulation_focus, summarize_simulation)
 from .teams import TeamDirectory
 
 
@@ -197,27 +199,31 @@ class Router:
                     caveat = ""
 
                 if decision.route == "local_ai":
-                    if season_title_prediction(query):
-                        trace["fallback"] = "season_prediction_unsupported"
-                        return finish("ยังทำนายแชมป์ทั้งฤดูกาลไม่ได้ ตอนนี้ทำนายได้เฉพาะผลนัดระหว่างสองทีม "
-                                      "เช่น \"ทำนายผล Liverpool vs Man City\"", "local_ai",
-                                      decision.confidence, decision.reasoning)
-                    if len(decision.team_ids) != 2:
-                        trace["fallback"] = "prediction_needs_two_teams"
-                        return finish("กรุณาระบุสองทีมที่ต้องการทำนายผล", "clarify", decision.confidence,
-                                      decision.reasoning)
+                    kind = prediction_kind(query, decision.team_ids)
+                    if kind == "needs_team":
+                        trace["fallback"] = "prediction_needs_team"
+                        return finish(NEEDS_TEAM_TEXT, "clarify", decision.confidence, decision.reasoning)
                     try:
                         predict_at = time.monotonic()
-                        result = await self.clients.predict({"request_id": request_id,
-                            "home_team_id": decision.team_ids[0], "away_team_id": decision.team_ids[1],
-                            "season": str(context.get("season", ""))}, request_id)
-                        step("engines.predict", predict_at)
+                        if kind == "match":
+                            prediction = await self.clients.predict_match(
+                                decision.team_ids[0], decision.team_ids[1], request_id)
+                            step("football_data.predict", predict_at)
+                            draft = match_prediction_text(prediction)
+                        else:
+                            snapshot = await self.clients.season_simulation(request_id)
+                            step("football_data.simulation", predict_at)
+                            team_id = decision.team_ids[0] if decision.team_ids else None
+                            draft = summarize_simulation(snapshot, simulation_focus(query), team_id)
                         engines.append("local_ai")
-                        add_usage(result)
                     except UpstreamError as exc:
-                        trace["fallback"] = "prediction_unavailable"
-                        answer = "ฟีเจอร์ทำนายผลยังไม่เปิดใช้งาน" if exc.status == 501 else "ตอนนี้ระบบทำนายผลไม่พร้อมใช้งาน"
-                        return finish(answer, "local_ai", decision.confidence, decision.reasoning)
+                        if kind == "match" and exc.status == 404:
+                            trace["fallback"] = "prediction_team_not_found"
+                            return finish(TEAM_NOT_FOUND_TEXT, "local_ai", decision.confidence,
+                                          decision.reasoning)
+                        trace["fallback"] = "simulation_down"
+                        return finish(UNAVAILABLE_TEXT, "local_ai", decision.confidence, decision.reasoning)
+                    result = {"content": draft}
                 else:
                     try:
                         general_at = time.monotonic()

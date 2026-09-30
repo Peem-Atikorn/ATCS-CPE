@@ -33,13 +33,24 @@ class FakeClients:
         self.calls.append(("classify", payload, request_id))
         return self.classifier
 
-    async def predict(self, payload, request_id):
-        self.calls.append(("predict", payload, request_id))
-        return {"content": "ทีมเหย้า 40%", "token_usage": {"input": 0, "output": 0}}
+    async def predict_match(self, home_team_id, away_team_id, request_id):
+        self.calls.append(("predict_match", {"home_team_id": home_team_id,
+                                             "away_team_id": away_team_id}, request_id))
+        return {"content": "Liverpool ชนะ 46% · เสมอ 27% · Man City ชนะ 27% · สกอร์ที่น่าจะเป็นที่สุด 1–1",
+                "data": {"as_of": "2026-09-30T22:50:00+07:00"}}
+
+    async def season_simulation(self, request_id):
+        self.calls.append(("season_simulation", None, request_id))
+        return {"season": "2026", "as_of": "2026-09-30T22:50:00+07:00", "stale": False, "n_sims": 10000,
+                "teams": [{"team_id": 65, "short_name": "Man City", "points": 15, "expected_points": 80.0,
+                           "p_title": 0.38, "p_top4": 0.9, "p_relegation": 0.0},
+                          {"team_id": 57, "short_name": "Arsenal", "points": 12, "expected_points": 74.0,
+                           "p_title": 0.31, "p_top4": 0.82, "p_relegation": 0.0}]}
 
     async def generate(self, payload, request_id):
         self.calls.append(("generate", payload, request_id))
-        return {"answer": "ตอบแล้ว", "sources": [c["source"] for c in payload.get("contexts", [])],
+        answer = payload["draft"] if payload.get("mode") == "passthrough" else "ตอบแล้ว"
+        return {"answer": answer, "sources": [c["source"] for c in payload.get("contexts", [])],
                 "token_usage": {"input": 5, "output": 7}}
 
     async def llm_decide(self, query, request_id):
@@ -204,38 +215,57 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         await self.run_query(query)
         self.assertIn(query, self.clients.calls[1][1]["query"])
 
-    async def test_prediction_501_returns_contract_message(self):
-        async def unavailable(payload, request_id):
-            raise UpstreamError("engines", 501)
-        self.clients.predict = unavailable
-        result = await self.run_query("ทำนายผล แมนซิตี้ กับ ลิเวอร์พูล")
-        self.assertEqual(result["route"], "local_ai")
-        self.assertEqual(result["answer"], "ฟีเจอร์ทำนายผลยังไม่เปิดใช้งาน")
-
     async def test_double_sara_e_spelling_matches_team_nicknames(self):
         result = await self.run_query("ระหว่าง เป็ดเเดง กับ เรือใบสีฟ้า ใครน่าจะชนะ")
         self.assertEqual(result["route"], "local_ai")
-        predict = next(call[1] for call in self.clients.calls if call[0] == "predict")
-        self.assertEqual((predict["home_team_id"], predict["away_team_id"]), (64, 65))
+        call = next(call[1] for call in self.clients.calls if call[0] == "predict_match")
+        self.assertEqual((call["home_team_id"], call["away_team_id"]), (64, 65))
 
     async def test_who_will_win_between_two_teams_is_prediction(self):
         result = await self.run_query("ระหว่าง เป็ดแดง กับ เรือใบสีฟ้า ใครจะชนะ")
         self.assertEqual(result["route"], "local_ai")
         called = [call[0] for call in self.clients.calls]
-        self.assertEqual(called[0], "predict")
+        self.assertEqual(called[0], "predict_match")
         self.assertNotIn("llm", called)
-        self.assertNotIn("classify", called)
+        self.assertIn("ไม่ใช่คำแนะนำการพนัน", result["answer"])
 
-    async def test_season_title_prediction_says_it_is_not_supported(self):
+    async def test_season_questions_use_the_simulation(self):
         for query in ("คุณคิดว่าใครจะได้เเชมป์ปีนี้", "เดาสิว่าใครจะแชมป์ปีนี้",
                       "Who will win the Premier League this season?"):
             with self.subTest(query=query):
                 self.clients.calls.clear()
                 result = await self.run_query(query)
                 self.assertEqual(result["route"], "local_ai")
-                self.assertIn("ยังทำนายแชมป์ทั้งฤดูกาลไม่ได้", result["answer"])
-                self.assertEqual(result["trace"]["fallback"], "season_prediction_unsupported")
-                self.assertEqual(self.clients.calls, [])
+                self.assertEqual(self.clients.calls[0][0], "season_simulation")
+                self.assertIn("1. Man City 38%", result["answer"])
+                self.assertIn("จำลอง 10,000 ครั้ง", result["answer"])
+
+    async def test_single_team_season_question_shows_that_team(self):
+        result = await self.run_query("อาร์เซนอลมีโอกาสติดท็อป 4 กี่เปอร์เซ็นต์")
+        self.assertIn("Arsenal: แต้มตอนนี้ 12", result["answer"])
+
+    async def test_prediction_without_enough_detail_asks(self):
+        result = await self.run_query("ทำนายผลหน่อย")
+        self.assertEqual(result["route"], "clarify")
+        self.assertEqual(result["trace"]["fallback"], "prediction_needs_team")
+        self.assertEqual(self.clients.calls, [])
+
+    async def test_prediction_service_down_never_uses_general_ai(self):
+        async def down(*args):
+            raise UpstreamError("football-data", 503)
+        self.clients.season_simulation = down
+        result = await self.run_query("ใครจะได้แชมป์ปีนี้")
+        self.assertEqual(result["answer"], "ตอนนี้ระบบทำนายผลไม่พร้อมใช้งาน")
+        self.assertEqual(result["trace"]["fallback"], "simulation_down")
+        self.assertNotIn("general", [call[0] for call in self.clients.calls])
+
+    async def test_prediction_team_not_found(self):
+        async def missing(*args):
+            raise UpstreamError("football-data", 404)
+        self.clients.predict_match = missing
+        result = await self.run_query("ทำนายผล แมนซิตี้ กับ ลิเวอร์พูล")
+        self.assertEqual(result["answer"], "ไม่พบข้อมูลของทีมนี้ในฤดูกาลปัจจุบัน")
+        self.assertEqual(result["trace"]["fallback"], "prediction_team_not_found")
 
     async def test_retrieval_down_never_invents_match_result(self):
         async def unavailable(payload, request_id):

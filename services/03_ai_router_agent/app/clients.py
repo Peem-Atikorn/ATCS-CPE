@@ -75,8 +75,30 @@ class ServiceClients:
     async def general(self, payload: dict, request_id: str):
         return await self._post(self.engines_url, "/general", payload, request_id, 25, "engines")
 
-    async def predict(self, payload: dict, request_id: str):
-        return await self._post(self.engines_url, "/local/predict", payload, request_id, 25, "engines")
+    async def _get(self, base: str, path: str, params: dict, request_id: str, timeout: float, service: str):
+        try:
+            response = await self.http.get(base + path, params=params,
+                                           headers={"X-Request-ID": request_id}, timeout=timeout)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            raise UpstreamError(service) from exc
+        if response.status_code >= 400:
+            raise UpstreamError(service, response.status_code)
+        try:
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("expected object")
+            return data
+        except ValueError as exc:
+            raise UpstreamError(service) from exc
+
+    async def predict_match(self, home_team_id: int, away_team_id: int, request_id: str):
+        return await self._get(self.football_data_url, "/football/predict",
+                               {"home_team_id": home_team_id, "away_team_id": away_team_id},
+                               request_id, 15, "football-data")
+
+    async def season_simulation(self, request_id: str):
+        return await self._get(self.football_data_url, "/football/simulation", {}, request_id, 15,
+                               "football-data")
 
     async def generate(self, payload: dict, request_id: str):
         return await self._post(self.generation_url, "/generate", payload, request_id, 25, "generation")
