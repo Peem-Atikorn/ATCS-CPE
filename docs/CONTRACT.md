@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.4
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.5
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -96,7 +96,7 @@
 **enum ที่ล็อกแล้ว**
 
 - `route`: `football_rag` | `general_ai` | `local_ai` | `clarify` | `decline`
-- `category` (ของเอกสาร): `trivia` | `match_report` | `standings` | `fixtures` | `weekly_report`
+- `category` (ของเอกสาร): `trivia` | `match_report` | `standings` | `fixtures` | `weekly_report` | `player`
 - `origin`: `kb` | `football-data.org` | `api-football` | `generated` (เอกสารที่ LLM เขียน เช่น weekly report)
 
 **ป้ายภาษาไทยบนหน้าเว็บ** (ห้ามโชว์ enum ดิบ):
@@ -309,7 +309,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 }
 ```
 
-### Intent ของ classifier (v1) — 8 หมวด และตาราง map → route (**ล็อกแล้ว ห้ามตีความเอง**)
+### Intent ของ classifier (v1.5) — 9 หมวด และตาราง map → route (**ล็อกแล้ว ห้ามตีความเอง**)
 
 03 ใช้ตารางนี้ที่ชั้น classifier · 04 ห้ามเพิ่ม/เปลี่ยนชื่อ intent โดยไม่แก้ตารางนี้ผ่าน PR
 
@@ -320,19 +320,20 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 | `fixture_schedule` | `football_rag` | `["fixtures"]` | หงส์เตะกับใครต่อ วันไหน |
 | `standings_stats` | `football_rag` | `["standings"]` | ตอนนี้ใครจ่าฝูง / ดาวซัลโว |
 | `weekly_summary` | `football_rag` | `["weekly_report"]` + `matchweek` | สรุปพรีเมียร์ลีกสัปดาห์นี้ |
+| `player_info` | `football_rag` | `["player"]` + `team_ids` | อาร์เซนอลมีใครบ้าง · ซาก้าเล่นตำแหน่งอะไร · โค้ชลิเวอร์พูลคือใคร |
 | `general_football` | `general_ai` | – | อธิบายกฎล้ำหน้า |
 | `prediction` | `local_ai` | – | ลิเวอร์พูลกับซิตี้ใครน่าจะชนะ |
 | `out_of_scope` | `decline` | – | เรื่องที่ไม่เกี่ยวกับฟุตบอล · ขอทีเด็ด/ราคาพนัน · คำขอที่ทำร้ายผู้อื่น |
 
 - ใช้ตารางนี้เมื่อ `score ≥ 0.75` เท่านั้น ต่ำกว่านั้นให้ตกไปชั้น LLM
-- ชั้น LLM ตอบ intent ได้แค่ 8 ค่านี้ หรือ `clarify` (เมื่อชื่อทีม/ช่วงเวลากำกวมจนเลือกไม่ได้)
+- ชั้น LLM ตอบ intent ได้แค่ 9 ค่านี้ หรือ `clarify` (เมื่อชื่อทีม/ช่วงเวลากำกวมจนเลือกไม่ได้)
 - **ช่วงเวลาในคำถาม** ("เมื่อวาน", "สัปดาห์นี้", "นัดที่แล้ว") router แปลงเป็น `matchweek` หรือ `date_from/date_to` จาก `context` ก่อนเรียก 05
 
 ### ลำดับถอยของเส้น `football_rag` (ห้ามจบด้วย "ไม่มีข้อมูล" เฉย ๆ)
 1. 05 คืน `chunks` ว่าง **ด้วย filter** → ค้นซ้ำ 1 ครั้งโดยตัด `matchweek`/`date_*` ออก (เก็บ `category` + `team_ids`)
 2. ยังว่าง หรือ 05 ล่ม
    - intent `trivia_history` → ถอยไป `general_ai` และต่อท้าย "คำตอบนี้มาจากความรู้ทั่วไป ไม่ได้อ้างอิงคลังข้อมูล"
-   - intent ข้อมูลแมตช์ (`match_result`, `fixture_schedule`, `standings_stats`, `weekly_summary`) → **ห้ามถอยไป `general_ai`** (LLM จะเดาผล) ตอบว่า "ยังไม่มีข้อมูลของช่วงนี้ในระบบ ข้อมูลล่าสุด ณ `<context.last_ingest_at>`" พร้อม `trace.fallback` · ถ้า `context.last_ingest_at` เป็น null หรือไม่มี field (api รุ่นก่อน v1.3) ให้ตัดท่อน "ข้อมูลล่าสุด ณ ..." ออก ห้ามเดาเวลา
+   - intent ข้อมูลแมตช์ (`match_result`, `fixture_schedule`, `standings_stats`, `weekly_summary`, `player_info`) → **ห้ามถอยไป `general_ai`** (LLM จะเดาผล) ตอบว่า "ยังไม่มีข้อมูลของช่วงนี้ในระบบ ข้อมูลล่าสุด ณ `<context.last_ingest_at>`" พร้อม `trace.fallback` · ถ้า `context.last_ingest_at` เป็น null หรือไม่มี field (api รุ่นก่อน v1.3) ให้ตัดท่อน "ข้อมูลล่าสุด ณ ..." ออก ห้ามเดาเวลา
 
 ## 4. router → retrieval
 
@@ -469,6 +470,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | `standings` | `standings-<season>` | ล่าสุด 1 เอกสารต่อฤดูกาล ทับทุกครั้งที่ ingest; legacy `-mw<NN>` รองรับเฉพาะช่วง cleanup |
 | `fixtures` | `fixtures-<season>-team-<team_id>` | นัดที่เหลือของทีมนั้น ทับทุกครั้งที่ ingest |
 | `weekly_report` | `weekly-<season>-mw<NN>` | ที่มา `origin: generated` · **upsert เมื่อ publish เท่านั้น** และ delete เมื่อ unpublish (§7) |
+| `player` | `players-<season>-team-<team_id>` | (v1.5) squad ของทีมนั้น 1 เอกสารต่อทีม ทับทุกครั้งที่ ingest · `origin: football-data.org` · `matchweek: null` · `team_ids: [team_id]` · หัวข้อ `## <ชื่อผู้เล่น>` ต่อคน (05 ตัด 1 chunk ต่อคน) · 07 ส่งก็ต่อเมื่อเปิด `PLAYER_INDEX_ENABLED` |
 
 - **ช่วงเปลี่ยนผ่าน standings v1.4:** เมื่อ 07 ingest ฤดูกาลหนึ่งหลัง revision นี้มีผล ให้ upsert `standings-<season>` ก่อน แล้วค่อยลบ legacy `standings-<season>-mw01` ถึง `-mw38` ที่อาจค้างใน 05; งานลบล้มเหลวต้อง retry ได้ และห้ามลบก่อนเอกสารใหม่ index สำเร็จ ระหว่าง cleanup 05 ยังยอมรับ ID ทั้งสองรูปแบบ แต่หลัง cleanup ฝั่งเรียกควรใช้เฉพาะ ID ใหม่
 - เอกสาร `standings-<season>` ใน search คือ **snapshot ล่าสุดเท่านั้น** ไม่ใช่ประวัติรายแมตช์วีค; ผู้ใช้ที่ต้องการตารางย้อนหลังรายสัปดาห์ต้องใช้ข้อมูลหรือ endpoint สำหรับประวัติที่ตกลงแยก ไม่อนุมานจาก index นี้
@@ -587,3 +589,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.2 | (D4) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §4 / §6 เพิ่ม error `INDEX_NOT_READY` (503) · §6 ระบุขอบเขตของ upsert (1–100 เอกสาร, 5 MB, 422 ทั้งคำขอ) · §7 เพิ่ม retrieval เป็นผู้เรียก `GET /football/teams` · §4 ฝั่ง vector ของ 05 ใช้ `query` แทน `query_original` field และความหมายต่อผู้เรียกเหมือนเดิม — router ต้องส่ง `query` เป็นอังกฤษที่เขียนใหม่แล้ว · **มีผลเมื่อ PR #10 merge** (ก่อนนั้นโค้ดยัง embed `query_original`) · ตัวเลขที่ใช้ตัดสิน (ชุด match hit@1 0.70 → 0.90) วัดกับเอกสาร**จำลอง** 20 คำถามและคำอังกฤษที่เตรียมไว้ ไม่ใช่เอกสารของ 07 หรือคำที่ router เขียนจริง ต้องวัดซ้ำหลังต่อระบบ · §6 upsert / delete / rebuild ตอบ `INDEX_NOT_READY` ตอน index ยังโหลดไม่เสร็จ · §6 job ของ rebuild หายเมื่อ restart |
 | v1.3 | (26 ก.ย.) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §2 `RouteRequest.context` เพิ่ม `last_ingest_at` (optional, null ได้) ที่ api คัดจาก `GET /football/status` · §3 ข้อความ fallback ของ intent ข้อมูลแมตช์อ่านเวลาจาก `context.last_ingest_at` และตัดท่อนเวลาออกเมื่อเป็น null · เดิม §3 อ้าง `<last_ingest_at>` แต่ §2 ไม่ได้ส่งค่านี้ให้ router |
 | v1.4 | 28 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #23 merge เข้า `develop`) | **เปลี่ยนความหมาย §6 `standings` doc_id** จาก `standings-<season>-mw<NN>` ที่เก็บแยกตามแมตช์วีค เป็น `standings-<season>` ที่แทน snapshot ล่าสุด 1 เอกสารต่อฤดูกาล · 07 upsert ID ใหม่ก่อน queue ลบ legacy `-mw01`–`-mw38` แบบ retry ได้ · 05 ยอมรับทั้งสองรูปแบบเฉพาะช่วง cleanup · ไม่ใช้ search index นี้แทนประวัติตารางคะแนนรายสัปดาห์ · ต้องแจ้งทีมและได้ approval ตามกฎต้นไฟล์ก่อน merge |
+| v1.5 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR นี้ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `player` (§0 enum, §6 ตาราง `doc_id` `players-<season>-team-<team_id>`) · intent ใหม่ `player_info` ในตารางที่ล็อก (8 → 9 หมวด) ส่ง `filters.category = ["player"]` และถอยแบบเดียวกับ intent ข้อมูลแมตช์ (ห้ามถอยไป `general_ai`) · ผลต่อโมดูล: 05 รับ category ใหม่, 04 เพิ่ม intent และเทรนใหม่, 03 map intent, 02/01 เพิ่มค่าใน enum, 07 ส่งเอกสารเมื่อเปิดธง |

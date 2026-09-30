@@ -7,7 +7,7 @@ import json
 import re
 from dataclasses import asdict, dataclass
 
-CATEGORIES = ("trivia", "match_report", "standings", "fixtures", "weekly_report")
+CATEGORIES = ("trivia", "match_report", "standings", "fixtures", "weekly_report", "player")
 ORIGINS = ("kb", "football-data.org", "api-football", "generated")
 
 # Locked in CONTRACT §6: upserting the same doc_id replaces the document, so no duplicates.
@@ -18,6 +18,7 @@ DOC_ID_PATTERNS: dict[str, re.Pattern[str]] = {
     "standings": re.compile(r"standings-\d{4}(?:-mw\d{2})?"),
     "fixtures": re.compile(r"fixtures-\d{4}-team-\d+"),
     "weekly_report": re.compile(r"weekly-\d{4}-mw\d{2}"),
+    "player": re.compile(r"players-\d{4}-team-\d+"),
 }
 
 
