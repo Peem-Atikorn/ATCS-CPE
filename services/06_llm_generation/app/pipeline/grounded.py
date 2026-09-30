@@ -91,6 +91,21 @@ def _asks_top_scorer(query: str) -> bool:
         and any(word in text for word in (
             "เยอะสุด", "เยอะที่สุด", "มากที่สุด", "สูงสุด", "most goals", "top scorer"
         ))
+        and ("ใคร" in text or "คนไหน" in text or re.search(r"\b(?:who|which player)\b", text))
+    )
+
+
+def _complete_team_scope(req: GenerateRequest) -> bool:
+    if len(req.scope_team_ids) != 1:
+        return False
+    team_id = req.scope_team_ids[0]
+    if any(term in req.query.lower() for term in ("ทั้งลีก", "ทุกทีม", "ของลีก", "overall", "in the league")):
+        return False
+    return all(
+        c.source.team_ids == [team_id]
+        and bool(re.fullmatch(rf"players-\d{{4}}-team-{team_id}", c.source.doc_id or ""))
+        and "## Team scorer ranking" in c.text
+        for c in req.contexts
     )
 
 
@@ -190,10 +205,11 @@ async def run_grounded(
             token_usage=TokenUsage(),
         )
 
-    # Individual player chunks are only a search sample, never a complete league ranking.
+    # Player chunks cannot establish a league-wide ranking. A query scoped to one
+    # team may use that team's complete player document.
     if _asks_top_scorer(req.query) and all(
         c.source.category == "player" for c in req.contexts
-    ):
+    ) and not _complete_team_scope(req):
         log_event("ranking_context_insufficient", request_id, mode="grounded")
         return GenerateResponse(
             request_id=request_id,
