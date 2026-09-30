@@ -191,6 +191,83 @@ async def test_player_search_sample_cannot_claim_league_top_scorer():
 
 
 @pytest.mark.asyncio
+async def test_complete_team_document_can_answer_team_top_scorer():
+    team_chunk = Context(
+        ref=1,
+        text="## Team scorer ranking\nArsenal squad goals: Bukayo Saka 8, Gabriel Martinelli 5.",
+        source=Source(ref=1, doc_id="players-2026-team-57", category="player",
+                      team_ids=[57], season="2026"),
+    )
+    req = GenerateRequest(request_id="cccccccc-cccc-cccc-cccc-cccccccccccc",
+                          mode="grounded", query="นักเตะอาร์เซนอลคนไหนยิงเยอะที่สุด",
+                          scope_team_ids=[57], contexts=[team_chunk])
+    fake_llm = _FakeLLM("ในอาร์เซนอล Bukayo Saka ยิงมากที่สุด 8 ประตู [1]")
+
+    resp = await run_grounded(req, llm=fake_llm, settings=Settings(llm_mock=True),
+                              request_id=req.request_id)
+
+    assert "Bukayo Saka" in resp.answer
+    assert fake_llm.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_team_scope_must_match_player_document():
+    player_chunk = Context(
+        ref=1, text="## Team scorer ranking\nArsenal squad goals: Bukayo Saka 8.",
+        source=Source(ref=1, doc_id="players-2026-team-57", category="player",
+                      team_ids=[57], season="2026"),
+    )
+    req = GenerateRequest(request_id="dddddddd-dddd-dddd-dddd-dddddddddddd",
+                          mode="grounded", query="ใครทำประตูเยอะที่สุด",
+                          scope_team_ids=[61], contexts=[player_chunk])
+    fake_llm = _FakeLLM("Bukayo Saka ยิงมากที่สุด 8 ประตู [1]")
+
+    resp = await run_grounded(req, llm=fake_llm, settings=Settings(llm_mock=True),
+                              request_id=req.request_id)
+
+    assert resp.answer.startswith("ไม่พบข้อมูลที่เพียงพอ")
+    assert fake_llm.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_one_player_chunk_is_not_a_complete_team_ranking():
+    player_chunk = Context(
+        ref=1, text="## Bukayo Saka\nPremier League goals: 8.",
+        source=Source(ref=1, doc_id="players-2026-team-57", category="player",
+                      team_ids=[57], season="2026"),
+    )
+    req = GenerateRequest(request_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+                          mode="grounded", query="นักเตะอาร์เซนอลคนไหนยิงเยอะที่สุด",
+                          scope_team_ids=[57], contexts=[player_chunk])
+    fake_llm = _FakeLLM("Bukayo Saka ยิงมากที่สุด 8 ประตู [1]")
+
+    resp = await run_grounded(req, llm=fake_llm, settings=Settings(llm_mock=True),
+                              request_id=req.request_id)
+
+    assert resp.answer.startswith("ไม่พบข้อมูลที่เพียงพอ")
+    assert fake_llm.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_single_player_match_question_does_not_trigger_ranking_guard():
+    player_chunk = Context(
+        ref=1, text="Saka scored twice against Chelsea on 12 September 2026.",
+        source=Source(ref=1, doc_id="saka-matches", category="player",
+                      team_ids=[57], season="2026"),
+    )
+    req = GenerateRequest(request_id="eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+                          mode="grounded", query="Saka ทำประตูมากที่สุดในเกมไหน",
+                          contexts=[player_chunk])
+    fake_llm = _FakeLLM("Saka ยิง 2 ประตูในเกมกับ Chelsea [1]")
+
+    resp = await run_grounded(req, llm=fake_llm, settings=Settings(llm_mock=True),
+                              request_id=req.request_id)
+
+    assert "Chelsea" in resp.answer
+    assert fake_llm.calls == 1
+
+
+@pytest.mark.asyncio
 async def test_ranked_standings_can_answer_top_scorer():
     standings = Context(
         ref=1,
