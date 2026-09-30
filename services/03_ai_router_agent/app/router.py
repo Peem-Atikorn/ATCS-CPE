@@ -1,7 +1,8 @@
 import asyncio
 import time
 
-from .decisions import MATCHWEEK_PATTERN, decide, enrich, classify_intent, from_intent, historical_scorer_season
+from .decisions import (MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
+                        historical_scorer_season, league_wide_scorer_query)
 from .teams import TeamDirectory
 
 
@@ -48,7 +49,8 @@ class Router:
                 decided_at = time.monotonic()
                 decision = decide(query, context, history, self.teams, user.get("favorite_team_id"))
                 historical_scorer = historical_scorer_season(query, context.get("season"))
-                if historical_scorer and (decision is None or decision.route == "football_rag"):
+                if (historical_scorer and league_wide_scorer_query(query, self.teams)
+                        and (decision is None or decision.route == "football_rag")):
                     season, assumed = historical_scorer
                     season_label = f"{season}/{(int(season) + 1) % 100:02d}"
                     trace.update(decided_at_layer="rules", intent="trivia_history",

@@ -117,6 +117,21 @@ def historical_scorer_season(query: str, current_season: str | None) -> tuple[st
     return str(start), assumed
 
 
+def league_wide_scorer_query(query: str, teams: TeamDirectory) -> bool:
+    """Limit the verified winner shortcut to league player rankings."""
+    text = query.lower()
+    if teams.find(query) or MATCHWEEK_PATTERN.search(text):
+        return False
+    if _has(text, ("ทีมไหน", "สโมสรไหน", "which team", "which club", "team with most",
+                   "เสียประตู", "conceded", "goals against", "ผู้รักษาประตู", "goalkeeper",
+                   "เกมไหน", "นัดไหน", "ในเกม", "ในแมตช์", "which match", "which game",
+                   "per match", "against")):
+        return False
+    return _has(text, ("ใคร", "ดาวซัลโว", "top scorer", "leading scorer", "golden boot")) or bool(
+        re.search(r"\bwho\b", text)
+    )
+
+
 def _current_top_scorer(text: str, current_season: str | None = None) -> bool:
     if not _top_scorer_question(text) or _has_historical_marker(text):
         return False
