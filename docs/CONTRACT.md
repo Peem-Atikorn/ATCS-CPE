@@ -514,7 +514,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | GET | `/football/matches/{match_id}` | api | `Match` (มี `events`, `lineups`, `statistics` ถ้ามี) |
 | GET | `/football/reports/weekly` | api | `WeeklyReport` · query `season, matchweek` (ไม่ใส่ = ล่าสุด) · **คืนเฉพาะ `published`** · ไม่มี → 404 |
 | GET | `/football/teams` | api, router, retrieval | `{teams: [Team]}` (รวม aliases — router cache ไว้ใช้ในชั้น rules · retrieval ใช้ขยายคำค้น BM25 ดึงใหม่ทุก 1 ชม. ถ้าดึงไม่ได้ใช้ไฟล์สำรองของตัวเอง) |
-| GET | `/football/predict` | router, api | `EngineResult` ของ 04 + `data.as_of` · query `home_team_id, away_team_id` · 404 ทีมไม่อยู่ฤดูกาลนี้ · 422 ทีมเดียวกัน · 503 `SIMULATION_UNAVAILABLE` (v1.7) |
+| GET | `/football/predict` | router, api | `EngineResult` ของ 04 + `data.as_of` · query `home_team_id, away_team_id` (ถ้ามีนัดที่ยังไม่แข่งระหว่างสองทีม ใช้ฝั่งเหย้าตามโปรแกรมนัดถัดไป) · 404 ทีมไม่อยู่ฤดูกาลนี้ · 422 ทีมเดียวกัน · 503 `SIMULATION_UNAVAILABLE` (v1.7) |
 | GET | `/football/simulation` | router, api | `SimulationSnapshot` · query `season?` (ฤดูกาลอื่น → 404) · 503 `SIMULATION_UNAVAILABLE` เมื่อไม่มีผลเก่าและ 04 ล่ม (v1.7) |
 | POST | `/ingest/run` | beat ของ api / admin | `202 {job_id, scope}` · body `{scope: "fixtures" \| "details" \| "all", triggered_by}` |
 | POST | `/reports/weekly/run` | beat ของ api / admin | `202 {job_id}` · body `{season?, matchweek?, triggered_by}` (ไม่ใส่ = แมตช์วีคล่าสุดที่จบครบ) |
