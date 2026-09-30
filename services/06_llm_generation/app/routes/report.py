@@ -21,7 +21,7 @@ async def report_weekly(
     # success response กับ error response (เช่นตอน LLMUnavailable -> 503)
     request.state.request_id = request_id
     response.headers["X-Request-ID"] = request_id
-    llm = get_llm_client()
+    llm = get_llm_client(request)
     return await run_weekly_report(
         body, llm=llm, settings=settings, request_id=request_id
     )

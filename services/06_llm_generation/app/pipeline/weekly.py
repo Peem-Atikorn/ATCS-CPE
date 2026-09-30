@@ -10,7 +10,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from app.config import Settings
-from app.errors import AppValidationError
+from app.errors import AppValidationError, LLMUnavailable
 from app.language import language_name
 from app.llm.client import LLMClient
 from app.middleware import log_event
@@ -273,42 +273,60 @@ async def run_weekly_report(
     token_usage = TokenUsage()
 
     remaining = settings.report_deadline_s - (time.monotonic() - start)
-    result = await llm.chat(
-        messages,
-        temperature=settings.temperature_report,
-        max_tokens=settings.report_max_output_tokens,
-        deadline=remaining,
-        purpose="report_highlights",
-    )
-    parsed = _parse_llm_json(result.text)
-    if parsed and isinstance(parsed.get("highlights"), list):
-        candidate_highlights = [str(h)[:120] for h in parsed["highlights"]][:6]
-        candidate_text = (
-            " ".join(candidate_highlights) + " " + str(parsed.get("intro", ""))
+
+    # เดิมไม่ครอบ try/except เลย ถ้า provider หลักและสำรองล่มพร้อมกัน
+    # LLMUnavailable จะหลุดออกไปให้ error handler ตอบ 503 ทั้งที่ผลบอล/ตาราง/
+    # ดาวซัลโว สร้างได้อยู่แล้วจากโค้ดล้วน ๆ (ไม่ต้องพึ่ง LLM) และมี
+    # _fallback_highlights() เตรียมไว้ใช้อยู่แล้วสำหรับกรณีนี้โดยเฉพาะ
+    # จับ LLMUnavailable ตรงนี้แล้วใช้ fallback highlights แทน เพื่อให้รายงาน
+    # ยังส่งได้ (แค่ไม่มี LLM-generated highlights) แทนที่จะตอบ 503 ทั้งที่มีข้อมูล
+    try:
+        result = await llm.chat(
+            messages,
+            temperature=settings.temperature_report,
+            max_tokens=settings.report_max_output_tokens,
+            deadline=remaining,
+            purpose="report_highlights",
         )
-        mismatches = check_score_mismatch(candidate_text, known_scores)
-        if mismatches:
-            log_event(
-                "numeric_guard_failed",
-                request_id,
-                mismatches=str(mismatches),
-                where="weekly_report",
-            )
-            highlights = _fallback_highlights(
-                req.matches, req.standings, req.top_scorers, language
-            )
-        else:
-            highlights = candidate_highlights
-            intro = str(parsed.get("intro", ""))[:300]
-            model_used = result.model
-            token_usage = TokenUsage(
-                input=result.usage.input, output=result.usage.output
-            )
-    else:
-        log_event("report_llm_parse_failed", request_id)
+    except LLMUnavailable:
+        log_event(
+            "llm_unavailable_fallback",
+            request_id,
+            where="weekly_report",
+        )
         highlights = _fallback_highlights(
             req.matches, req.standings, req.top_scorers, language
         )
+    else:
+        parsed = _parse_llm_json(result.text)
+        if parsed and isinstance(parsed.get("highlights"), list):
+            candidate_highlights = [str(h)[:120] for h in parsed["highlights"]][:6]
+            candidate_text = (
+                " ".join(candidate_highlights) + " " + str(parsed.get("intro", ""))
+            )
+            mismatches = check_score_mismatch(candidate_text, known_scores)
+            if mismatches:
+                log_event(
+                    "numeric_guard_failed",
+                    request_id,
+                    mismatches=str(mismatches),
+                    where="weekly_report",
+                )
+                highlights = _fallback_highlights(
+                    req.matches, req.standings, req.top_scorers, language
+                )
+            else:
+                highlights = candidate_highlights
+                intro = str(parsed.get("intro", ""))[:300]
+                model_used = result.model
+                token_usage = TokenUsage(
+                    input=result.usage.input, output=result.usage.output
+                )
+        else:
+            log_event("report_llm_parse_failed", request_id)
+            highlights = _fallback_highlights(
+                req.matches, req.standings, req.top_scorers, language
+            )
 
     highlights_header = (
         f"Premier League {req.season}/{_yy(req.season)} · นัดที่ {req.matchweek}"

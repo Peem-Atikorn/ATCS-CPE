@@ -23,6 +23,26 @@ class AppValidationError(Exception):
         self.detail = detail
 
 
+def sanitize_request_id(rid: str | None) -> str | None:
+    """คืน rid เดิมถ้าใช้เป็นค่า HTTP header ได้อย่างปลอดภัย (latin-1 encodable)
+    ไม่งั้นคืน None ให้ผู้เรียกสร้าง id ใหม่แทน
+
+    request_id ที่ client ส่งมาทาง body (ไม่ใช่ header) เป็น JSON string จึงเป็น
+    unicode อะไรก็ได้ รวมถึงภาษาไทย ถ้าเอาไปตั้งเป็นค่า header ตรง ๆ (X-Request-ID)
+    Starlette จะพยายาม encode เป็น latin-1 ตามสเปก HTTP/1.1 แล้ว raise
+    UnicodeEncodeError กลางทาง ทำให้ response พัง และถ้า error handler (ด้านล่าง)
+    พยายามตั้ง header เดิมซ้ำอีกก็จะพังซ้ำเป็น loop ได้ — กรองตรงนี้ครั้งเดียว
+    ใช้ร่วมกันทั้งฝั่ง success (routes/generate.py) และฝั่ง error (ไฟล์นี้)
+    """
+    if not rid:
+        return None
+    try:
+        rid.encode("latin-1")
+    except UnicodeEncodeError:
+        return None
+    return rid
+
+
 async def _resolve_request_id(request: Request) -> str:
     """เดียวกับ resolve_request_id() ใน routes/generate.py:
     header > body.request_id > state (ตั้งโดย middleware) > uuid ใหม่
@@ -40,9 +60,9 @@ async def _resolve_request_id(request: Request) -> str:
         # body ปกติของ route) เรียกซ้ำที่นี่จึงไม่ทำให้ stream เสีย
         body = await request.json()
         if isinstance(body, dict):
-            body_rid = body.get("request_id")
+            body_rid = sanitize_request_id(body.get("request_id"))
             if body_rid:
-                return str(body_rid)
+                return body_rid
     except Exception:  # noqa: BLE001, S110
         pass
     return getattr(request.state, "request_id", None) or str(uuid.uuid4())

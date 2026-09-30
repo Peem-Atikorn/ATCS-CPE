@@ -20,7 +20,12 @@ INJECTION_PATTERNS = [
     r"you are now (an?|the) (ai|assistant|chatbot|bot|language model|llm)",
     # เดิม r"act as" กว้างเกินไป จับ "act as captain" (บริบทกีฬาปกติ) ผิด
     # แก้ให้เจาะจงเฉพาะกรณี "act as" ตามด้วยคำที่บ่งชี้ persona/AI/jailbreak จริง ๆ
- r"act as (an?|the) (ai|assistant|chatbot|bot|language model|llm|gpt|dan|jailbreak|unrestricted|developer mode)",
+    # ครอบด้วยวงเล็บให้ implicit string concat ชัดเจน (กัน ISC004) และแต่ละบรรทัด
+    # ไม่เกิน 88 ตัวอักษรตาม ruff format — เดิมเยื้อง 1 space ทำให้ format ไม่ผ่าน
+    (
+        r"act as (an?|the) (ai|assistant|chatbot|bot|language model|llm|gpt|dan|"
+        r"jailbreak|unrestricted|developer mode)"
+    ),
     r"new instructions?:",
 ]
 

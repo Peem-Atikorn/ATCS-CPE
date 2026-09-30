@@ -62,11 +62,25 @@ class _ProviderConfig:
 def _is_empty_content(text: str | None, finish_reason: str | None) -> bool:
     if not text or not text.strip():
         return True
-    return finish_reason == "length" and not text.strip()
+    # ตัดกลางคันเพราะ token limit (finish_reason == "length") ถือว่าใช้ไม่ได้เสมอ
+    # ต้อง fallback แม้จะมีข้อความบางส่วนติดมาด้วยก็ตาม
+    # เดิม `finish_reason == "length" and not text.strip()` ผิด: ถ้ามาถึงบรรทัดนี้
+    # ได้ text.strip() ไม่ว่างแน่นอนแล้ว (เช็คผ่านบรรทัดบนไปแล้ว) เงื่อนไขนี้จึงเป็น
+    # False เสมอไม่ว่ากรณีไหน ทำให้คำตอบที่ถูกตัดกลางคันหลุดผ่านเป็น "สำเร็จ" โดยไม่
+    # ลอง fallback ไปยัง provider สำรองเลย
+    return finish_reason == "length"
 
 
 class RealLLMClient:
-    """เรียกหลัก 1 ครั้ง (ไม่ retry) → ถ้าล้มเหลว เรียกสำรอง 1 ครั้ง → ล่มทั้งคู่ raise LLMUnavailable"""
+    """เรียกหลัก 1 ครั้ง (ไม่ retry) → ถ้าล้มเหลว เรียกสำรอง 1 ครั้ง → ล่มทั้งคู่ raise LLMUnavailable
+
+    ใช้ client instance เดียวต่อ provider ตลอดอายุ RealLLMClient (แชร์ connection pool
+    ของ httpx ใต้ AsyncOpenAI) แทนที่จะสร้างใหม่ทุกครั้งเหมือนเดิม ซึ่งทำให้ connection
+    ค้างจน GC มาเก็บ เสี่ยง socket leak เมื่อโหลดสูง — ใช้ `.with_options(timeout=...)`
+    ของ openai SDK เพื่อคุม timeout ต่อ call แม่นยำเหมือนเดิม โดยยังแชร์ connection
+    pool เดียวกันอยู่ (with_options คืน client ใหม่แบบ shallow copy ไม่สร้าง
+    httpx transport ใหม่)
+    """
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -86,16 +100,27 @@ class RealLLMClient:
         }
         self._primary = providers[settings.llm_primary]
         self._fallback = providers[settings.llm_fallback]
-        self._clients: dict[str, AsyncOpenAI] = {}
+        self._base_clients: dict[str, AsyncOpenAI] = {}
+
+    def _base_client_for(self, provider: _ProviderConfig) -> AsyncOpenAI:
+        if provider.name not in self._base_clients:
+            self._base_clients[provider.name] = AsyncOpenAI(
+                base_url=provider.base_url,
+                api_key=provider.api_key or "unset",
+                max_retries=0,  # สำคัญมาก กัน SDK retry เองแล้วกิน deadline
+            )
+        return self._base_clients[provider.name]
 
     def _client_for(self, provider: _ProviderConfig, timeout: float) -> AsyncOpenAI:
-        # สร้างใหม่ทุกครั้งเพื่อควบคุม timeout ต่อ call ได้แม่นยำ (เบาพอ ไม่ต้อง cache)
-        return AsyncOpenAI(
-            base_url=provider.base_url,
-            api_key=provider.api_key or "unset",
-            max_retries=0,  # สำคัญมาก กัน SDK retry เองแล้วกิน deadline
-            timeout=timeout,
-        )
+        base = self._base_client_for(provider)
+        return base.with_options(timeout=timeout)
+
+    async def aclose(self) -> None:
+        """ปิด connection pool ของทุก provider ที่เคยสร้าง client ไว้ — เรียกตอน
+        app shutdown (ดู lifespan ใน main.py) กัน connection ค้างเมื่อ service หยุด
+        """
+        for client in self._base_clients.values():
+            await client.close()
 
     async def _call_once(
         self,
