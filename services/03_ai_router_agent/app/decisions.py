@@ -30,6 +30,18 @@ MATCHWEEK_PATTERN = re.compile(r"(?:นัดที่\s*|แมตช์วี�
 OTHER_COMPETITIONS = ("ลาลีกา", "แชมเปียนส์ลีก", "แชมเปี้ยนส์ลีก", "ยูฟ่า",
                       "บุนเดสลีกา", "กัลโช่", "ฟุตบอลโลก", "la liga",
                       "champions league", "serie a", "bundesliga", "ligue 1", "world cup")
+# Only match predictions are supported; a whole-season title question gets its own answer.
+SEASON_TITLE_PREDICTION = re.compile(
+    r"จะ\s*(?:ได้|เป็น|คว้า)?\s*แชมป์|\bwho will win the (?:premier league|league|title)\b")
+
+
+def normalize_thai(text: str) -> str:
+    """Users often type two sara e (เเ) where they mean sara ae (แ)."""
+    return text.replace("เเ", "แ")
+
+
+def season_title_prediction(query: str) -> bool:
+    return bool(SEASON_TITLE_PREDICTION.search(query.lower()))
 
 
 @dataclass
@@ -169,7 +181,8 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
         return "out_of_scope"
     if _has(text, ("อากาศ", "ร้านอาหาร", "bitcoin", "โค้ด python", "เขียนเว็บ", "หุ้น")):
         return "out_of_scope"
-    if _has(text, ("ทำนาย", "คาดการณ์", "พยากรณ์ผล", "predict", "who will win", "โอกาสชนะ", "น่าจะชนะ")):
+    if _has(text, ("ทำนาย", "คาดการณ์", "พยากรณ์ผล", "predict", "who will win", "โอกาสชนะ", "จะชนะ")) or (
+            season_title_prediction(text)):
         return "prediction"
     if _has(text, ("ใบเหลือง", "ใบแดง", "ลูกโทษ")) and _has(
             text, ("เมื่อวาน", "เมื่อคืน", "นัดล่าสุด", "นัดก่อน", "นัดที่", "แมตช์", "เกมล่าสุด", "ผลแข่ง")):

@@ -2,7 +2,8 @@ import asyncio
 import time
 
 from .decisions import (MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
-                        historical_scorer_season, league_wide_scorer_query)
+                        historical_scorer_season, league_wide_scorer_query, normalize_thai,
+                        season_title_prediction)
 from .teams import TeamDirectory
 
 
@@ -21,8 +22,9 @@ class Router:
     async def route(self, request: dict) -> dict:
         start = time.monotonic()
         request_id = request["request_id"]
-        query = request["query"]
-        history = request.get("history", [])[-10:]
+        query = normalize_thai(request["query"])
+        history = [{**item, "content": normalize_thai(str(item.get("content", "")))}
+                   for item in request.get("history", [])[-10:]]
         user = request.get("user", {})
         context = request.get("context", {})
         trace = {"decided_at_layer": "guard", "intent": None, "rewritten_query": None,
@@ -195,6 +197,11 @@ class Router:
                     caveat = ""
 
                 if decision.route == "local_ai":
+                    if season_title_prediction(query):
+                        trace["fallback"] = "season_prediction_unsupported"
+                        return finish("ยังทำนายแชมป์ทั้งฤดูกาลไม่ได้ ตอนนี้ทำนายได้เฉพาะผลนัดระหว่างสองทีม "
+                                      "เช่น \"ทำนายผล Liverpool vs Man City\"", "local_ai",
+                                      decision.confidence, decision.reasoning)
                     if len(decision.team_ids) != 2:
                         trace["fallback"] = "prediction_needs_two_teams"
                         return finish("กรุณาระบุสองทีมที่ต้องการทำนายผล", "clarify", decision.confidence,

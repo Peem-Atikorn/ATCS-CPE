@@ -212,6 +212,31 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["route"], "local_ai")
         self.assertEqual(result["answer"], "ฟีเจอร์ทำนายผลยังไม่เปิดใช้งาน")
 
+    async def test_double_sara_e_spelling_matches_team_nicknames(self):
+        result = await self.run_query("ระหว่าง เป็ดเเดง กับ เรือใบสีฟ้า ใครน่าจะชนะ")
+        self.assertEqual(result["route"], "local_ai")
+        predict = next(call[1] for call in self.clients.calls if call[0] == "predict")
+        self.assertEqual((predict["home_team_id"], predict["away_team_id"]), (64, 65))
+
+    async def test_who_will_win_between_two_teams_is_prediction(self):
+        result = await self.run_query("ระหว่าง เป็ดแดง กับ เรือใบสีฟ้า ใครจะชนะ")
+        self.assertEqual(result["route"], "local_ai")
+        called = [call[0] for call in self.clients.calls]
+        self.assertEqual(called[0], "predict")
+        self.assertNotIn("llm", called)
+        self.assertNotIn("classify", called)
+
+    async def test_season_title_prediction_says_it_is_not_supported(self):
+        for query in ("คุณคิดว่าใครจะได้เเชมป์ปีนี้", "เดาสิว่าใครจะแชมป์ปีนี้",
+                      "Who will win the Premier League this season?"):
+            with self.subTest(query=query):
+                self.clients.calls.clear()
+                result = await self.run_query(query)
+                self.assertEqual(result["route"], "local_ai")
+                self.assertIn("ยังทำนายแชมป์ทั้งฤดูกาลไม่ได้", result["answer"])
+                self.assertEqual(result["trace"]["fallback"], "season_prediction_unsupported")
+                self.assertEqual(self.clients.calls, [])
+
     async def test_retrieval_down_never_invents_match_result(self):
         async def unavailable(payload, request_id):
             raise UpstreamError("retrieval", 503)
