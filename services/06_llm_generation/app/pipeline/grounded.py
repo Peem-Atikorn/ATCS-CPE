@@ -84,6 +84,16 @@ def _sanitize_context_text(text: str, char_limit: int) -> str:
     return text
 
 
+def _asks_top_scorer(query: str) -> bool:
+    text = query.lower()
+    return "ดาวซัลโว" in text or (
+        any(word in text for word in ("ยิง", "ทำประตู", "goals", "scorer"))
+        and any(word in text for word in (
+            "เยอะสุด", "เยอะที่สุด", "มากที่สุด", "สูงสุด", "most goals", "top scorer"
+        ))
+    )
+
+
 async def run_grounded(
     req: GenerateRequest,
     *,
@@ -175,6 +185,22 @@ async def run_grounded(
             sources=[],
             citations_removed=0,
             safety=SafetyInfo(blocked=True, reason="injection_attempt"),
+            model="none",
+            latency_ms=int((time.monotonic() - start) * 1000),
+            token_usage=TokenUsage(),
+        )
+
+    # Individual player chunks are only a search sample, never a complete league ranking.
+    if _asks_top_scorer(req.query) and all(
+        c.source.category == "player" for c in req.contexts
+    ):
+        log_event("ranking_context_insufficient", request_id, mode="grounded")
+        return GenerateResponse(
+            request_id=request_id,
+            answer=_insufficient_phrase(language),
+            sources=[],
+            citations_removed=0,
+            safety=SafetyInfo(blocked=False, reason=None),
             model="none",
             latency_ms=int((time.monotonic() - start) * 1000),
             token_usage=TokenUsage(),
