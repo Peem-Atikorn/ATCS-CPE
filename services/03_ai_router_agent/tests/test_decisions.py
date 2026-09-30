@@ -118,6 +118,30 @@ class DecisionTests(unittest.TestCase):
         result = decide("ใครนำดาวซัลโวตอนนี้", CONTEXT, [], TEAMS)
         self.assertEqual(result.filters["matchweek"], 5)
 
+    def test_current_top_scorer_phrases_use_standings(self):
+        for query in (
+            "ใครยิงเยอะสุดในลีกตอนนี้",
+            "ครยิงเยอะสุดในลีกตอนนี้",
+            "ใครทำประตูมากที่สุดในพรีเมียร์ลีกฤดูกาลนี้",
+            "ใครทำประตูเยอะที่สุด",
+            "ใครยิงเยอะที่สุดตอนนี้",
+            "นักเตะคนไหนยิงประตูมากที่สุดฤดูกาลนี้",
+            "Who has the most goals this season",
+        ):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(result.intent, "standings_stats")
+                self.assertEqual(result.filters["category"], ["standings"])
+                self.assertEqual(result.filters["matchweek"], 5)
+                if query != "Who has the most goals this season":
+                    self.assertIn("top scorer", result.rewritten_query)
+
+    def test_historical_scorer_does_not_use_current_standings(self):
+        for query in ("ใครยิงมากที่สุดในลีกปี 2020", "ใครยิงประตูมากที่สุดตลอดกาลของพรีเมียร์ลีก"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(result.intent, "trivia_history")
+
     def test_ambiguous_united(self):
         self.assertEqual(decide("ยูไนเต็ดนัดล่าสุดชนะไหม", CONTEXT, [], TEAMS).route, "clarify")
 
@@ -189,8 +213,8 @@ class PlayerInfoTests(unittest.TestCase):
             ("ผู้รักษาประตูใช้มือได้ตอนไหน", "general_football"),
             ("ผู้เล่นคนไหนโดนใบแดงเมื่อวาน", "match_result"),
             ("โค้ชคนไหนพาทีมได้แชมป์พรีเมียร์ลีกมากที่สุด", "trivia_history"),
-            # Rules never handled these; they must keep falling through to the classifier/LLM.
-            ("นักเตะคนไหนยิงประตูมากที่สุดฤดูกาลนี้", None),
+            ("นักเตะคนไหนยิงประตูมากที่สุดฤดูกาลนี้", "standings_stats"),
+            # This question still falls through to the classifier/LLM.
             ("What position is Arsenal in the table", None),
         ]
         for query, intent in cases:

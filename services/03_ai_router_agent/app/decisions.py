@@ -66,6 +66,19 @@ def _has(text: str, words: tuple[str, ...]) -> bool:
     return any(word in text for word in words)
 
 
+def _current_top_scorer(text: str) -> bool:
+    scorer_question = "ดาวซัลโว" in text or (
+        _has(text, ("ยิง", "ทำประตู", "ประตู", "goals", "scored"))
+        and _has(text, ("เยอะสุด", "เยอะที่สุด", "มากที่สุด", "สูงสุด", "most goals", "top scorer", "leading scorer"))
+    )
+    historical = _has(text, ("ตลอดกาล", "ประวัติศาสตร์", "ย้อนหลัง", "ฤดูกาลที่แล้ว",
+                             "all-time", "all time", "ever", "in history", "last season"))
+    dated = re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)", text) and not _has(
+        text, ("ตอนนี้", "ปัจจุบัน", "ฤดูกาลนี้", "ซีซั่นนี้", "this season", "currently")
+    )
+    return scorer_question and not historical and not dated
+
+
 def _intent(query: str) -> str | None:
     text = query.lower()
     if _has(text, ("พนัน", "เดิมพัน", "ราคาบอล", "ทีเด็ด", "แทงบอล", "odds", "betting", "bet ")):
@@ -81,11 +94,14 @@ def _intent(query: str) -> str | None:
         return "general_football"
     if _has(text, ("สรุป", "ไฮไลต์", "weekly summary")) and _has(text, ("สัปดาห์", "นัด", "week", "พรีเมียร์ลีก")):
         return "weekly_summary"
-    if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history")):
+    if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history")) or (
+        not _current_top_scorer(text)
+        and _has(text, ("ดาวซัลโว", "ใครยิงประตูมากที่สุด"))
+    ):
         return "trivia_history"
     if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule")):
         return "fixture_schedule"
-    if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "ดาวซัลโว", "standings", "points", "scorer", "golden boot")):
+    if _current_top_scorer(text) or _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "standings", "points", "scorer", "golden boot")):
         return "standings_stats"
     if (_has(text, PLAYER_WORDS) or re.search(r"\bposition\b.*\bplay", text)) and not _has(
             text, NOT_PLAYER_WORDS):
@@ -113,7 +129,7 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
     if intent == "fixture_schedule":
         return keep_question(teams, "next Premier League fixture date opponent", season, matchweek, dates)
     if intent == "standings_stats":
-        topic = "top scorer" if "ดาวซัลโว" in query else "standings points ranking"
+        topic = "top scorer" if _current_top_scorer(query.lower()) else "standings points ranking"
         return keep_question(teams, "Premier League", topic, season, matchweek)
     if intent == "weekly_summary":
         return keep_question(teams, "Premier League weekly report summary", season, matchweek, dates)

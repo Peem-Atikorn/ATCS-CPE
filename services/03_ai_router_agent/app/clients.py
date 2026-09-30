@@ -71,6 +71,9 @@ class ServiceClients:
                   "intent (one of trivia_history, match_result, fixture_schedule, standings_stats, "
                   "weekly_summary, player_info, general_football, prediction, out_of_scope, clarify), "
                   "confidence (0 to 1), and rewritten_query (an English search query when factual). "
+                  "standings_stats covers league tables and current-season top scorer or most-goals rankings. "
+                  "player_info covers squads and named-player profiles or individual statistics, not league-wide rankings. "
+                  "trivia_history covers past seasons, historical records, and all-time rankings. "
                   "Do not answer the question. Gambling and non-football requests are out_of_scope. "
                   "Ambiguous team or match references are clarify."
                   )
