@@ -95,4 +95,6 @@ class LlmPromptTests(unittest.IsolatedAsyncioTestCase):
                        "weekly_summary", "player_info", "general_football", "prediction",
                        "out_of_scope", "clarify"):
             self.assertIn(intent, seen["system"])
+        self.assertIn("current-season top scorer", seen["system"])
+        self.assertIn("not league-wide rankings", seen["system"])
         self.assertEqual(result["intent"], "player_info")
