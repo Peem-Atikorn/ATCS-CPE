@@ -119,3 +119,63 @@ class ReviewFixValidateTests(unittest.TestCase):
     def test_invented_entities_lists_added_time_scope(self):
         self.assertEqual(invented_entities("แล้วใครยิงเยอะสุดล่ะ", "ฤดูกาลที่แล้วใครยิงประตูมากที่สุด",
                                            self.SCORER_TURN, TEAMS), ["ฤดูกาลที่แล้ว"])
+
+
+class MinorFixTests(unittest.TestCase):
+    def test_english_standalone_question_with_team_skips(self):
+        for query in ("Who won between Arsenal and Chelsea yesterday?", "Is that Arsenal's best season ever?"):
+            self.assertFalse(needs_condense(query, LIVERPOOL_TURN, TEAMS, "2026"), query)
+
+    def test_english_follow_up_openers_condense(self):
+        for query in ("what about Spurs?", "And Chelsea, who scored for them?", "how about the next match?"):
+            self.assertTrue(needs_condense(query, LIVERPOOL_TURN, TEAMS, "2026"), query)
+
+    def test_english_pronoun_without_team_condenses(self):
+        self.assertTrue(needs_condense("Did they win the previous match too?", LIVERPOOL_TURN, TEAMS, "2026"))
+
+    def test_rejects_added_number_words(self):
+        self.assertIsNone(validate("แล้วใครยิง", "ใครยิงให้ลิเวอร์พูลนัดที่เจ็ด", LIVERPOOL_TURN, TEAMS))
+        self.assertIsNone(validate("and who scored?", "Who scored for Liverpool in matchweek seven?",
+                                   LIVERPOOL_TURN, TEAMS))
+
+    def test_keeps_number_words_from_the_chat(self):
+        history = [{"role": "user", "content": "ลิเวอร์พูลชนะสองประตูใช่ไหม"},
+                   {"role": "assistant", "content": "ใช่ [1]"}]
+        self.assertIsNotNone(validate("แล้วใครยิง", "ใครยิงสองประตูให้ลิเวอร์พูล", history, TEAMS))
+        self.assertEqual(invented_entities("แล้วใครยิง", "ใครยิงให้ลิเวอร์พูลนัดที่เจ็ด", LIVERPOOL_TURN, TEAMS),
+                         ["เจ็ด"])
+
+    def test_short_alias_inside_another_word_is_not_a_known_team(self):
+        history = [{"role": "user", "content": "ลิเวอร์พูลชนะไหมเมื่อวาน"},
+                   {"role": "assistant", "content": "ลิเวอร์พูลชนะ แฟนบอลแต่งชุดผีเสื้อ [1]"}]
+        self.assertIsNone(validate("แล้วใครยิง", "ใครยิงให้ลิเวอร์พูลกับแมนยูเมื่อวาน", history, TEAMS))
+
+    def test_long_alias_in_the_chat_is_a_known_team(self):
+        history = [{"role": "user", "content": "ผีแดงชนะไหมเมื่อวาน"}, {"role": "assistant", "content": "ชนะ [1]"}]
+        self.assertIsNotNone(validate("แล้วใครยิง", "ใครยิงให้แมนยูเมื่อวาน", history, TEAMS))
+
+    def test_none_content_is_not_a_user_turn(self):
+        self.assertFalse(needs_condense("แล้วใครยิง", [{"role": "user", "content": None}], TEAMS, "2026"))
+        self.assertEqual(invented_entities("แล้วใครยิง", "ใครยิง None", [{"role": "user", "content": None}],
+                                           TEAMS), [])
+
+
+class RulesResolvedTests(unittest.TestCase):
+    def decision(self, intent, team_ids, route="football_rag", layer="rules"):
+        from app.decisions import Decision
+        decision = Decision(route, intent, layer, 0.9, "test")
+        decision.team_ids = team_ids
+        return decision
+
+    def test_team_bound_intent_with_team_is_resolved(self):
+        from app.condense import rules_resolved
+        for intent in ("match_result", "fixture_schedule", "standings_stats", "player_info"):
+            self.assertTrue(rules_resolved(self.decision(intent, [64])), intent)
+
+    def test_unresolved_decisions(self):
+        from app.condense import rules_resolved
+        self.assertFalse(rules_resolved(None))
+        self.assertFalse(rules_resolved(self.decision("player_info", [])))
+        self.assertFalse(rules_resolved(self.decision("trivia_history", [64])))
+        self.assertFalse(rules_resolved(self.decision("prediction", [57], route="clarify")))
+        self.assertFalse(rules_resolved(self.decision("match_result", [64], layer="classifier")))

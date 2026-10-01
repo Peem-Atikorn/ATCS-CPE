@@ -317,10 +317,6 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("general", [call[0] for call in self.clients.calls])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
     HISTORY = [{"role": "user", "content": "ลิเวอร์พูลชนะไหมเมื่อวาน"},
                {"role": "assistant", "content": "ลิเวอร์พูลชนะ 2-1 [1]"}]
@@ -411,13 +407,28 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("condense", self.names())
 
     async def test_unmatched_standalone_falls_back_to_original_rules(self):
+        history = [{"role": "user", "content": "แมนซิตี้นัดล่าสุดผลเป็นยังไง"},
+                   {"role": "assistant", "content": "แมนซิตี้ชนะ [1]"}]
+        self.clients.standalone = "ใครคุมทีมแมนซิตี้"
+        result = await self.ask("ใครเป็นโค้ช", history=history)
+        self.assertEqual(result["route"], "football_rag")
+        self.assertEqual(result["trace"]["intent"], "player_info")
+        self.assertNotIn("classify", self.names())
+        self.assertEqual(result["trace"]["condense"], "applied")
+        self.assertIsNone(result["trace"]["standalone_query"])
+
+    async def test_rules_that_already_found_the_team_skip_condense(self):
         self.clients.standalone = "ลิเวอร์พูลนัดต่อไปเจอใคร"
         result = await self.ask("แล้วนัดต่อไปเจอใคร")
         self.assertEqual(result["route"], "football_rag")
         self.assertEqual(result["trace"]["filters"]["team_ids"], [64])
-        self.assertNotIn("classify", self.names())
-        self.assertEqual(result["trace"]["condense"], "applied")
-        self.assertIsNone(result["trace"]["standalone_query"])
+        self.assertNotIn("condense", self.names())
+        self.assertIsNone(result["trace"]["condense"])
+
+    async def test_none_history_content_never_condenses(self):
+        self.clients.standalone = self.STANDALONE
+        await self.ask("แล้วใครยิง", history=[{"role": "user", "content": None}])
+        self.assertNotIn("condense", self.names())
 
     async def test_retrieval_fallback_is_not_overwritten(self):
         self.clients.chunks = []
@@ -438,3 +449,7 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result["route"], route)
                 self.assertEqual(self.names(), [])
                 self.assertIsNone(result["trace"]["condense"])
+
+
+if __name__ == "__main__":
+    unittest.main()

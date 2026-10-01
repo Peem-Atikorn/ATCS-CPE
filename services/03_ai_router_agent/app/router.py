@@ -1,7 +1,7 @@
 import asyncio
 import time
 
-from .condense import condense_enabled, needs_condense, validate
+from .condense import condense_enabled, needs_condense, rules_resolved, validate
 from .decisions import (MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
                         historical_scorer_season, league_wide_scorer_query, normalize_thai,
                         prediction_kind)
@@ -29,7 +29,7 @@ class Router:
         start = time.monotonic()
         request_id = request["request_id"]
         query = normalize_thai(request["query"])
-        history = [{**item, "content": normalize_thai(str(item.get("content", "")))}
+        history = [{**item, "content": normalize_thai(str(item.get("content") or ""))}
                    for item in request.get("history", [])[-10:]]
         user = request.get("user", {})
         context = request.get("context", {})
@@ -59,7 +59,8 @@ class Router:
                 original = decide(query, context, history, self.teams, user.get("favorite_team_id"))
                 # Declines and clarifying guards stand as asked; a rewrite must never talk past them.
                 guarded = original is not None and (original.route == "decline" or original.layer == "guard")
-                if (not guarded and condense_enabled()
+                # Spend the LLM budget only when the rules have not already found the intent and its team.
+                if (not guarded and not rules_resolved(original) and condense_enabled()
                         and needs_condense(query, history, self.teams, context.get("season"))):
                     condense_at = time.monotonic()
                     try:

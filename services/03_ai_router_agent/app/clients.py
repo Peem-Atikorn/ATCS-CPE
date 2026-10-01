@@ -14,6 +14,8 @@ LLM_PROVIDERS = [
     ("GROQ_API_KEY", "GROQ_MODEL", "https://api.groq.com/openai/v1"),
     ("GEMINI_API_KEY", "GEMINI_MODEL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
 ]
+# Two providers must both fit inside the router's 4s condense budget (router.CONDENSE_TIMEOUT).
+CONDENSE_PROVIDER_TIMEOUT = 2
 CONDENSE_HISTORY_MESSAGES = 6
 CONDENSE_HISTORY_CHARS = 300
 CONDENSE_SYSTEM = (
@@ -117,9 +119,12 @@ class ServiceClients:
     async def generate(self, payload: dict, request_id: str):
         return await self._post(self.generation_url, "/generate", payload, request_id, 25, "generation")
 
-    async def _chat_json(self, system: str, user: str, request_id: str) -> dict:
+    async def _chat_json(self, system: str, user: str, request_id: str, timeout: float | None = None,
+                         required: str | None = None) -> dict:
+        """Ask each provider in turn; a reply without a string `required` field counts as a failure."""
         from openai import AsyncOpenAI
 
+        timeout = LLM_PROVIDER_TIMEOUT if timeout is None else timeout
         tried_primary = False
         for index, (key_name, model_name, base_url) in enumerate(LLM_PROVIDERS):
             key = os.getenv(key_name)
@@ -130,8 +135,8 @@ class ServiceClients:
                 tried_primary = True
             try:
                 client = AsyncOpenAI(api_key=key, base_url=base_url,
-                                     timeout=LLM_PROVIDER_TIMEOUT, max_retries=0)
-                async with asyncio.timeout(LLM_PROVIDER_TIMEOUT):
+                                     timeout=timeout, max_retries=0)
+                async with asyncio.timeout(timeout):
                     response = await client.chat.completions.create(
                         model=model, temperature=0,
                         messages=[{"role": "system", "content": system},
@@ -141,6 +146,8 @@ class ServiceClients:
                 data = json.loads(response.choices[0].message.content or "{}")
                 if not isinstance(data, dict):
                     raise ValueError("expected JSON object")
+                if required and not isinstance(data.get(required), str):
+                    raise ValueError(f"reply has no {required}")
                 data["fallback"] = "llm_fallback_provider" if index and tried_primary else None
                 data["token_usage"] = {
                     "input": response.usage.prompt_tokens if response.usage else 0,
@@ -168,9 +175,7 @@ class ServiceClients:
         lines = []
         for item in history[-CONDENSE_HISTORY_MESSAGES:]:
             name = "User" if item.get("role") == "user" else "Assistant"
-            lines.append(f"{name}: {str(item.get('content', ''))[:CONDENSE_HISTORY_CHARS]}")
+            lines.append(f"{name}: {str(item.get('content') or '')[:CONDENSE_HISTORY_CHARS]}")
         user = "Chat:\n" + "\n".join(lines) + f"\n\nLatest question: {query}"
-        data = await self._chat_json(CONDENSE_SYSTEM, user, request_id)
-        if not isinstance(data.get("standalone_query"), str):
-            raise ValueError("condense reply has no standalone_query")
-        return data
+        return await self._chat_json(CONDENSE_SYSTEM, user, request_id,
+                                     timeout=CONDENSE_PROVIDER_TIMEOUT, required="standalone_query")
