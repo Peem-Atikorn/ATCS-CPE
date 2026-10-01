@@ -1,12 +1,16 @@
 import asyncio
 import time
 
+from .condense import condense_enabled, needs_condense, validate
 from .decisions import (MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
                         historical_scorer_season, league_wide_scorer_query, normalize_thai,
                         prediction_kind)
 from .prediction_text import (NEEDS_TEAM_TEXT, TEAM_NOT_FOUND_TEXT, UNAVAILABLE_TEXT,
                               match_prediction_text, simulation_focus, summarize_simulation)
 from .teams import TeamDirectory
+
+
+CONDENSE_TIMEOUT = 4
 
 
 class UpstreamError(Exception):
@@ -30,6 +34,7 @@ class Router:
         user = request.get("user", {})
         context = request.get("context", {})
         trace = {"decided_at_layer": "guard", "intent": None, "rewritten_query": None,
+                 "standalone_query": None, "condense": None,
                  "filters": {}, "fallback": None, "steps": []}
         engines = []
         usage = {"input": 0, "output": 0}
@@ -50,10 +55,32 @@ class Router:
 
         try:
             async with asyncio.timeout(40):
+                routing_query = query
+                if condense_enabled() and needs_condense(query, history, self.teams, context.get("season")):
+                    condense_at = time.monotonic()
+                    try:
+                        raw = await asyncio.wait_for(self.clients.condense(query, history, request_id),
+                                                     timeout=CONDENSE_TIMEOUT)
+                        add_usage(raw)
+                        checked = validate(query, str(raw.get("standalone_query") or ""), history, self.teams)
+                        if checked is None:
+                            trace["condense"] = "rejected"
+                        elif checked == query:
+                            trace["condense"] = "unchanged"
+                        else:
+                            trace["condense"] = "applied"
+                            routing_query = checked
+                    except (UpstreamError, ValueError, TypeError, asyncio.TimeoutError):
+                        trace["condense"] = "unavailable"
+                    step("router.condense", condense_at)
+                trace["standalone_query"] = routing_query if routing_query != query else None
+
                 decided_at = time.monotonic()
-                decision = decide(query, context, history, self.teams, user.get("favorite_team_id"))
-                historical_scorer = historical_scorer_season(query, context.get("season"))
-                if (historical_scorer and league_wide_scorer_query(query, self.teams)
+                decision = decide(routing_query, context, history, self.teams, user.get("favorite_team_id"))
+                if decision is None and routing_query != query:
+                    decision = decide(query, context, history, self.teams, user.get("favorite_team_id"))
+                historical_scorer = historical_scorer_season(routing_query, context.get("season"))
+                if (historical_scorer and league_wide_scorer_query(routing_query, self.teams)
                         and (decision is None or decision.route == "football_rag")):
                     season, assumed = historical_scorer
                     season_label = f"{season}/{(int(season) + 1) % 100:02d}"
@@ -89,31 +116,31 @@ class Router:
                 if decision is None:
                     try:
                         classify_at = time.monotonic()
-                        raw = await self.clients.classify({"request_id": request_id, "text": query}, request_id)
+                        raw = await self.clients.classify({"request_id": request_id, "text": routing_query}, request_id)
                         step("engines.classify", classify_at)
                         data = raw.get("data") or {}
                         decision = classify_intent(data.get("label", ""), float(data.get("score") or 0))
                         if decision:
-                            decision = enrich(decision, query, context, history, self.teams,
+                            decision = enrich(decision, routing_query, context, history, self.teams,
                                               user.get("favorite_team_id"))
                     except (UpstreamError, ValueError, TypeError):
                         trace["fallback"] = "classifier_down"
                 if decision is None:
                     try:
                         llm_at = time.monotonic()
-                        raw = await asyncio.wait_for(self.clients.llm_decide(query, request_id), timeout=8)
+                        raw = await asyncio.wait_for(self.clients.llm_decide(routing_query, request_id), timeout=8)
                         step("router.llm", llm_at)
                         add_usage(raw)
                         decision = from_intent(raw.get("intent", ""), float(raw.get("confidence") or 0.5))
                         if decision:
-                            decision = enrich(decision, query, context, history, self.teams,
+                            decision = enrich(decision, routing_query, context, history, self.teams,
                                               user.get("favorite_team_id"))
                         if raw.get("fallback"):
                             trace["fallback"] = raw["fallback"]
                         if decision and raw.get("rewritten_query") and decision.route == "football_rag":
                             rewritten = str(raw["rewritten_query"]).strip()
-                            decision.rewritten_query = (rewritten if query in rewritten else
-                                                        f"{rewritten} {query}".strip())
+                            decision.rewritten_query = (rewritten if routing_query in rewritten else
+                                                        f"{rewritten} {routing_query}".strip())
                     except (UpstreamError, ValueError, TypeError, asyncio.TimeoutError):
                         trace["fallback"] = "llm_unavailable"
                 if decision is None:
@@ -138,7 +165,7 @@ class Router:
                     chunks = []
                     retrieval_down = False
                     filters = dict(decision.filters)
-                    payload = {"request_id": request_id, "query": decision.rewritten_query or query,
+                    payload = {"request_id": request_id, "query": decision.rewritten_query or routing_query,
                                "query_original": query, "top_k": 5, "filters": filters, "mode": "hybrid"}
                     for attempt in range(2):
                         try:
@@ -155,7 +182,7 @@ class Router:
                             break
                         explicit_standings_week = (
                             decision.intent == "standings_stats"
-                            and MATCHWEEK_PATTERN.search(query.lower()) is not None
+                            and MATCHWEEK_PATTERN.search(routing_query.lower()) is not None
                         )
                         if (
                             attempt == 0
@@ -199,7 +226,7 @@ class Router:
                     caveat = ""
 
                 if decision.route == "local_ai":
-                    kind = prediction_kind(query, decision.team_ids)
+                    kind = prediction_kind(routing_query, decision.team_ids)
                     if kind == "needs_team":
                         trace["fallback"] = "prediction_needs_team"
                         return finish(NEEDS_TEAM_TEXT, "clarify", decision.confidence, decision.reasoning)
@@ -213,7 +240,7 @@ class Router:
                         else:
                             snapshot = await self.clients.season_simulation(request_id)
                             step("football_data.simulation", predict_at)
-                            draft = summarize_simulation(snapshot, simulation_focus(query),
+                            draft = summarize_simulation(snapshot, simulation_focus(routing_query),
                                                          decision.team_ids)
                         engines.append("local_ai")
                     except UpstreamError as exc:

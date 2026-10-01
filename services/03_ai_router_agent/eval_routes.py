@@ -38,6 +38,9 @@ class EvalClients:
     async def llm_decide(self, query, request_id):
         raise AssertionError("All benchmark questions must use a deterministic rule or guard")
 
+    async def condense(self, query, history, request_id):
+        return {"standalone_query": query, "changed": False}
+
 
 async def evaluate():
     cases = [json.loads(line) for line in (ROOT / "tests" / "routing_cases.jsonl").read_text(encoding="utf-8").splitlines()]
