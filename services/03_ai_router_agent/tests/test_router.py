@@ -13,6 +13,9 @@ class FakeClients:
         self.chunks = []
         self.classifier = {"data": {"label": "general_football", "score": 0.9}}
         self.standalone = None
+        self.english = None
+        self.search_script = []
+        self.fail_queries = set()
 
     async def historical_scorer(self, season, request_id):
         self.calls.append(("historical_scorer", season, request_id))
@@ -24,7 +27,17 @@ class FakeClients:
 
     async def search(self, payload, request_id):
         self.calls.append(("search", payload, request_id))
+        if payload["query"] in self.fail_queries:
+            raise UpstreamError("retrieval")
+        if self.search_script:
+            return {"chunks": self.search_script.pop(0)}
         return {"chunks": self.chunks}
+
+    async def translate(self, text, request_id):
+        self.calls.append(("translate", text, request_id))
+        if self.english is None:
+            raise UpstreamError("llm")
+        return {"query": self.english, "token_usage": {"input": 4, "output": 1}}
 
     async def general(self, payload, request_id):
         self.calls.append(("general", payload, request_id))
@@ -68,6 +81,9 @@ class FakeClients:
 
 class RouterTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        patcher = patch.dict("os.environ", {"ROUTER_MULTI_QUERY_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.clients = FakeClients()
         teams = TeamDirectory.from_file(Path(__file__).parents[1] / "data" / "team_aliases.json")
         self.router = Router(self.clients, teams)
@@ -323,7 +339,8 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
     STANDALONE = "ใครยิงประตูให้ลิเวอร์พูลในนัดเมื่อวาน"
 
     def setUp(self):
-        patcher = patch.dict("os.environ", {"ROUTER_CONDENSE_ENABLED": "true"})
+        patcher = patch.dict("os.environ", {"ROUTER_CONDENSE_ENABLED": "true",
+                                            "ROUTER_MULTI_QUERY_ENABLED": "false"})
         patcher.start()
         self.addCleanup(patcher.stop)
         self.clients = FakeClients()
@@ -449,6 +466,148 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result["route"], route)
                 self.assertEqual(self.names(), [])
                 self.assertIsNone(result["trace"]["condense"])
+
+
+def match_chunk(chunk_id, team_ids=(57,)):
+    return {"chunk_id": chunk_id, "text": chunk_id, "source": {
+        "ref": 1, "doc_id": chunk_id.split("#")[0], "title": chunk_id, "category": "match_report",
+        "origin": "football-data.org", "season": "2026", "matchweek": 5, "team_ids": list(team_ids),
+        "fetched_at": "2026-09-26T09:00:00+07:00", "url": None}}
+
+
+class MultiQueryRouterTests(unittest.IsolatedAsyncioTestCase):
+    QUERY = "เมื่อวานปืนใหญ่ชนะไหม"
+    ENGLISH = "Did Arsenal win yesterday?"
+
+    def setUp(self):
+        patcher = patch.dict("os.environ", {"ROUTER_MULTI_QUERY_ENABLED": "true",
+                                            "ROUTER_CONDENSE_ENABLED": "false"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.clients = FakeClients()
+        self.clients.chunks = [match_chunk("a#0")]
+        teams = TeamDirectory.from_file(Path(__file__).parents[1] / "data" / "team_aliases.json")
+        self.router = Router(self.clients, teams)
+
+    async def ask(self, query=None):
+        return await self.router.route({
+            "request_id": "req-1", "session_id": "session-1",
+            "user": {"id": "user-1", "favorite_team_id": None, "language": "th"},
+            "query": query or self.QUERY, "history": [],
+            "context": {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00+07:00"}})
+
+    def names(self):
+        return [call[0] for call in self.clients.calls]
+
+    def searches(self):
+        return [call[1] for call in self.clients.calls if call[0] == "search"]
+
+    def contexts(self):
+        [generate] = [call[1] for call in self.clients.calls if call[0] == "generate"]
+        return [c["source"]["doc_id"] for c in generate["contexts"]]
+
+    async def test_applied_searches_twice_and_fuses(self):
+        self.clients.english = self.ENGLISH
+        self.clients.search_script = [[match_chunk("a#0")], [match_chunk("b#0"), match_chunk("a#0")]]
+        result = await self.ask()
+        self.assertEqual(self.names(), ["search", "translate", "search", "generate"])
+        first, second = self.searches()
+        self.assertEqual(second["query"], self.ENGLISH)
+        self.assertEqual(second["query_original"], self.QUERY)
+        self.assertEqual(second["filters"], first["filters"])
+        self.assertEqual(self.contexts(), ["a", "b"])
+        [generate] = [call[1] for call in self.clients.calls if call[0] == "generate"]
+        self.assertEqual(generate["query"], self.QUERY)
+        self.assertEqual(result["trace"]["multi_query"], "applied")
+        self.assertEqual(result["trace"]["search_query_en"], self.ENGLISH)
+        steps = [step["name"] for step in result["trace"]["steps"]]
+        self.assertIn("router.translate", steps)
+        self.assertIn("retrieval.search_en", steps)
+        self.assertEqual(result["token_usage"], {"input": 9, "output": 8})
+
+    async def test_translation_down_keeps_one_search(self):
+        result = await self.ask()
+        self.assertEqual(self.names(), ["search", "translate", "generate"])
+        self.assertEqual(result["trace"]["multi_query"], "unavailable")
+        self.assertIsNone(result["trace"]["search_query_en"])
+        self.assertEqual(self.contexts(), ["a"])
+
+    async def test_rejected_translation_keeps_one_search(self):
+        self.clients.english = "Arsenal vs Chelsea result yesterday"
+        result = await self.ask()
+        self.assertEqual(self.names(), ["search", "translate", "generate"])
+        self.assertEqual(result["trace"]["multi_query"], "rejected")
+        self.assertIsNone(result["trace"]["search_query_en"])
+
+    async def test_slow_translation_times_out(self):
+        async def slow(text, request_id):
+            await asyncio.sleep(1)
+        self.clients.translate = slow
+        with patch("app.router.TRANSLATE_TIMEOUT", 0.01):
+            result = await self.ask()
+        self.assertEqual(result["trace"]["multi_query"], "unavailable")
+        self.assertEqual(self.contexts(), ["a"])
+
+    async def test_disabled_flag_never_translates(self):
+        self.clients.english = self.ENGLISH
+        with patch.dict("os.environ", {"ROUTER_MULTI_QUERY_ENABLED": "false"}):
+            result = await self.ask()
+        self.assertNotIn("translate", self.names())
+        self.assertIsNone(result["trace"]["multi_query"])
+
+    async def test_english_question_is_not_translated(self):
+        self.clients.english = self.ENGLISH
+        result = await self.ask("Arsenal latest result")
+        self.assertNotIn("translate", self.names())
+        self.assertIsNone(result["trace"]["multi_query"])
+
+    async def test_other_routes_never_translate(self):
+        self.clients.english = self.ENGLISH
+        await self.ask("ใครจะชนะระหว่างหงส์แดงกับเรือใบ")
+        self.assertNotIn("translate", self.names())
+
+    async def test_second_search_down_uses_the_first(self):
+        self.clients.english = self.ENGLISH
+        self.clients.fail_queries = {self.ENGLISH}
+        result = await self.ask()
+        self.assertEqual(self.contexts(), ["a"])
+        self.assertEqual(result["trace"]["multi_query"], "applied")
+        self.assertNotIn("retrieval.search_en", [s["name"] for s in result["trace"]["steps"]])
+        self.assertIsNone(result["trace"]["fallback"])
+
+    async def test_english_results_alone_are_enough(self):
+        self.clients.english = self.ENGLISH
+        self.clients.search_script = [[], [match_chunk("b#0")]]
+        result = await self.ask()
+        self.assertEqual(len(self.searches()), 2)
+        self.assertEqual(self.contexts(), ["b"])
+        self.assertIsNone(result["trace"]["fallback"])
+
+    async def test_retry_relaxes_filters_for_both_queries(self):
+        self.clients.english = self.ENGLISH
+        self.clients.search_script = [[], [], [match_chunk("a#0")], [match_chunk("b#0")]]
+        await self.ask()
+        searches = self.searches()
+        self.assertEqual(len(searches), 4)
+        self.assertEqual(self.names().count("translate"), 1)
+        self.assertIn("date_from", searches[0]["filters"])
+        self.assertNotIn("date_from", searches[2]["filters"])
+        self.assertEqual(searches[3]["query"], self.ENGLISH)
+        self.assertNotIn("date_from", searches[3]["filters"])
+        self.assertEqual(self.contexts(), ["a", "b"])
+
+    async def test_base_search_down_cancels_translation(self):
+        async def waiting(text, request_id):
+            await asyncio.sleep(5)
+
+        async def down(payload, request_id):
+            self.clients.calls.append(("search", payload, request_id))
+            raise UpstreamError("retrieval")
+        self.clients.translate = waiting
+        self.clients.search = down
+        result = await asyncio.wait_for(self.ask(), 2)
+        self.assertEqual(result["trace"]["fallback"], "retrieval_down")
+        self.assertEqual(len(self.searches()), 1)
 
 
 if __name__ == "__main__":
