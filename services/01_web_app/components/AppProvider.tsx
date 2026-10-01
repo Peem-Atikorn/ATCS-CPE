@@ -42,6 +42,7 @@ function useAppState() {
   const [historyError, setHistoryError] = useState<Error>();
   const [draft, setDraft] = useState("");
   const [openSignal, setOpenSignal] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const identity = useRef<string | null>(null);
   const busy = useRef(false);
   const preferenceBusy = useRef(false);
@@ -60,6 +61,7 @@ function useAppState() {
     setTeamKey(teams[0].key);
     setBrowsingKey(teams[0].key);
     setOpenSignal(0);
+    setSettingsOpen(false);
     setEntries([]);
     setSessions([]);
     setSessionId(null);
@@ -348,6 +350,8 @@ function useAppState() {
     setDraft,
     sendQuestion,
     openSignal,
+    settingsOpen,
+    setSettingsOpen,
     ask,
     updateRating,
   };

@@ -25,7 +25,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const app = useApp(),
     path = usePathname(),
     router = useRouter();
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const browsing = app.browsingTeam ?? app.team;
   const loginPage = path === "/login",
@@ -172,7 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </section>
               )}
               <div className="sidebar-settings">
-                <button onClick={() => setSettingsOpen(true)}>
+                <button onClick={() => app.setSettingsOpen(true)}>
                   <Settings size={19} />
                   ตั้งค่าส่วนตัว
                 </button>
@@ -261,10 +260,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </footer>
             </div>
             <MascotDock />
-            {settingsOpen && (
+            {app.settingsOpen && (
               <PersonalSettings
                 key={app.user.id}
-                close={() => setSettingsOpen(false)}
+                close={() => app.setSettingsOpen(false)}
               />
             )}
           </>

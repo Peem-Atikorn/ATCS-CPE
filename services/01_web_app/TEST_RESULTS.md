@@ -2,6 +2,15 @@
 
 วันที่ตรวจล่าสุด: 1 ตุลาคม 2026
 
+## เพิ่มคำแนะนำทีมโปรดก่อน merge PR #37
+
+- แสดงการ์ดเหนือคำถามแนะนำเฉพาะผู้ใช้ login แล้วและ `favorite_team_id === null`; ปุ่มเปิด PersonalSettings ร่วมกับเมนูเดิม ร่างคำถามยังอยู่
+- เปิด/ยกเลิกตั้งค่า เลือกทีมที่ดู และส่งคำถามไม่บันทึกทีมโปรดอัตโนมัติ; บันทึกสำเร็จแล้วการ์ดหาย บันทึกล้มเหลวยังคงการ์ดและ dialog
+- แก้กรณีผู้ใช้ยังไม่มีทีมโปรดแต่กดบันทึกทีมเดียวกับธีมเริ่มต้น ให้เรียก preferences API เมื่อผู้ใช้ยืนยันจริง
+- เพิ่ม 6 regression tests: null favorite, favorite มีค่า, guest, เปิด/ยกเลิก/บันทึกพร้อมรักษาร่าง, save failure, browse/send ไม่ PATCH preferences
+- `pnpm check` ผ่าน: **92 Vitest tests + 5 Node tests รวม 97 tests**, TypeScript, Prettier และ production build
+- รอบนี้แก้เฉพาะ 01; ยังไม่ commit/push และยังไม่ได้ rebuild Docker หรือตรวจ browser ใหม่สำหรับการ์ดนี้ ผล responsive/Docker ด้านล่างเป็นผลจากรอบก่อนหน้า
+
 ## รอบล่าสุด — Prediction / Season Lab / trace v1.8 / มือถือ (1 ตุลาคม 2026)
 
 ฐาน `adbcd5e` บน `feature/01-web-mekmai4234` เปลี่ยนเฉพาะ `services/01_web_app` ยังไม่ commit/push/PR

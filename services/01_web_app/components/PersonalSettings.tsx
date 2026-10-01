@@ -102,7 +102,10 @@ export function PersonalSettings({ close }: { close: () => void }) {
           className="primary"
           disabled={app.teamBusy}
           onClick={async () => {
-            if (draft === app.team.key || (await app.changeTeam(draft)))
+            if (
+              app.user?.favorite_team_id === preview.teamId ||
+              (await app.changeTeam(draft))
+            )
               close();
           }}
         >

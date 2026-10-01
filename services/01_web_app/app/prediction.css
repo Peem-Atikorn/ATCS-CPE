@@ -298,6 +298,35 @@
   font-size: 12px;
   color: #b9c9d9;
 }
+.favorite-guidance {
+  padding: 16px;
+  border: 1px solid var(--club);
+  border-radius: 12px;
+  background: #0b1c2c;
+  text-align: left;
+}
+.favorite-guidance h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: #f4f8ff;
+  font-size: 16px;
+}
+.chat-welcome .favorite-guidance p {
+  margin: 0 0 12px;
+  color: #d2dce8;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.suggested-questions .favorite-guidance button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  min-height: 44px;
+  margin-bottom: 8px;
+}
 .panball-shell .simulation-hero {
   display: flex;
   justify-content: space-between;

@@ -3,6 +3,7 @@ import { useApp } from "./AppProvider";
 import { useRemote } from "../lib/use-remote";
 import { Match } from "../lib/types";
 import { nextMatch } from "../lib/matchday";
+import { Heart, ArrowRight } from "lucide-react";
 export function SuggestedQuestions() {
   const app = useApp();
   const team = app.browsingTeam;
@@ -27,6 +28,21 @@ export function SuggestedQuestions() {
   ];
   return (
     <div className="suggested-questions">
+      {app.user && app.user.favorite_team_id === null && (
+        <section className="favorite-guidance" aria-label="แนะนำการตั้งทีมโปรด">
+          <h3>
+            <Heart size={19} aria-hidden="true" /> ยังไม่ได้ตั้งทีมโปรด
+          </h3>
+          <p>
+            ถ้าจะถามว่า “ทีมโปรดของฉัน” หรือ “ทีมฉัน”
+            ให้ตั้งทีมโปรดในตั้งค่าส่วนตัวก่อน
+          </p>
+          <button type="button" onClick={() => app.setSettingsOpen(true)}>
+            ตั้งทีมโปรด <ArrowRight size={17} aria-hidden="true" />
+          </button>
+          <small>หรือระบุชื่อทีมในคำถามได้เลย</small>
+        </section>
+      )}
       <p>ลองเริ่มด้วยคำถามเกี่ยวกับ {team.shortName}</p>
       {general.map((prompt) => (
         <button key={prompt} onClick={() => app.ask(prompt)}>
