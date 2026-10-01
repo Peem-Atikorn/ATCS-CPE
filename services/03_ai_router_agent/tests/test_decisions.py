@@ -298,5 +298,44 @@ class SeasonChanceTests(unittest.TestCase):
                 self.assertEqual((result.route, result.intent), ("local_ai", "prediction"))
 
 
+class FollowUpWordingTests(unittest.TestCase):
+    """Short and English questions that used to fall through to the classifier or land on trivia."""
+
+    def intent(self, query):
+        result = decide(query, CONTEXT, [], TEAMS)
+        return result.intent if result else None
+
+    def test_goal_count_and_scorer_questions_are_match_results(self):
+        for query in ("นิวคาสเซิลยิงกี่ลูก", "ลิเวอร์พูลได้กี่ประตู", "เชลซียิงได้กี่ลูกเมื่อวาน", "ใครทำประตู",
+                      "แล้วใครยิง", "who scored?", "who scored for Liverpool yesterday?",
+                      "did Arsenal win?", "Who won Arsenal vs Chelsea yesterday?", "how did Chelsea do?"):
+            with self.subTest(query=query):
+                self.assertEqual(self.intent(query), "match_result")
+
+    def test_next_match_questions_are_fixtures(self):
+        for query in ("ลิเวอร์พูลนัดต่อไปเจอใคร", "ทีมนี้นัดต่อไปเตะกับใคร", "นัดถัดไปของเชลซีเตะเมื่อไหร่",
+                      "อาร์เซนอลเจอใครต่อ", "when is the next match?", "who do Arsenal play next?",
+                      "Chelsea next game"):
+            with self.subTest(query=query):
+                self.assertEqual(self.intent(query), "fixture_schedule")
+
+    def test_top_of_the_table_is_standings(self):
+        for query in ("who is top of the table?", "show me the league table"):
+            with self.subTest(query=query):
+                self.assertEqual(self.intent(query), "standings_stats")
+
+    def test_records_and_history_stay_trivia(self):
+        for query in ("ใครยิงแฮตทริกเร็วที่สุด", "ใครทำประตูมากที่สุดตลอดกาล", "ใครยิงประตูแรกในประวัติศาสตร์พรีเมียร์ลีก",
+                      "who won the league in 2016", "who scored the fastest goal ever",
+                      "ใครยิงให้ลิเวอร์พูลปี 2005", "who scored for Arsenal in 1998"):
+            with self.subTest(query=query):
+                self.assertEqual(self.intent(query), "trivia_history")
+
+    def test_top_scorer_questions_keep_their_intent(self):
+        for query in ("ใครยิงเยอะสุด", "who scored the most goals this season"):
+            with self.subTest(query=query):
+                self.assertEqual(self.intent(query), "standings_stats")
+
+
 if __name__ == "__main__":
     unittest.main()

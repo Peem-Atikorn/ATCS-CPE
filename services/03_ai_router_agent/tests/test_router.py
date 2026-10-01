@@ -346,13 +346,13 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_applied_condense_routes_and_searches_with_standalone_query(self):
         self.clients.standalone = self.STANDALONE
-        result = await self.ask("แล้วใครยิง")
+        result = await self.ask("ใครทำประตู")
         self.assertEqual(self.names(), ["condense", "search", "generate"])
         search = self.clients.calls[1][1]
         self.assertEqual(search["filters"]["team_ids"], [64])
         self.assertIn(self.STANDALONE, search["query"])
-        self.assertEqual(search["query_original"], "แล้วใครยิง")
-        self.assertEqual(self.clients.calls[2][1]["query"], "แล้วใครยิง")
+        self.assertEqual(search["query_original"], "ใครทำประตู")
+        self.assertEqual(self.clients.calls[2][1]["query"], "ใครทำประตู")
         self.assertEqual(result["trace"]["condense"], "applied")
         self.assertEqual(result["trace"]["standalone_query"], self.STANDALONE)
         self.assertEqual(result["trace"]["intent"], "match_result")
@@ -360,23 +360,23 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["token_usage"], {"input": 8, "output": 9})
 
     async def test_condense_down_keeps_current_behaviour(self):
-        result = await self.ask("แล้วใครยิง")
+        result = await self.ask("ใครทำประตู")
         self.assertEqual(result["trace"]["condense"], "unavailable")
         self.assertIsNone(result["trace"]["standalone_query"])
         self.assertIsNone(result["trace"]["fallback"])
-        self.assertEqual(result["trace"]["intent"], "trivia_history")
-        self.assertEqual(self.clients.calls[1][1]["query_original"], "แล้วใครยิง")
+        self.assertEqual(result["trace"]["intent"], "match_result")
+        self.assertEqual(self.clients.calls[1][1]["query_original"], "ใครทำประตู")
 
     async def test_rejected_rewrite_uses_original_query(self):
         self.clients.standalone = "ใครยิงประตูให้ลิเวอร์พูลและเชลซีเมื่อวาน"
-        result = await self.ask("แล้วใครยิง")
+        result = await self.ask("ใครทำประตู")
         self.assertEqual(result["trace"]["condense"], "rejected")
         self.assertIsNone(result["trace"]["standalone_query"])
-        self.assertEqual(result["trace"]["intent"], "trivia_history")
+        self.assertEqual(result["trace"]["intent"], "match_result")
 
     async def test_unchanged_rewrite_is_recorded(self):
-        self.clients.standalone = "แล้วใครยิง"
-        result = await self.ask("แล้วใครยิง")
+        self.clients.standalone = "ใครทำประตู"
+        result = await self.ask("ใครทำประตู")
         self.assertEqual(result["trace"]["condense"], "unchanged")
         self.assertIsNone(result["trace"]["standalone_query"])
 
@@ -385,14 +385,14 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(1)
         self.clients.condense = slow
         with patch("app.router.CONDENSE_TIMEOUT", 0.01):
-            result = await self.ask("แล้วใครยิง")
+            result = await self.ask("ใครทำประตู")
         self.assertEqual(result["trace"]["condense"], "unavailable")
         self.assertEqual(result["route"], "football_rag")
 
     async def test_disabled_flag_skips_condense(self):
         self.clients.standalone = self.STANDALONE
         with patch.dict("os.environ", {"ROUTER_CONDENSE_ENABLED": "false"}):
-            result = await self.ask("แล้วใครยิง")
+            result = await self.ask("ใครทำประตู")
         self.assertNotIn("condense", self.names())
         self.assertIsNone(result["trace"]["condense"])
 
@@ -403,7 +403,7 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result["trace"]["standalone_query"])
 
     async def test_no_history_skips_condense(self):
-        await self.ask("แล้วใครยิง", history=[])
+        await self.ask("ใครทำประตู", history=[])
         self.assertNotIn("condense", self.names())
 
     async def test_unmatched_standalone_falls_back_to_original_rules(self):
@@ -427,13 +427,13 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_none_history_content_never_condenses(self):
         self.clients.standalone = self.STANDALONE
-        await self.ask("แล้วใครยิง", history=[{"role": "user", "content": None}])
+        await self.ask("ใครทำประตู", history=[{"role": "user", "content": None}])
         self.assertNotIn("condense", self.names())
 
     async def test_retrieval_fallback_is_not_overwritten(self):
         self.clients.chunks = []
         self.clients.standalone = self.STANDALONE
-        result = await self.ask("แล้วใครยิง")
+        result = await self.ask("ใครทำประตู")
         self.assertEqual(result["trace"]["condense"], "applied")
         self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
 
