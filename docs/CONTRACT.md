@@ -80,6 +80,8 @@
   "decided_at_layer": "rules",                // guard | rules | classifier | llm
   "intent": "match_result",
   "rewritten_query": "Arsenal latest match result",   // null ถ้าไม่ได้ rewrite
+  "standalone_query": "ใครยิงประตูให้ลิเวอร์พูลในนัดเมื่อวาน",  // v1.8 · null ถ้าไม่ได้ condense หรือไม่ได้ใช้ผล
+  "condense": "applied",                       // v1.8 · null | "applied" | "unchanged" | "rejected" | "unavailable" · ไม่นับเป็น fallback
   "filters": { "category": ["match_report"], "team_ids": [57] },
   "fallback": null,                            // null | "retrieval_empty" | "retrieval_down" | "llm_fallback_provider" | "simulation_down" | "prediction_needs_team" | "prediction_team_not_found"
   "steps": [
@@ -276,6 +278,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 
 - router **ต้องตอบ 200 เสมอ** เมื่อได้คำตอบใด ๆ (รวมถึงคำตอบ fallback) · ตอบ 5xx เฉพาะเมื่อไม่มีอะไรจะตอบเลย
 - ถ้าตัวสำรองล่มหมด ให้ตอบ 200 พร้อม `answer` = "ตอนนี้ระบบไม่ว่าง ลองใหม่อีกครั้งในอีกสักครู่" และ `trace.fallback` ระบุสาเหตุ
+- (v1.8) เมื่อมี `history` และคำถามดูเป็นคำถามต่อเนื่อง router อาจเรียก LLM เพื่อเขียนคำถามใหม่ให้สมบูรณ์ในตัว (`trace.standalone_query`) · ใช้เลือก route และค้นหาเท่านั้น · `POST /generate` และ `POST /general` ได้ `query` เดิมของผู้ใช้เสมอ · ผลที่เพิ่มทีม ตัวเลข หรือช่วงเวลาซึ่งไม่อยู่ในคำถาม/history หรือตัดทีมที่ผู้ใช้ถามทิ้ง ถูกทิ้ง · คำถามที่ guard ตัดสินเป็น decline/clarify หรือที่ rules ได้ intent ผูกทีมพร้อมทีมแล้ว ไม่ถูก condense · ขั้น condense ใช้เวลารวม ≤ 4s (provider ละ ≤ 2s) นับรวมในงบ 40s · ใช้โมเดลเล็กจาก env `GROQ_CONDENSE_MODEL` / `GEMINI_CONDENSE_MODEL` (ว่าง = ใช้ `GROQ_MODEL` / `GEMINI_MODEL`) · rewrite ต้องเป็นภาษาเดียวกับคำถาม · ปิดได้ด้วย env `ROUTER_CONDENSE_ENABLED=false`
 
 ## 3. router → engines
 
@@ -626,3 +629,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.5 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR นี้ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `player` (§0 enum, §6 ตาราง `doc_id` `players-<season>-team-<team_id>`) · intent ใหม่ `player_info` ในตารางที่ล็อก (8 → 9 หมวด) ส่ง `filters.category = ["player"]` และถอยแบบเดียวกับ intent ข้อมูลแมตช์ (ห้ามถอยไป `general_ai`) · ผลต่อโมดูล: 05 รับ category ใหม่, 04 เพิ่ม intent และเทรนใหม่, 03 map intent, 02/01 เพิ่มค่าใน enum, 07 ส่งเอกสารเมื่อเปิดธง |
 | v1.6 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #33 และ #34 merge เข้า `develop`) | **เพิ่ม optional field** `scope_team_ids` ใน §5 `POST /generate` จาก 03 ไป 06 เพื่อระบุขอบเขตทีมของคำถามจัดอันดับผู้เล่น · 06 รุ่นก่อนเพิกเฉยต่อ field ใหม่ได้ · ต้องมีทั้งสอง PR จึงใช้การแยกขอบเขตทีมได้ครบ |
 | v1.7 | 1 ต.ค. 2026 (เสนอ; มีผลเมื่อ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §3 `/local/predict` เพิ่ม field optional `home_strength`, `away_strength`, `league_avg_goals`, `home_name`, `away_name` และ `data.home_xg`, `away_xg`, `most_likely_score` · ผู้เรียกเปลี่ยนเป็น football-data · §3 เพิ่ม `POST /local/simulate` · §7 เพิ่ม `GET /football/predict`, `GET /football/simulation`, `SimulationSnapshot` และทิศ football-data → engines · §1 เพิ่ม `GET /api/football/predict`, `GET /api/football/simulation` · error `SIMULATION_UNAVAILABLE` (503) · `trace.fallback` เพิ่ม `simulation_down`, `prediction_needs_team`, `prediction_team_not_found` |
+| v1.8 | 1 ต.ค. 2026 (เสนอ; มีผลเมื่อ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `standalone_query` และ `condense` · §2 router อาจ condense คำถามต่อเนื่องด้วย LLM ก่อนเลือก route/ค้นหา โดย generation ได้ query เดิม · env ใหม่ `ROUTER_CONDENSE_ENABLED`, `GROQ_CONDENSE_MODEL`, `GEMINI_CONDENSE_MODEL` · `fallback` ไม่มีค่าใหม่ · api (02) ส่งต่อได้เลยเพราะ `Trace` เป็น `extra="allow"` |

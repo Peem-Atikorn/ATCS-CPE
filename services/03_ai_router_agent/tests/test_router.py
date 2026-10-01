@@ -12,6 +12,7 @@ class FakeClients:
         self.calls = []
         self.chunks = []
         self.classifier = {"data": {"label": "general_football", "score": 0.9}}
+        self.standalone = None
 
     async def historical_scorer(self, season, request_id):
         self.calls.append(("historical_scorer", season, request_id))
@@ -56,6 +57,13 @@ class FakeClients:
     async def llm_decide(self, query, request_id):
         self.calls.append(("llm", query, request_id))
         return {"intent": "general_football", "confidence": 0.8}
+
+    async def condense(self, query, history, request_id):
+        self.calls.append(("condense", query, request_id))
+        if self.standalone is None:
+            raise UpstreamError("llm")
+        return {"standalone_query": self.standalone, "changed": True,
+                "token_usage": {"input": 3, "output": 2}}
 
 
 class RouterTests(unittest.IsolatedAsyncioTestCase):
@@ -307,6 +315,140 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.clients.calls[0][1]["filters"]["category"], ["player"])
         self.assertEqual(self.clients.calls[0][1]["filters"]["team_ids"], [57])
         self.assertNotIn("general", [call[0] for call in self.clients.calls])
+
+
+class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
+    HISTORY = [{"role": "user", "content": "ลิเวอร์พูลชนะไหมเมื่อวาน"},
+               {"role": "assistant", "content": "ลิเวอร์พูลชนะ 2-1 [1]"}]
+    STANDALONE = "ใครยิงประตูให้ลิเวอร์พูลในนัดเมื่อวาน"
+
+    def setUp(self):
+        patcher = patch.dict("os.environ", {"ROUTER_CONDENSE_ENABLED": "true"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.clients = FakeClients()
+        self.clients.chunks = [{"text": "Liverpool won 2-1", "source": {
+            "ref": 1, "doc_id": "match-64", "title": "Liverpool result", "category": "match_report",
+            "origin": "football-data.org", "season": "2026", "matchweek": 5, "team_ids": [64],
+            "fetched_at": "2026-09-26T09:00:00+07:00", "url": None}}]
+        teams = TeamDirectory.from_file(Path(__file__).parents[1] / "data" / "team_aliases.json")
+        self.router = Router(self.clients, teams)
+
+    async def ask(self, query, history=None):
+        return await self.router.route({
+            "request_id": "req-1", "session_id": "session-1",
+            "user": {"id": "user-1", "favorite_team_id": None, "language": "th"},
+            "query": query, "history": self.HISTORY if history is None else history,
+            "context": {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00+07:00"}})
+
+    def names(self):
+        return [call[0] for call in self.clients.calls]
+
+    async def test_applied_condense_routes_and_searches_with_standalone_query(self):
+        self.clients.standalone = self.STANDALONE
+        result = await self.ask("แล้วใครยิง")
+        self.assertEqual(self.names(), ["condense", "search", "generate"])
+        search = self.clients.calls[1][1]
+        self.assertEqual(search["filters"]["team_ids"], [64])
+        self.assertIn(self.STANDALONE, search["query"])
+        self.assertEqual(search["query_original"], "แล้วใครยิง")
+        self.assertEqual(self.clients.calls[2][1]["query"], "แล้วใครยิง")
+        self.assertEqual(result["trace"]["condense"], "applied")
+        self.assertEqual(result["trace"]["standalone_query"], self.STANDALONE)
+        self.assertEqual(result["trace"]["intent"], "match_result")
+        self.assertIn("router.condense", [step["name"] for step in result["trace"]["steps"]])
+        self.assertEqual(result["token_usage"], {"input": 8, "output": 9})
+
+    async def test_condense_down_keeps_current_behaviour(self):
+        result = await self.ask("แล้วใครยิง")
+        self.assertEqual(result["trace"]["condense"], "unavailable")
+        self.assertIsNone(result["trace"]["standalone_query"])
+        self.assertIsNone(result["trace"]["fallback"])
+        self.assertEqual(result["trace"]["intent"], "trivia_history")
+        self.assertEqual(self.clients.calls[1][1]["query_original"], "แล้วใครยิง")
+
+    async def test_rejected_rewrite_uses_original_query(self):
+        self.clients.standalone = "ใครยิงประตูให้ลิเวอร์พูลและเชลซีเมื่อวาน"
+        result = await self.ask("แล้วใครยิง")
+        self.assertEqual(result["trace"]["condense"], "rejected")
+        self.assertIsNone(result["trace"]["standalone_query"])
+        self.assertEqual(result["trace"]["intent"], "trivia_history")
+
+    async def test_unchanged_rewrite_is_recorded(self):
+        self.clients.standalone = "แล้วใครยิง"
+        result = await self.ask("แล้วใครยิง")
+        self.assertEqual(result["trace"]["condense"], "unchanged")
+        self.assertIsNone(result["trace"]["standalone_query"])
+
+    async def test_slow_condense_times_out(self):
+        async def slow(query, history, request_id):
+            await asyncio.sleep(1)
+        self.clients.condense = slow
+        with patch("app.router.CONDENSE_TIMEOUT", 0.01):
+            result = await self.ask("แล้วใครยิง")
+        self.assertEqual(result["trace"]["condense"], "unavailable")
+        self.assertEqual(result["route"], "football_rag")
+
+    async def test_disabled_flag_skips_condense(self):
+        self.clients.standalone = self.STANDALONE
+        with patch.dict("os.environ", {"ROUTER_CONDENSE_ENABLED": "false"}):
+            result = await self.ask("แล้วใครยิง")
+        self.assertNotIn("condense", self.names())
+        self.assertIsNone(result["trace"]["condense"])
+
+    async def test_standalone_question_skips_condense(self):
+        result = await self.ask("อาร์เซนอลอยู่อันดับเท่าไหร่")
+        self.assertNotIn("condense", self.names())
+        self.assertIsNone(result["trace"]["condense"])
+        self.assertIsNone(result["trace"]["standalone_query"])
+
+    async def test_no_history_skips_condense(self):
+        await self.ask("แล้วใครยิง", history=[])
+        self.assertNotIn("condense", self.names())
+
+    async def test_unmatched_standalone_falls_back_to_original_rules(self):
+        history = [{"role": "user", "content": "แมนซิตี้นัดล่าสุดผลเป็นยังไง"},
+                   {"role": "assistant", "content": "แมนซิตี้ชนะ [1]"}]
+        self.clients.standalone = "ใครคุมทีมแมนซิตี้"
+        result = await self.ask("ใครเป็นโค้ช", history=history)
+        self.assertEqual(result["route"], "football_rag")
+        self.assertEqual(result["trace"]["intent"], "player_info")
+        self.assertNotIn("classify", self.names())
+        self.assertEqual(result["trace"]["condense"], "applied")
+        self.assertIsNone(result["trace"]["standalone_query"])
+
+    async def test_rules_that_already_found_the_team_skip_condense(self):
+        self.clients.standalone = "ลิเวอร์พูลนัดต่อไปเจอใคร"
+        result = await self.ask("แล้วนัดต่อไปเจอใคร")
+        self.assertEqual(result["route"], "football_rag")
+        self.assertEqual(result["trace"]["filters"]["team_ids"], [64])
+        self.assertNotIn("condense", self.names())
+        self.assertIsNone(result["trace"]["condense"])
+
+    async def test_none_history_content_never_condenses(self):
+        self.clients.standalone = self.STANDALONE
+        await self.ask("แล้วใครยิง", history=[{"role": "user", "content": None}])
+        self.assertNotIn("condense", self.names())
+
+    async def test_retrieval_fallback_is_not_overwritten(self):
+        self.clients.chunks = []
+        self.clients.standalone = self.STANDALONE
+        result = await self.ask("แล้วใครยิง")
+        self.assertEqual(result["trace"]["condense"], "applied")
+        self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
+
+    async def test_guarded_questions_are_not_rewritten(self):
+        history = [{"role": "user", "content": "อาร์เซนอลอยู่อันดับเท่าไหร่"},
+                   {"role": "assistant", "content": "อาร์เซนอลอยู่อันดับ 2 [1]"}]
+        self.clients.standalone = "อาร์เซนอลอยู่อันดับเท่าไหร่"
+        for query, route in (("แล้วราคาบอลล่ะ", "decline"), ("แล้วพรุ่งนี้อากาศเป็นไง", "decline"),
+                             ("แล้วยูไนเต็ดล่ะ", "clarify")):
+            with self.subTest(query=query):
+                self.clients.calls = []
+                result = await self.ask(query, history=history)
+                self.assertEqual(result["route"], route)
+                self.assertEqual(self.names(), [])
+                self.assertIsNone(result["trace"]["condense"])
 
 
 if __name__ == "__main__":

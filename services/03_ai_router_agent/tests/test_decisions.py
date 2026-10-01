@@ -231,10 +231,6 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(merged.find("ใหม่")[0].team_id, 57)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class PlayerInfoTests(unittest.TestCase):
     """CONTRACT v1.5: the classifier (04) does not know player_info, so rules must catch it."""
 
@@ -292,3 +288,15 @@ class PlayerInfoTests(unittest.TestCase):
     def test_classifier_and_llm_labels_map_to_player_documents(self):
         self.assertEqual(classify_intent("player_info", 0.8).filters, {"category": ["player"]})
         self.assertEqual(from_intent("player_info", 0.6).route, "football_rag")
+
+
+class SeasonChanceTests(unittest.TestCase):
+    def test_title_chance_without_mee_is_a_prediction(self):
+        for query in ("โอกาสแชมป์ของอาร์เซนอล", "แล้วโอกาสแชมป์ของอาร์เซนอลล่ะ", "โอกาสตกชั้นของเบิร์นลีย์"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((result.route, result.intent), ("local_ai", "prediction"))
+
+
+if __name__ == "__main__":
+    unittest.main()
