@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { AppProvider, useApp } from "../components/AppProvider";
-import Home from "../app/page";
+import { ChatPanel } from "../components/ChatPanel";
 const navigation = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => navigation,
@@ -42,7 +42,7 @@ async function setup() {
       if (path === "/api/chat")
         return json({
           session_id: "session-A",
-          message_id: "answer-A",
+          message_id: crypto.randomUUID(),
           answer: "private answer A",
           sources: [],
           route: "general_ai",
@@ -55,7 +55,7 @@ async function setup() {
   render(
     <AppProvider>
       <Probe />
-      <Home />
+      <ChatPanel />
     </AppProvider>,
   );
   await waitFor(() => expect(app.user?.id).toBe("A"));
@@ -142,7 +142,7 @@ it("retains failed draft and never sends while a team preference is pending", as
         resolve = done;
       }),
   );
-  let changing!: Promise<void>;
+  let changing!: Promise<boolean>;
   act(() => {
     changing = app.changeTeam("chelsea");
   });
@@ -159,7 +159,7 @@ it("retains failed draft and never sends while a team preference is pending", as
 it("sample prompt fills the composer and focuses it", async () => {
   await setup();
   const { default: userEvent } = await import("@testing-library/user-event");
-  await userEvent.click(screen.getByRole("button", { name: /ประวัติทีม/ }));
+  act(() => app.ask("เล่าประวัติของ Manchester United"));
   expect(screen.getByRole("textbox", { name: "ถามเรื่องฟุตบอล" })).toHaveValue(
     "เล่าประวัติของ Manchester United",
   );
@@ -294,6 +294,63 @@ it("preserves club and conversation when saving the club fails and clears the er
     await app.changeTeam("chelsea");
   });
   expect(app.team.key).toBe("chelsea");
-  expect(app.entries).toEqual([]);
+  expect(app.entries).toHaveLength(2);
   expect(app.teamError).toBeUndefined();
+});
+
+it("browses independently of favorite and never PATCHes preferences on chat", async () => {
+  const fetcher = await setup();
+  await act(async () => {
+    await app.sendQuestion("keep session");
+  });
+  const id = app.sessionId;
+  fetcher.mockClear();
+  act(() => app.browseTeam("arsenal"));
+  expect(app.browsingTeam.teamId).toBe(57);
+  expect(app.team.teamId).toBe(66);
+  expect(app.user?.favorite_team_id).toBe(66);
+  expect(app.sessionId).toBe(id);
+  await act(async () => {
+    await app.sendQuestion("Arsenal ล่าสุด");
+  });
+  expect(
+    fetcher.mock.calls.some(([path]) => path.includes("/preferences")),
+  ).toBe(false);
+  await act(async () => {
+    await app.changeTeam("manchester-city");
+  });
+  expect(app.team.teamId).toBe(65);
+  expect(app.browsingTeam.teamId).toBe(57);
+  expect(app.sessionId).toBe(id);
+});
+it("resets browsing state on identity switch", async () => {
+  await setup();
+  act(() => app.browseTeam("arsenal"));
+  await act(async () => {
+    await app.login("B", "pw");
+  });
+  expect(app.browsingTeam.teamId).toBe(66);
+});
+
+it("sends original follow-up text in the same session and resets context for a new chat", async () => {
+  const fetcher = await setup();
+  await act(async () => {
+    await app.sendQuestion("ลิเวอร์พูลมีโอกาสได้แชมป์กี่เปอร์เซ็นต์?");
+  });
+  await act(async () => {
+    await app.sendQuestion("แล้วอาร์เซนอลล่ะ");
+  });
+  act(() => app.newChat());
+  await act(async () => {
+    await app.sendQuestion("ใครจะได้แชมป์");
+  });
+  const requests = fetcher.mock.calls
+    .filter(([path]) => path === "/api/chat")
+    .map(([, init]) => JSON.parse(String(init?.body)));
+  expect(requests.map((item) => item.session_id)).toEqual([
+    null,
+    "session-A",
+    null,
+  ]);
+  expect(requests[1].message).toBe("แล้วอาร์เซนอลล่ะ");
 });
