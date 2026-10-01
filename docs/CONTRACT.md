@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.7
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.10
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -85,7 +85,7 @@
   "search_query_en": "Did Arsenal win yesterday?",   // v1.9 · null ถ้าไม่ได้ค้นด้วยคำค้นอังกฤษ
   "multi_query": "applied",                    // v1.9 · null | "applied" | "rejected" | "unavailable" · ไม่นับเป็น fallback
   "filters": { "category": ["match_report"], "team_ids": [57] },
-  "fallback": null,                            // null | "retrieval_empty" | "retrieval_down" | "llm_fallback_provider" | "simulation_down" | "prediction_needs_team" | "prediction_team_not_found"
+  "fallback": null,                            // null หรือค่าหนึ่งในตาราง "ค่าของ trace.fallback" ด้านล่าง (v1.10)
   "steps": [
     { "name": "router.rules",        "ms": 3 },
     { "name": "retrieval.search",    "ms": 140 },
@@ -105,6 +105,26 @@
 
 **ป้ายภาษาไทยบนหน้าเว็บ** (ห้ามโชว์ enum ดิบ):
 `football_rag` → "ตอบจากคลังข้อมูลฟุตบอล" · `general_ai` → "ความรู้ทั่วไป" · `local_ai` → "โมเดลทำนาย" · `clarify` → "ขอข้อมูลเพิ่ม" · `decline` → "นอกขอบเขต"
+
+**ค่าของ `trace.fallback`** (v1.10 รวบรวมค่าที่ router ใช้อยู่จริง · ค่าเดียวต่อคำตอบ · หน้า admin นับเป็น `fallback_count`)
+
+| ค่า | ตั้งเมื่อ |
+|---|---|
+| `retrieval_empty` | `/search` ไม่คืน chunk ทั้งรอบแรกและรอบที่ตัด filter `matchweek`/`date_*` (§3 ลำดับถอย) |
+| `retrieval_down` | `/search` error, timeout หรือ `INDEX_NOT_READY` |
+| `classifier_down` | `/local/classify` ล่มหรือคืนค่าที่อ่านไม่ได้ → ไปชั้น LLM |
+| `llm_fallback_provider` | ชั้น LLM ของ router ใช้ provider สำรองแทน provider หลัก (§8) |
+| `llm_unavailable` | ชั้น LLM ของ router ใช้ไม่ได้ทั้งสอง provider หรือเกิน 8s → ถาม clarify |
+| `general_down` | `/general` ล่ม → ตอบ "ตอนนี้ระบบไม่ว่าง…" |
+| `generation_down` | `/generate` ล่ม → ตอบ "ตอนนี้ระบบไม่ว่าง…" (ไม่ส่ง draft ที่ยังไม่ผ่าน guard) |
+| `simulation_down` | ทำนายผล/จำลองฤดูกาลจาก 07 ไม่ได้ (v1.7) |
+| `prediction_needs_team` | คำถามทำนายไม่บอกทีมพอ → ถามกลับ (v1.7) |
+| `prediction_team_not_found` | 07 หาทีมที่ขอทำนายไม่เจอ (404) (v1.7) |
+| `historical_scorer_unavailable` | แหล่งดาวซัลโวย้อนหลังที่ยืนยันแล้ว (07) ล่มหรือไม่มีฤดูกาลนั้น |
+| `historical_scorer_invalid` | ข้อมูลดาวซัลโวย้อนหลังที่ได้ไม่ตรงฤดูกาลที่ถาม |
+| `router_timeout` | เกินงบ 40s ของ router (ต่างจาก error `ROUTER_TIMEOUT` ที่ api ตอบเมื่อ router เกิน 45s) |
+
+`trace.condense` (v1.8) และ `trace.multi_query` (v1.9) เป็นสถานะของขั้นช่วยค้นหา ไม่ใช่ fallback และไม่นับใน `fallback_count`
 
 ---
 
@@ -616,6 +636,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 
 - ลำดับ: หลัก → error / 429 / timeout → สำรอง 1 ครั้ง → ล่มทั้งคู่ส่ง error `LLM_UNAVAILABLE` (503) ให้ผู้เรียก
 - ทุก response ที่มาจาก LLM ต้องบอก `model` ที่ใช้จริง และ `token_usage`
+- โมเดลเล็กสำหรับงานเขียนคำค้นของ router (condense v1.8, คำค้นอังกฤษ v1.9): env `GROQ_CONDENSE_MODEL` / `GEMINI_CONDENSE_MODEL` (ว่าง = ใช้ `GROQ_MODEL` / `GEMINI_MODEL`) · timeout provider ละ 2s · คำขอที่ไม่มี field ที่ต้องการถือว่าล้มและลอง provider ถัดไป
 - env ของ API ฟุตบอล (07 เท่านั้น): `FOOTBALL_DATA_API_KEY`, `API_FOOTBALL_KEY`, `API_FOOTBALL_DAILY_LIMIT=90`
 
 ---
@@ -628,9 +649,10 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.1 | (D1) | **เพิ่มระบบ Admin** — §1.1 ใหม่ (`/api/admin/*`, สิทธิ์ `role=admin`, audit, error code ใหม่) · ย้าย `GET /api/stats` → `GET /api/admin/stats` · รายงานประจำสัปดาห์มีสถานะ `draft → published → unpublished` และเข้า KB เมื่อ publish เท่านั้น (+ env `REPORT_AUTO_PUBLISH`) · §6 เพิ่ม `POST /index/rebuild` · §7 เพิ่ม `GET /jobs`, endpoint จัดการรายงาน, `triggered_by` · field เดิมไม่ถูกลบ/เปลี่ยนชื่อ ยกเว้น path `/api/stats` ที่ย้าย |
 | v1.2 | (D4) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §4 / §6 เพิ่ม error `INDEX_NOT_READY` (503) · §6 ระบุขอบเขตของ upsert (1–100 เอกสาร, 5 MB, 422 ทั้งคำขอ) · §7 เพิ่ม retrieval เป็นผู้เรียก `GET /football/teams` · §4 ฝั่ง vector ของ 05 ใช้ `query` แทน `query_original` field และความหมายต่อผู้เรียกเหมือนเดิม — router ต้องส่ง `query` เป็นอังกฤษที่เขียนใหม่แล้ว · **มีผลเมื่อ PR #10 merge** (ก่อนนั้นโค้ดยัง embed `query_original`) · ตัวเลขที่ใช้ตัดสิน (ชุด match hit@1 0.70 → 0.90) วัดกับเอกสาร**จำลอง** 20 คำถามและคำอังกฤษที่เตรียมไว้ ไม่ใช่เอกสารของ 07 หรือคำที่ router เขียนจริง ต้องวัดซ้ำหลังต่อระบบ · §6 upsert / delete / rebuild ตอบ `INDEX_NOT_READY` ตอน index ยังโหลดไม่เสร็จ · §6 job ของ rebuild หายเมื่อ restart |
 | v1.3 | (26 ก.ย.) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §2 `RouteRequest.context` เพิ่ม `last_ingest_at` (optional, null ได้) ที่ api คัดจาก `GET /football/status` · §3 ข้อความ fallback ของ intent ข้อมูลแมตช์อ่านเวลาจาก `context.last_ingest_at` และตัดท่อนเวลาออกเมื่อเป็น null · เดิม §3 อ้าง `<last_ingest_at>` แต่ §2 ไม่ได้ส่งค่านี้ให้ router |
-| v1.4 | 28 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #23 merge เข้า `develop`) | **เปลี่ยนความหมาย §6 `standings` doc_id** จาก `standings-<season>-mw<NN>` ที่เก็บแยกตามแมตช์วีค เป็น `standings-<season>` ที่แทน snapshot ล่าสุด 1 เอกสารต่อฤดูกาล · 07 upsert ID ใหม่ก่อน queue ลบ legacy `-mw01`–`-mw38` แบบ retry ได้ · 05 ยอมรับทั้งสองรูปแบบเฉพาะช่วง cleanup · ไม่ใช้ search index นี้แทนประวัติตารางคะแนนรายสัปดาห์ · ต้องแจ้งทีมและได้ approval ตามกฎต้นไฟล์ก่อน merge |
-| v1.5 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR นี้ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `player` (§0 enum, §6 ตาราง `doc_id` `players-<season>-team-<team_id>`) · intent ใหม่ `player_info` ในตารางที่ล็อก (8 → 9 หมวด) ส่ง `filters.category = ["player"]` และถอยแบบเดียวกับ intent ข้อมูลแมตช์ (ห้ามถอยไป `general_ai`) · ผลต่อโมดูล: 05 รับ category ใหม่, 04 เพิ่ม intent และเทรนใหม่, 03 map intent, 02/01 เพิ่มค่าใน enum, 07 ส่งเอกสารเมื่อเปิดธง |
-| v1.6 | 30 ก.ย. 2026 (เสนอ; มีผลเมื่อ PR #33 และ #34 merge เข้า `develop`) | **เพิ่ม optional field** `scope_team_ids` ใน §5 `POST /generate` จาก 03 ไป 06 เพื่อระบุขอบเขตทีมของคำถามจัดอันดับผู้เล่น · 06 รุ่นก่อนเพิกเฉยต่อ field ใหม่ได้ · ต้องมีทั้งสอง PR จึงใช้การแยกขอบเขตทีมได้ครบ |
-| v1.7 | 1 ต.ค. 2026 (เสนอ; มีผลเมื่อ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §3 `/local/predict` เพิ่ม field optional `home_strength`, `away_strength`, `league_avg_goals`, `home_name`, `away_name` และ `data.home_xg`, `away_xg`, `most_likely_score` · ผู้เรียกเปลี่ยนเป็น football-data · §3 เพิ่ม `POST /local/simulate` · §7 เพิ่ม `GET /football/predict`, `GET /football/simulation`, `SimulationSnapshot` และทิศ football-data → engines · §1 เพิ่ม `GET /api/football/predict`, `GET /api/football/simulation` · error `SIMULATION_UNAVAILABLE` (503) · `trace.fallback` เพิ่ม `simulation_down`, `prediction_needs_team`, `prediction_team_not_found` |
-| v1.8 | 1 ต.ค. 2026 (เสนอ; มีผลเมื่อ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `standalone_query` และ `condense` · §2 router อาจ condense คำถามต่อเนื่องด้วย LLM ก่อนเลือก route/ค้นหา โดย generation ได้ query เดิม · env ใหม่ `ROUTER_CONDENSE_ENABLED`, `GROQ_CONDENSE_MODEL`, `GEMINI_CONDENSE_MODEL` · `fallback` ไม่มีค่าใหม่ · api (02) ส่งต่อได้เลยเพราะ `Trace` เป็น `extra="allow"` |
-| v1.9 | 1 ต.ค. 2026 (เสนอ; มีผลเมื่อ merge เข้า `develop`) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `search_query_en` และ `multi_query` · §2 router ค้นคำถามไทยซ้ำด้วยคำค้นอังกฤษจาก LLM แล้วรวมผลด้วย RRF · env ใหม่ `ROUTER_MULTI_QUERY_ENABLED` · `fallback` ไม่มีค่าใหม่ · §4 `/search` ไม่เปลี่ยน |
+| v1.4 | 28 ก.ย. 2026 (มีผลแล้ว · PR #23) | **เปลี่ยนความหมาย §6 `standings` doc_id** จาก `standings-<season>-mw<NN>` ที่เก็บแยกตามแมตช์วีค เป็น `standings-<season>` ที่แทน snapshot ล่าสุด 1 เอกสารต่อฤดูกาล · 07 upsert ID ใหม่ก่อน queue ลบ legacy `-mw01`–`-mw38` แบบ retry ได้ · 05 ยอมรับทั้งสองรูปแบบเฉพาะช่วง cleanup · ไม่ใช้ search index นี้แทนประวัติตารางคะแนนรายสัปดาห์ · ต้องแจ้งทีมและได้ approval ตามกฎต้นไฟล์ก่อน merge |
+| v1.5 | 30 ก.ย. 2026 (มีผลแล้ว · PR #25, #28) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `player` (§0 enum, §6 ตาราง `doc_id` `players-<season>-team-<team_id>`) · intent ใหม่ `player_info` ในตารางที่ล็อก (8 → 9 หมวด) ส่ง `filters.category = ["player"]` และถอยแบบเดียวกับ intent ข้อมูลแมตช์ (ห้ามถอยไป `general_ai`) · ผลต่อโมดูล: 05 รับ category ใหม่, 04 เพิ่ม intent และเทรนใหม่, 03 map intent, 02/01 เพิ่มค่าใน enum, 07 ส่งเอกสารเมื่อเปิดธง |
+| v1.6 | 30 ก.ย. 2026 (มีผลแล้ว · PR #33, #34) | **เพิ่ม optional field** `scope_team_ids` ใน §5 `POST /generate` จาก 03 ไป 06 เพื่อระบุขอบเขตทีมของคำถามจัดอันดับผู้เล่น · 06 รุ่นก่อนเพิกเฉยต่อ field ใหม่ได้ · ต้องมีทั้งสอง PR จึงใช้การแยกขอบเขตทีมได้ครบ |
+| v1.7 | 1 ต.ค. 2026 (มีผลแล้ว · PR #36) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §3 `/local/predict` เพิ่ม field optional `home_strength`, `away_strength`, `league_avg_goals`, `home_name`, `away_name` และ `data.home_xg`, `away_xg`, `most_likely_score` · ผู้เรียกเปลี่ยนเป็น football-data · §3 เพิ่ม `POST /local/simulate` · §7 เพิ่ม `GET /football/predict`, `GET /football/simulation`, `SimulationSnapshot` และทิศ football-data → engines · §1 เพิ่ม `GET /api/football/predict`, `GET /api/football/simulation` · error `SIMULATION_UNAVAILABLE` (503) · `trace.fallback` เพิ่ม `simulation_down`, `prediction_needs_team`, `prediction_team_not_found` |
+| v1.8 | 1 ต.ค. 2026 (มีผลแล้ว · PR #38) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `standalone_query` และ `condense` · §2 router อาจ condense คำถามต่อเนื่องด้วย LLM ก่อนเลือก route/ค้นหา โดย generation ได้ query เดิม · env ใหม่ `ROUTER_CONDENSE_ENABLED`, `GROQ_CONDENSE_MODEL`, `GEMINI_CONDENSE_MODEL` · `fallback` ไม่มีค่าใหม่ · api (02) ส่งต่อได้เลยเพราะ `Trace` เป็น `extra="allow"` |
+| v1.9 | 1 ต.ค. 2026 (มีผลแล้ว · PR #42) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `search_query_en` และ `multi_query` · §2 router ค้นคำถามไทยซ้ำด้วยคำค้นอังกฤษจาก LLM แล้วรวมผลด้วย RRF · env ใหม่ `ROUTER_MULTI_QUERY_ENABLED` · `fallback` ไม่มีค่าใหม่ · §4 `/search` ไม่เปลี่ยน |
+| v1.10 | 1 ต.ค. 2026 | **เอกสารเท่านั้น ไม่เปลี่ยนพฤติกรรม** — Trace รวบรวมค่า `fallback` ที่ router ใช้อยู่จริงทั้งหมด (เพิ่ม `classifier_down`, `llm_unavailable`, `general_down`, `generation_down`, `historical_scorer_unavailable`, `historical_scorer_invalid`, `router_timeout` พร้อมความหมาย) · §8 ระบุ env โมเดลเล็กของ router · สถานะ v1.4–v1.9 เป็นมีผลแล้ว · หัวไฟล์เป็น v1.10 |
