@@ -337,5 +337,60 @@ class FollowUpWordingTests(unittest.TestCase):
                 self.assertEqual(self.intent(query), "standings_stats")
 
 
+class InternationalTriviaTests(unittest.TestCase):
+    """Thai golden set (eval/golden_thai.jsonl): World Cup, Euro and national-team questions
+    are history, and their search text must not be pushed toward the Premier League."""
+
+    def decide(self, query):
+        return decide(query, CONTEXT, [], TEAMS)
+
+    def test_international_scorer_questions_are_trivia(self):
+        for query in ("ใครทำประตูแรกในบอลโลกอะ?",
+                      "ผู้ยิงประตูได้เยอะที่สุดของทีมชาติโปแลนด์คือใคร?",
+                      "ทีมชาติอังกฤษผู้ยิงประตูเยอะสุดคือใครอะ?",
+                      "ใครเป็นผู้ทำประตูสูงสุดของทีมซัมเบียตลอดมา?",
+                      "ใครทำประตูครบร้อยในลีกสูงสุดอังกฤษก่อนคนอื่น?"):
+            with self.subTest(query=query):
+                result = self.decide(query)
+                self.assertEqual((result.route, result.intent), ("football_rag", "trivia_history"))
+                self.assertNotIn("matchweek", result.filters)
+
+    def test_competition_names_go_into_the_search_text(self):
+        cases = [("ใครได้แชมป์บอลโลกปี 1954 นะ", ("FIFA World Cup", "1954")),
+                 ("ทีมไหนแชมป์ยุโรป 88?", ("UEFA",)),
+                 ("คอนเฟดคัพปี 2003 ใครได้แชมป์", ("Confederations Cup", "2003")),
+                 ("ทีมที่เป็นรองชนะเลิศยูฟ่าแชมเปียนส์ลีกปี 1980 คือทีมไหน?", ("Champions League", "1980"))]
+        for query, terms in cases:
+            with self.subTest(query=query):
+                rewritten = self.decide(query).rewritten_query
+                for term in terms:
+                    self.assertIn(term, rewritten)
+                self.assertNotIn("Premier League", rewritten)
+                self.assertIn(query, rewritten)
+
+    def test_trivia_without_a_known_competition_keeps_the_question_alone(self):
+        # A generic English prefix pulled the same unrelated documents to the top
+        # (Thai golden set: raw Thai found them, the prefixed text did not).
+        for query in ("ทีมไหนเคยแชมป์ทวีปตั้งแต่ครั้งแรกจนถึงครั้งที่ห้าต่อเนื่อง?",
+                      "ทีมชาติที่ฉายาซูเปอร์อีเกิ้ลส์คือประเทศอะไร",
+                      "ใครเป็นผู้ทำประตูสูงสุดของทีมซัมเบียตลอดมา?"):
+            with self.subTest(query=query):
+                self.assertEqual(self.decide(query).rewritten_query, query)
+
+    def test_premier_league_title_text_is_short(self):
+        count = self.decide("อาร์เซนอลได้แชมป์พรีเมียร์ลีกกี่ครั้ง").rewritten_query
+        self.assertEqual(count, "Arsenal Premier League title count อาร์เซนอลได้แชมป์พรีเมียร์ลีกกี่ครั้ง")
+        # Without a team the Thai question already names the league; the prefix only hurt.
+        query = "ทีมแรกที่ได้แชมป์พรีเมียร์ลีกโดยไม่ได้มาจากแมนเชสเตอร์หรือลอนดอนคือทีมไหน"
+        self.assertEqual(self.decide(query).rewritten_query, query)
+
+    def test_premier_league_questions_keep_their_routing(self):
+        title = self.decide("อาร์เซนอลได้แชมป์พรีเมียร์ลีกกี่ครั้ง")
+        self.assertEqual(title.intent, "trivia_history")
+        self.assertIn("Premier League title", title.rewritten_query)
+        self.assertEqual(self.decide("ใครยิงเยอะสุด").intent, "standings_stats")
+        self.assertEqual(self.decide("ดาวซัลโวฟุตบอลโลกคือใคร").route, "decline")
+
+
 if __name__ == "__main__":
     unittest.main()
