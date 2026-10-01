@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import FootballPage from "../app/football/[view]/page";
 import MatchPage from "../app/matches/[id]/page";
+vi.mock("../components/AppProvider", () => ({
+  useApp: () => ({ browsingTeam: { teamId: 66 } }),
+}));
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status });
 it("treats an unpublished/missing report as an empty state", async () => {

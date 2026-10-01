@@ -16,9 +16,15 @@ export default function Login() {
     <main className="login-page" id="content">
       <section className="login-story">
         <div className="wordmark">
-          <span className="wordmark-symbol">P</span>
+          <img
+            className="panda-mark"
+            src="/panda-logo.svg"
+            alt=""
+            width={52}
+            height={52}
+          />
           <span>
-            PitchSide<small>FOOTBALL BRINGS US CLOSER</small>
+            PANBALL<small>FOOTBALL BRINGS US CLOSER</small>
           </span>
         </div>
         <div className="login-headline">
@@ -57,9 +63,9 @@ export default function Login() {
           {app.loggingOut && (
             <p role="status">กำลังออกจากระบบ กรุณารอสักครู่</p>
           )}
-          <span className="eyebrow">WELCOME TO PITCHSIDE</span>
+          <span className="eyebrow">WELCOME TO PANBALL</span>
           <h2>ยินดีต้อนรับกลับ</h2>
-          <p className="muted">เข้าสู่ระบบ PitchSide</p>
+          <p className="muted">เข้าสู่ระบบ PANBALL</p>
           {app.user ? (
             <>
               <p>เข้าสู่ระบบแล้ว: {app.user.display_name}</p>

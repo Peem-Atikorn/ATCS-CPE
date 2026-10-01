@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   BarChart3,
   CalendarDays,
@@ -11,8 +11,12 @@ import {
   Plus,
   Shield,
   Trophy,
+  Settings,
+  Home,
+  CircleCheck,
 } from "lucide-react";
 import { useApp } from "./AppProvider";
+import { PersonalSettings } from "./PersonalSettings";
 import { MascotDock } from "./MascotDock";
 import { ErrorBox, Loading } from "./Ui";
 import { teams } from "../lib/teams";
@@ -20,6 +24,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const app = useApp(),
     path = usePathname(),
     router = useRouter();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const browsing = app.browsingTeam ?? app.team;
   const loginPage = path === "/login",
     adminPage = path.startsWith("/admin");
   useEffect(() => {
@@ -39,14 +45,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ["/", "กลับหน้าเว็บ", Trophy],
       ] as const)
     : ([
-        ["/", "แชทฟุตบอล", MessageSquare],
+        ["/", "หน้าหลัก", Home],
         ["/football/fixtures", "ผลและโปรแกรมแข่ง", CalendarDays],
         ["/football/standings", "ตารางคะแนน", Trophy],
         ["/football/reports", "รายงานประจำสัปดาห์", FileText],
       ] as const);
   return (
     <div
-      className="site-shell"
+      className={`site-shell ${loginPage ? "" : "panball-shell"}`}
       style={
         {
           "--club": app.team.color,
@@ -81,9 +87,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <>
             <aside className="site-sidebar">
               <Link href="/" className="wordmark">
-                <span className="wordmark-symbol">P</span>
+                <img
+                  className="panda-mark"
+                  src="/panda-logo.svg"
+                  alt=""
+                  width={44}
+                  height={44}
+                />
                 <span>
-                  PitchSide
+                  PANBALL
                   <small>
                     {adminPage ? "ADMIN CONSOLE" : "FOOTBALL INTELLIGENCE"}
                   </small>
@@ -119,7 +131,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       aria-label="เริ่มบทสนทนาใหม่"
                       onClick={() => {
                         app.newChat();
-                        router.push("/");
+                        app.ask();
                       }}
                     >
                       <Plus size={18} />
@@ -140,7 +152,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       key={session.session_id}
                       onClick={() => {
                         void app.selectSession(session.session_id);
-                        router.push("/");
+                        app.ask();
                       }}
                     >
                       <MessageSquare size={14} />
@@ -149,6 +161,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   ))}
                 </section>
               )}
+              <div className="sidebar-settings">
+                <button onClick={() => setSettingsOpen(true)}>
+                  <Settings size={19} />
+                  ตั้งค่าส่วนตัว
+                </button>
+                <small className="favorite-club">
+                  <img
+                    src={`/crests/${app.team.teamId}.png`}
+                    alt=""
+                    width={28}
+                    height={28}
+                  />
+                  ทีมโปรด · {app.team.shortName}
+                </small>
+              </div>
               <div className="sidebar-account">
                 <span className="avatar">
                   {app.user.display_name.slice(0, 1)}
@@ -158,7 +185,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <small>
                     {app.user.role === "admin"
                       ? "ผู้ดูแลระบบ"
-                      : "สมาชิก PitchSide"}
+                      : "สมาชิก PANBALL"}
                   </small>
                 </div>
                 <button
@@ -171,22 +198,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </aside>
             <div className="site-content">
               <header className="topbar">
-                <span className="eyebrow">
-                  {adminPage
-                    ? "YOUR CLUB. YOUR DATA."
-                    : "YOUR CLUB. YOUR WORLD."}
+                <span className="browse-label">
+                  ดูข้อมูลทีม<small>กำลังดู · {browsing.shortName}</small>
                 </span>
                 <div
                   className="club-switcher"
                   role="group"
-                  aria-label="เลือกทีมที่เชียร์"
+                  aria-label="เลือกดูข้อมูลทีม"
                 >
                   {teams.map((team) => (
                     <button
                       key={team.key}
-                      disabled={app.teamBusy || app.pending}
-                      aria-pressed={team.key === app.team.key}
-                      onClick={() => void app.changeTeam(team.key)}
+                      aria-pressed={team.key === browsing.key}
+                      onClick={() => app.browseTeam(team.key)}
                       title={team.name}
                     >
                       <img
@@ -197,6 +221,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         height={28}
                       />
                       <span>{team.shortName}</span>
+                      {team.key === browsing.key && (
+                        <CircleCheck
+                          className="club-selected"
+                          size={19}
+                          aria-hidden="true"
+                        />
+                      )}
                     </button>
                   ))}
                 </div>
@@ -215,11 +246,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 )}
               </main>
               <footer>
-                PitchSide · เวลาแสดงตามประเทศไทย ·
+                PANBALL · เวลาแสดงตามประเทศไทย ·
                 ตรวจสอบแหล่งอ้างอิงและเวลาข้อมูล
               </footer>
             </div>
             <MascotDock />
+            {settingsOpen && (
+              <PersonalSettings
+                key={app.user.id}
+                close={() => setSettingsOpen(false)}
+              />
+            )}
           </>
         )
       )}

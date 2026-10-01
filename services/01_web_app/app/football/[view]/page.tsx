@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRemote } from "../../../lib/use-remote";
 import {
   dateTime,
@@ -13,6 +13,13 @@ import { teams } from "../../../lib/teams";
 import { ErrorBox, Empty, Loading, PageTitle } from "../../../components/Ui";
 import { Markdown } from "../../../components/Answer";
 import { ApiError } from "../../../lib/api";
+import { useApp } from "../../../components/AppProvider";
+import { TeamName, FormBadges } from "../../../components/FootballIdentity";
+import { recentForm } from "../../../lib/matchday";
+import { seasonRounds } from "../../../lib/competition";
+import { LeagueInsights } from "../../../components/LeagueInsights";
+import { FixtureList } from "../../../components/FixtureList";
+import { Trophy, CalendarDays } from "lucide-react";
 const statusLabels: Record<string, string> = {
   SCHEDULED: "รอแข่งขัน",
   LIVE: "กำลังแข่งขัน",
@@ -24,13 +31,53 @@ export default function FootballPage({ params }: { params: { view: string } }) {
   return <FootballView key={params.view} view={params.view} />;
 }
 function FootballView({ view }: { view: string }) {
+  const app = useApp();
+  const browsingId = app.browsingTeam.teamId;
   const [season, setSeason] = useState(""),
     [week, setWeek] = useState(""),
-    [team, setTeam] = useState(""),
+    [team, setTeam] = useState(String(browsingId)),
     [status, setStatus] = useState("");
-  const [query, setQuery] = useState(""),
+  const [query, setQuery] = useState(
+      view === "fixtures" ? `?team_id=${browsingId}` : "",
+    ),
     [revision, setRevision] = useState(0);
   const live = useRemote<FootballStatus>("/football/status", revision);
+  useEffect(() => {
+    setTeam(String(browsingId));
+    if (view === "fixtures")
+      setQuery((current) => {
+        const q = new URLSearchParams(current);
+        q.set("team_id", String(browsingId));
+        return "?" + q;
+      });
+  }, [browsingId, view]);
+  const selectedSeason =
+    new URLSearchParams(query).get("season") || live.data?.current_season;
+  const formSource = useRemote<{ matches: Match[] }>(
+    view === "standings" && selectedSeason
+      ? "/football/fixtures?season=" +
+          encodeURIComponent(selectedSeason) +
+          "&status=FINISHED"
+      : null,
+    revision,
+  );
+  const selectedWeek = new URLSearchParams(query).get("matchweek");
+  const totalWeeks = seasonRounds(
+    selectedSeason,
+    selectedSeason === live.data?.current_season
+      ? live.data?.total_matchweeks
+      : null,
+  );
+  function moveWeek(delta: number) {
+    const value = Number(selectedWeek) + delta;
+    if (value < 1 || value > 38) return;
+    setWeek(String(value));
+    setQuery((current) => {
+      const q = new URLSearchParams(current);
+      q.set("matchweek", String(value));
+      return "?" + q;
+    });
+  }
   const titles: Record<string, string> = {
     fixtures: "ผลและโปรแกรมการแข่งขัน",
     standings: "ตารางคะแนน",
@@ -61,8 +108,21 @@ function FootballView({ view }: { view: string }) {
     resource.error.status === 404 &&
     view === "reports";
   return (
-    <>
-      <PageTitle eyebrow="PREMIER LEAGUE" title={titles[view]} />
+    <div className={`football-page football-${view}`}>
+      <div className="football-heading">
+        <PageTitle
+          eyebrow={`PREMIER LEAGUE / ${selectedSeason ?? "—"}`}
+          title={titles[view]}
+        />
+        <div className="competition-emblem" aria-hidden="true">
+          {view === "standings" ? <Trophy /> : <CalendarDays />}
+          <span>
+            PREMIER
+            <br />
+            LEAGUE
+          </span>
+        </div>
+      </div>
       <div className="status-strip">
         <span>
           ฤดูกาล {live.data?.current_season ?? "—"} · นัดที่{" "}
@@ -104,7 +164,7 @@ function FootballView({ view }: { view: string }) {
         </label>
         {view !== "standings" && (
           <label>
-            แมตช์วีค
+            นัด
             <input
               type="number"
               min={1}
@@ -149,6 +209,58 @@ function FootballView({ view }: { view: string }) {
         )}
         <button className="primary">แสดงข้อมูล</button>
       </form>
+      {view === "fixtures" && (
+        <div className="round-nav">
+          <button
+            disabled={!selectedWeek || Number(selectedWeek) <= 1}
+            onClick={() => moveWeek(-1)}
+          >
+            ← นัดก่อนหน้า
+          </button>
+          <div className="round-progress">
+            <strong>
+              {selectedWeek
+                ? "การแข่งขันนัดที่ " +
+                  selectedWeek +
+                  (totalWeeks ? " จาก " + totalWeeks + " นัด" : "")
+                : "ทุกนัดในช่วงที่เลือก"}
+            </strong>
+            {selectedWeek && totalWeeks && (
+              <>
+                <progress
+                  aria-label="ความคืบหน้ารอบการแข่งขัน"
+                  value={Number(selectedWeek)}
+                  max={totalWeeks}
+                />
+                <small>
+                  {selectedWeek}/{totalWeeks}
+                </small>
+              </>
+            )}
+          </div>
+          <button
+            disabled={
+              !selectedWeek ||
+              Number(selectedWeek) >= Math.min(totalWeeks ?? 38, 38)
+            }
+            onClick={() => moveWeek(1)}
+          >
+            นัดถัดไป →
+          </button>
+        </div>
+      )}
+      {view === "standings" && (
+        <>
+          <p className="form-legend">
+            5 นัดล่าสุดที่มีข้อมูล · เก่า → ล่าสุด · ✓ ชนะ / − เสมอ / × แพ้ ·
+            วงแหวน = นัดล่าสุด
+          </p>
+          <ErrorBox
+            error={formSource.error}
+            retry={() => setRevision((x) => x + 1)}
+          />
+        </>
+      )}
       {resource.loading ? (
         <Loading />
       ) : emptyReport ? (
@@ -159,100 +271,134 @@ function FootballView({ view }: { view: string }) {
           retry={() => setRevision((value) => value + 1)}
         />
       ) : (
-        <section className="panel">
-          {resource.data?.fetched_at && (
-            <p className="muted">
-              ข้อมูล ณ {dateTime(resource.data.fetched_at)}
-            </p>
-          )}
-          {view === "standings" &&
-            (resource.data?.rows?.length ? (
-              <div className="table-scroll">
-                <table>
-                  <caption className="sr-only">ตารางคะแนนพรีเมียร์ลีก</caption>
-                  <thead>
-                    <tr>
-                      {[
-                        "อันดับ",
-                        "ทีม",
-                        "แข่ง",
-                        "ชนะ",
-                        "เสมอ",
-                        "แพ้",
-                        "ได้",
-                        "เสีย",
-                        "+/−",
-                        "คะแนน",
-                        "ฟอร์ม",
-                      ].map((label) => (
-                        <th key={label}>{label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {resource.data.rows.map((row) => (
-                      <tr key={row.team_id}>
-                        <td>{row.position}</td>
-                        <th scope="row">{row.name}</th>
-                        <td>{row.played}</td>
-                        <td>{row.won}</td>
-                        <td>{row.draw}</td>
-                        <td>{row.lost}</td>
-                        <td>{row.goals_for}</td>
-                        <td>{row.goals_against}</td>
-                        <td>{row.goal_difference}</td>
-                        <td>
-                          <strong>{row.points}</strong>
-                        </td>
-                        <td>{row.form || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <Empty>ยังไม่มีตารางคะแนน</Empty>
-            ))}
-          {view === "fixtures" &&
-            (resource.data?.matches?.length ? (
-              <div className="match-list">
-                {resource.data.matches.map((match) => (
-                  <Link
-                    className="match-row"
-                    href={"/matches/" + match.match_id}
-                    key={match.match_id}
-                  >
-                    <div>
-                      <small>
-                        {dateTime(match.kickoff)} · นัดที่ {match.matchweek}
-                      </small>
-                      <span>{statusLabels[match.status] ?? match.status}</span>
-                    </div>
-                    <strong>{match.home.name}</strong>
-                    <b className="score">
-                      {match.score.home ?? "—"} : {match.score.away ?? "—"}
-                    </b>
-                    <strong>{match.away.name}</strong>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <Empty>ไม่มีการแข่งขันตรงกับตัวกรอง</Empty>
-            ))}
-          {view === "reports" && resource.data?.markdown && (
-            <article>
-              <span className="badge">
-                นัดที่ {resource.data.matchweek} · เผยแพร่แล้ว
-              </span>
-              <h2>{resource.data.title}</h2>
+        <div
+          className={
+            view === "standings" ? "standings-layout" : "football-results"
+          }
+        >
+          <section
+            className={`panel ${view === "standings" ? "standings-panel" : view === "fixtures" ? "fixtures-panel" : ""}`}
+          >
+            {resource.data?.fetched_at && (
               <p className="muted">
-                ข้อมูล ณ {dateTime(resource.data.data_as_of)}
+                ข้อมูล ณ {dateTime(resource.data.fetched_at)}
               </p>
-              <Markdown text={resource.data.markdown} />
-            </article>
+            )}
+            {view === "standings" &&
+              (resource.data?.rows?.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <caption className="sr-only">
+                      ตารางคะแนนพรีเมียร์ลีก
+                    </caption>
+                    <thead>
+                      <tr>
+                        {[
+                          "อันดับ",
+                          "ทีม",
+                          "แข่ง",
+                          "ชนะ",
+                          "เสมอ",
+                          "แพ้",
+                          "ได้",
+                          "เสีย",
+                          "+/−",
+                          "คะแนน",
+                          "5 นัดที่มีข้อมูล",
+                        ].map((label) => (
+                          <th key={label}>{label}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {resource.data.rows.map((row) => (
+                        <tr
+                          key={row.team_id}
+                          className={
+                            row.team_id === browsingId ? "club-row" : ""
+                          }
+                        >
+                          <td>{row.position}</td>
+                          <th scope="row">
+                            <TeamName id={row.team_id} name={row.name} />
+                          </th>
+                          <td>{row.played}</td>
+                          <td>{row.won}</td>
+                          <td>{row.draw}</td>
+                          <td>{row.lost}</td>
+                          <td>{row.goals_for}</td>
+                          <td>{row.goals_against}</td>
+                          <td>{row.goal_difference}</td>
+                          <td>
+                            <strong>{row.points}</strong>
+                          </td>
+                          <td>
+                            <FormBadges
+                              teamId={row.team_id}
+                              games={
+                                recentForm(
+                                  formSource.data?.matches ?? [],
+                                  row.team_id,
+                                ).games
+                              }
+                              results={
+                                recentForm(
+                                  formSource.data?.matches ?? [],
+                                  row.team_id,
+                                ).results
+                              }
+                            />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <Empty>ยังไม่มีตารางคะแนน</Empty>
+              ))}
+            {view === "fixtures" &&
+              (resource.data?.matches?.length ? (
+                <FixtureList
+                  matches={resource.data.matches}
+                  showAll={
+                    new URLSearchParams(query).has("team_id")
+                      ? () => {
+                          setTeam("");
+                          setQuery((current) => {
+                            const q = new URLSearchParams(current);
+                            q.delete("team_id");
+                            return q.size ? "?" + q : "";
+                          });
+                        }
+                      : undefined
+                  }
+                />
+              ) : (
+                <Empty>ไม่มีการแข่งขันตรงกับตัวกรอง</Empty>
+              ))}
+            {view === "reports" && resource.data?.markdown && (
+              <article>
+                <span className="badge">
+                  นัดที่ {resource.data.matchweek} · เผยแพร่แล้ว
+                </span>
+                <h2>{resource.data.title}</h2>
+                <p className="muted">
+                  ข้อมูล ณ {dateTime(resource.data.data_as_of)}
+                </p>
+                <Markdown text={resource.data.markdown} />
+              </article>
+            )}
+          </section>
+          {view === "standings" && !!resource.data?.rows?.length && (
+            <LeagueInsights
+              rows={resource.data.rows}
+              matches={formSource.data?.matches ?? []}
+              teamId={browsingId}
+            />
           )}
-        </section>
+        </div>
       )}
-    </>
+    </div>
   );
 }

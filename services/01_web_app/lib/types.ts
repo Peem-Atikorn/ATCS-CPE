@@ -63,6 +63,7 @@ export type ChatResult = {
 export type Session = { session_id: string; title: string; updated_at: string };
 export type Page<T> = { items: T[]; next_cursor: string | null };
 export type FootballStatus = {
+  total_matchweeks?: number | null;
   current_season: string;
   current_matchweek: number;
   last_ingest_at: string | null;
@@ -87,6 +88,7 @@ export type Standing = {
   form: string | null;
 };
 export type Match = {
+  venue?: { name: string } | null;
   match_id: string;
   season: string;
   matchweek: number;

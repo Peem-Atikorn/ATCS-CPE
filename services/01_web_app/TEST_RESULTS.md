@@ -1,8 +1,56 @@
 # ผลทดสอบงาน 01 Web App
 
-วันที่ตรวจ: 26 กันยายน 2026
+วันที่ตรวจล่าสุด: 1 ตุลาคม 2026
 
-## รอบล่าสุด — ตรวจ handoff หลังรวม develop
+## รอบล่าสุด — ปรับภาพลักษณ์ตาม 5 ภาพอ้างอิง (1 ตุลาคม 2026)
+
+ปรับพื้นหลังสนามต่อเนื่อง โทน Midnight/สีทีมโปรด เมนูและปุ่มเลือกทีม การ์ด Hub แบบสองคอลัมน์ ตารางพร้อมแผงสรุปลีกด้านขวา โปรแกรมแข่งแยกตามวัน และหน้าตั้งค่า preview ธีม/มาสคอส โดยแก้เฉพาะ 01 และยังไม่ commit/push/PR
+
+- `pnpm check` ผ่าน: **69 Vitest tests ใน 14 files + 5 Node tests รวม 74 tests**, typecheck, format และ production build
+- `docker compose build web` ผ่านบน Node 22 Alpine; อัปเดต container ด้วย `WEB_PORT=3002 docker compose up -d --no-deps --wait web` และสถานะ healthy
+- `WEB_URL=http://127.0.0.1:3002 pnpm test:smoke` ผ่านครบ **23 checks** บน image ล่าสุด รวม router failure 502 และ intentional timeout 504; API/PostgreSQL/Redis จริง ส่วน AI และข้อมูลฟุตบอลใช้ stubs ของ 02
+- ตรวจ browser ที่ `http://127.0.0.1:3002/` หลัง deploy: PANBALL/หน้าสรุปก่อนเชียร์/ธีมทีมโปรดแสดงได้ รูปไม่มีโหลดเสีย และไม่พบ console error/warning; เก็บภาพ `polish-docker-final.jpg` และเปิด Docker demo ที่พอร์ต 3002 ไว้ให้ใช้งานต่อ
+- เพิ่ม regression tests: จัดกลุ่มวันแข่งขันตามเวลาไทยเมื่อข้ามเที่ยงคืน, ปุ่มทุกทีมอยู่นอกลิงก์แมตช์ และฟอร์มมีสกอร์/วันที่/ลิงก์รายละเอียดตรงแมตช์
+- Browser ตรวจข้อมูลครบ 20 ทีมที่ 1536×1024 และ 1440×900; โลโก้โหลดครบ ตารางคะแนนไม่ล้น container ที่ 1440 และ 1536; ตรวจ Hub/Fixtures/Standings/Settings ที่ 390×844 หน้าไม่ล้นแนวนอน (ตารางยาวเลื่อนภายใน)
+- ตรวจเลือกดู Arsenal ขณะใช้ธีม Man City, บันทึก/ลบ bookmark, เปลี่ยนตัวกรองจากทีมเดียวเป็นทุกทีมโดยยังคงนัดที่ 4, แผง preview ตั้งค่า, ลากมาสคอส, และ Admin; ไม่พบ console error/warning ในช่วงตรวจ
+- ข้อมูลฟุตบอลครบ 20 ทีมสำหรับตรวจ layout ใช้ **synthetic QA API** ชั่วคราวในไฟล์ ignored ของ 01; อ่านชื่อ/โลโก้จาก catalog แล้วสร้างสกอร์ทดสอบ ไม่ใช่ผลฟุตบอลจริง ไม่มีการเขียนข้อมูลทดสอบนี้ลงฐานข้อมูลฟุตบอลหรือฝังใน runtime app และปิด QA server หลังตรวจแล้ว
+- ภาพชุดล่าสุดอยู่ใน `node_modules/.cache/panball-qa/`: `polish-hub-desktop.jpg`, `polish-hub-mobile.jpg`, `polish-standings.jpg`, `polish-settings.jpg`, `polish-admin.jpg` (Git ignored)
+- คืน favorite ของบัญชีที่ใช้ตรวจเป็นค่าเดิมและลบ bookmark ทดสอบแล้ว; ไม่อ้างว่าได้ทดสอบ integration ของบริการ 03–07 จริงครบระบบ
+
+## รอบก่อนหน้า — PANBALL / Matchday Hub / player category
+
+แก้เฉพาะ `services/01_web_app` ต่อจาก HEAD `d15c873` บน `feature/01-web-mekmai4234` ยังไม่ commit, push หรือส่ง PR
+
+| รายการ | ผล |
+| --- | --- |
+| `pnpm check` | ผ่าน: 67 Vitest tests ใน 13 files + 5 Node tests รวม 72 tests, typecheck, Prettier และ production build บน Windows |
+| `docker compose build web` | ผ่าน production standalone build บน Node 22 Alpine |
+| Compose ของ 01 / port 3002 | Web, API, PostgreSQL, Redis และ 2 stubs healthy |
+| `WEB_URL=http://127.0.0.1:3002 pnpm test:smoke` | ผ่าน 23 checks บน image ล่าสุด รวม 502 และ intentional timeout 504 |
+| Admin `player` | Unit test ยืนยัน dropdown และ POST body `{ "category": "player" }`; ตัวเลือกทั้งหมดส่ง `{}`; browser เลือก player และได้ 202 พร้อม job ID โดย UI ไม่อ้างว่างานเสร็จแล้ว |
+| ทีมที่ดู / ทีมโปรด | Browser บันทึก Man City เป็นทีมโปรดขณะดู Arsenal: ธีม/มาสคอสเปลี่ยนและ browsing ยังเป็น Arsenal; preview Liverpool แล้วกดยกเลิกยังคง Man City; tests ยืนยัน browse/send ไม่ PATCH favorite และ account reset |
+| แชท | ปุ่มถามแพนด้าจาก Hub เปิด composer พร้อมชื่อทีม; ส่งคำถามผ่าน API และ router stub สำเร็จ; เริ่มแชทใหม่บนมือถือได้ |
+| ฟุตบอล | Browser แสดงโลโก้, ฟอร์มพร้อมวงแหวน, “การแข่งขันนัดที่ 4 จาก 38 นัด”; ไม่มีภาพ img โหลดเสียในหน้าที่ตรวจ |
+| Responsive | Spot checks Hub/ตั้งค่าส่วนตัว/Fixtures/Standings/แชท ที่ 390×844 และ Hub/Admin ที่ 1440×900; document ไม่ล้นแนวนอนในหน้าที่วัด; ตารางเลื่อนภายในได้ |
+| Matchday logic | Tests ครอบคลุมนัดถัดไป, เรียง/ตัดซ้ำ/มุมมองเจ้าบ้านเยือน, cutoff, ผลไม่ครบ, สูงสุด 5 นัด, เวลาไม่ทราบ, bookmarks แยกบัญชี, storage เสีย และ empty state |
+| ปิดชุดทดสอบ | ออกจากบัญชี browser แล้ว `docker compose down` เฉพาะ project `pitchside01` สำเร็จ; ไม่ใช้ `-v` จึงเก็บฐานข้อมูลไว้; ตรวจ Git แล้วไม่มีไฟล์นอก 01 เปลี่ยนแปลง |
+
+### ข้อมูลจริงที่ตรวจในช่วงก่อนหน้าของรอบนี้
+
+อ่าน dataset 07 ที่กำลังรันเมื่อ 30 กันยายน: season 2026 มี 20 ทีม, 380 fixtures, รอบ 1–38; นำ catalog/crest URL มาเก็บ assets ใน 01 และใช้ fallback จำนวนรอบเฉพาะฤดูกาลนี้ ทดสอบ browser ผ่าน API/บัญชีสาธิตแยกที่อ่าน football data จาก 07 ได้ โดย Hub แสดงนัด Arsenal–Leeds, ฟอร์ม/ประเด็นจาก 10 เกมอ้างอิงและผลล่าสุดได้ จากนั้นกลับมาใช้ Compose สาธิตมาตรฐานสำหรับรอบสุดท้าย ไม่มีการแก้ source ของบริการอื่น
+
+### ขอบเขตและข้อจำกัด
+
+- Smoke รอบสุดท้ายใช้ API 02 + PostgreSQL/Redis จริง แต่ Router/Football Data/Retrieval เป็น stub ไม่ใช่ integration บริการ 03–07 ครบระบบ และไม่ได้พิสูจน์นโยบาย database-only ของแชท
+- ข้อมูล stub ณ วันที่ทดสอบไม่มีนัดในอนาคตของทีมที่เลือก จึงตรวจ empty state ใน browser; การบันทึกนัดถัดไป/แยกบัญชีตรวจด้วย component tests ไม่อ้างว่าได้ทดสอบ browser end-to-end ของ bookmarks
+- 38 รอบมาจากค่าตรวจสอบเฉพาะ season 2026; เมื่อ API มี `total_matchweeks` ที่ใช้ได้จะเลือก metadata ก่อน ฤดูกาลอื่นที่ไม่ทราบไม่เติม 38 เอง
+- โลโก้ local ครอบคลุม catalog ปัจจุบัน 20 ทีม; ทีมใหม่ใช้ shield fallback, ไม่ได้เพิ่ม teams API ของ 02
+- ไม่เติมสนามเมื่อไม่มี `venue`; สรุปเป็นตัวเลขจาก fixtures ที่มี พร้อมบอกจำนวนข้อมูลจริง ไม่ใช่การพยากรณ์ AI
+- Saved matches อยู่ใน localStorage แยก user ID สูงสุด 20 รายการ ไม่มี sync ข้ามอุปกรณ์
+- ภาพ QA อยู่ใน `node_modules/.cache/panball-qa/` (Git ignored): `hub-desktop.jpg`, `hub-mobile.jpg`, `admin-player.jpg`; ภาพรอบสุดท้ายใช้ข้อมูลสาธิต
+- ผลนี้เป็น local checks ยังไม่มี CI ของการเปลี่ยนแปลงที่ยังไม่ได้ commit
+
+## รอบก่อนหน้า — ตรวจ handoff หลังรวม develop
 
 ตรวจบน HEAD `e0221c1f79d0f30102a26e42d3190931c1ad994f` ของ branch `feature/01-web-mekmai4234` วันที่ 26 กันยายน 2026 หลังรวม Deploy PR #16 แล้ว การแก้รอบนี้มีเฉพาะเอกสาร README, INTEGRATION และ TEST_RESULTS ในงาน 01 เพื่อให้ตรงกับ CI, Compose กลาง, Contract v1.3 และขั้นตอนส่งมอบ ไม่มีการเปลี่ยน runtime code หรือไฟล์ของทีมอื่น
 

@@ -18,9 +18,9 @@ export const teams = [
     initials: "MC",
     teamId: 65,
     mascot: "/mascots/manchester-city.webp",
-    color: "#79c9f3",
-    colorBright: "#c6ecff",
-    glow: "83, 180, 231",
+    color: "#00b4ff",
+    colorBright: "#9ce4ff",
+    glow: "0, 180, 255",
     hero: "PAINT THE CITY BLUE",
   },
   {
