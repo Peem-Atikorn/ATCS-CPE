@@ -400,11 +400,12 @@ class HistoricalDecisionTests(unittest.TestCase):
     def test_past_season_questions_search_the_archive_for_that_season(self):
         cases = (
             ("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05", "2004"),
-            ("พรีเมียร์ลีกปี 2015 ทีมไหนตกชั้นบ้าง", "2015"),
             ("ฤดูกาล 98/99 ใครได้รองแชมป์พรีเมียร์ลีก", "1998"),
             ("ฤดูกาลที่แล้วใครได้แชมป์พรีเมียร์ลีก", "2025"),
             ("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", "2015"),
             ("เลสเตอร์ซิตี้ฤดูกาล 2015/16 ได้กี่แต้ม", "2015"),
+            ("แบล็คเบิร์น โรเวอร์ส ฤดูกาล 1994/95 จบอันดับเท่าไหร่", "1994"),
+            ("Bolton Wanderers 2005/06 final table position", "2005"),
             ("Who won the Premier League in 2004/05?", "2004"),
         )
         for query, season in cases:
@@ -461,3 +462,38 @@ class HistoricalDecisionTests(unittest.TestCase):
     def test_nineties_short_season_for_scorers(self):
         self.assertEqual(historical_scorer_season("ดาวซัลโวพรีเมียร์ลีก 98/99", "2026"), ("1998", False))
         self.assertEqual(historical_scorer_season("ดาวซัลโวพรีเมียร์ลีก 24/25", "2026"), ("2024", False))
+
+    def test_future_two_digit_seasons_are_not_last_century(self):
+        self.assertEqual(historical_scorer_season("ดาวซัลโวฤดูกาล 27/28", "2026"), ("2027", False))
+        for query in ("ตารางคะแนนฤดูกาล 27/28", "ใครแชมป์ฤดูกาล 27/28", "ตารางคะแนนฤดูกาล 30/31"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual((result.filters if result else {}).get("category"), ["historical"])
+
+    def test_current_match_questions_between_two_teams_stay_current(self):
+        for query in ("แมนยูกับลิเวอร์พูลนัดล่าสุดชนะกันกี่ลูก", "แมนยูเจอลิเวอร์พูลเมื่อวานชนะกันกี่ประตู",
+                      "แมนยูกับลิเวอร์พูลเจอกันกี่โมง", "แมนยูเจอลิเวอร์พูลเจอกันกี่ครั้งฤดูกาลนี้"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual((result.filters if result else {}).get("category"), ["historical"])
+
+    def test_other_competitions_never_search_only_the_league_archive(self):
+        for query in ("แชมป์เอฟเอ คัพปี 2005", "แชมป์ถ้วยเอฟเอปี 2005", "แชมป์ efl cup ปี 2005",
+                      "ใครแชมป์ไทยลีกปี 2010", "ใครแชมป์เอเชียนคัพปี 2007", "ใครได้แชมป์ซีเกมส์ปี 2005",
+                      "ใครแชมป์ลีกกรีซฤดูกาล 2000/01", "บาร์เซโลน่าแชมป์ปี 2005"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual((result.filters if result else {}).get("category"), ["historical"])
+
+    def test_seasons_before_the_premier_league_keep_trivia(self):
+        for query in ("ลิเวอร์พูลแชมป์ปี 1990", "ใครแชมป์ดิวิชั่น 4 ฤดูกาล 1991/92"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual((result.filters if result else {}).get("category"), ["historical"])
+
+    def test_a_bare_year_searches_both_seasons_it_may_mean(self):
+        result = decide("อาร์เซนอลได้แชมป์พรีเมียร์ลีกปี 2004 ไหม", CONTEXT, [], TEAMS)
+        self.assertEqual(result.filters, {"category": ["historical"]})
+        self.assertIn("2003/04", result.rewritten_query)
+        self.assertIn("2004/05", result.rewritten_query)
+        self.assertNotIn("head-to-head", result.rewritten_query)

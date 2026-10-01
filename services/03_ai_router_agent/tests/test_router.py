@@ -195,13 +195,13 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
 
     async def test_empty_archive_search_says_no_data_instead_of_guessing(self):
-        result = await self.run_query("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 1985/86")
+        result = await self.run_query("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05")
         self.assertEqual(result["route"], "football_rag")
         self.assertEqual(result["answer"], "ยังไม่มีข้อมูลสถิติย้อนหลังนี้ในระบบ")
         self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
         self.assertNotIn("general", [call[0] for call in self.clients.calls])
         search = next(call for call in self.clients.calls if call[0] == "search")
-        self.assertEqual(search[1]["filters"], {"category": ["historical"], "season": "1985"})
+        self.assertEqual(search[1]["filters"], {"category": ["historical"], "season": "2004"})
 
     async def test_archive_answer_is_grounded_on_archive_documents(self):
         self.clients.chunks = [{"text": "Champions: Chelsea FC, 95 points.", "source": {

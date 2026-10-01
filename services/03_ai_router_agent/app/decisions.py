@@ -60,14 +60,34 @@ SEASON_WORDS = ("แชมป์", "ท็อปโฟร์", "ท็อป 4",
                 "อันดับ", "title", "finish")
 # v1.11: 07's Premier League archive (past seasons and head-to-head) lives in its own category.
 HISTORICAL = "historical"
-HEAD_TO_HEAD_WORDS = ("เคยชนะ", "เคยเจอ", "เจอกันกี่", "ชนะกี่นัด", "ชนะกันกี่", "สถิติพบกัน", "สถิติเจอกัน",
-                      "ประวัติการพบกัน", "head to head", "head-to-head", "h2h")
+HEAD_TO_HEAD_WORDS = ("เคยชนะ", "เคยเจอ", "ชนะกี่นัด", "สถิติพบกัน", "สถิติเจอกัน", "ประวัติการพบกัน",
+                      "head to head", "head-to-head", "h2h")
+# "เจอกันกี่ครั้ง" counts meetings; "เจอกันกี่โมง" / "ชนะกันกี่ลูก" are about one match.
+HEAD_TO_HEAD_COUNT = re.compile(r"(?:เจอกัน|ชนะกัน|พบกัน)\s*กี่\s*(?:นัด|ครั้ง|หน)")
+# The archive ends last season: questions about this season or one match stay with live data.
+CURRENT_WORDS = ("เมื่อวาน", "วันนี้", "คืนนี้", "พรุ่งนี้", "นัดล่าสุด", "นัดก่อน", "นัดหน้า", "นัดต่อไป",
+                 "ฤดูกาลนี้", "ซีซั่นนี้", "ปีนี้", "กี่โมง", "กี่ทุ่ม", "this season", "yesterday", "today",
+                 "last match", "next match")
+# Without a known club, a season question must name the league to be about the Premier League.
+PL_WORDS = ("พรีเมียร์ลีก", "premier league", "ลีกอังกฤษ", "epl", "พรีเมียร์ชิพ")
+# Former Premier League clubs the team directory does not know (no team_id in 07's archive).
+ARCHIVE_CLUB_WORDS = (
+    "แบล็คเบิร์น", "blackburn", "โบลตัน", "bolton", "เลสเตอร์", "leicester", "เวสต์แฮม", "west ham",
+    "วูล์ฟส์", "wolves", "wolverhampton", "เบิร์นลีย์", "burnley", "เซาธ์แฮมป์ตัน", "southampton",
+    "มิดเดิลสโบรช์", "middlesbrough", "วัตฟอร์ด", "watford", "นอริช", "norwich", "สโต๊ค", "stoke",
+    "สวอนซี", "swansea", "วีแกน", "wigan", "พอร์ทสมัธ", "portsmouth", "เรดดิ้ง", "reading", "ดาร์บี้",
+    "derby", "เบอร์มิงแฮม", "birmingham", "แบล็คพูล", "blackpool", "แบรดฟอร์ด", "bradford", "คาร์ดิฟฟ์",
+    "cardiff", "ชาร์ลตัน", "charlton", "ฮัดเดอร์สฟิลด์", "huddersfield", "ลูตัน", "luton", "โอลด์แฮม",
+    "oldham", "คิวพีอาร์", "qpr", "queens park", "เชฟฟิลด์", "sheffield", "สวินดอน", "swindon",
+    "เวสต์บรอม", "west brom", "วิมเบิลดัน", "wimbledon", "บาร์นสลีย์", "barnsley",
+)
 HISTORY_SEASON_WORDS = ("แชมป์", "อันดับ", "ตาราง", "ตกชั้น", "แต้ม", "คะแนน", "ผลงาน", "ชนะกี่", "แพ้กี่",
                         "เสมอกี่", "ยิงได้กี่", "ดาวซัลโว", "champion", "title", "table", "relegat", "finish",
                         "points", "who won", "winner")
 # Cups are not in the league archive: a league champion must not answer a cup question.
 CUP_WORDS = ("เอฟเอคัพ", "fa cup", "ลีกคัพ", "league cup", "คาราบาว", "carabao", "คอมมูนิตี้ชิลด์",
-             "community shield", "บัลลงดอร์", "ballon")
+             "community shield", "บัลลงดอร์", "ballon", "คัพ", " cup", "ถ้วย", "efl", "ซีเกมส์", "sea games",
+             "เอเชียน", "asian", "ไทยลีก", "thai league", "ดิวิชั่น", "division")
 
 
 def normalize_thai(text: str) -> str:
@@ -172,8 +192,7 @@ def _season_in(text: str, current_season: str | None) -> tuple[str, bool] | None
     if full or short:
         match = full or short
         start = int(match.group(1)) if full else 2000 + int(match.group(1))
-        latest = int(current_season) if str(current_season or "").isdigit() else 2099
-        if short and start > latest:  # "98/99" is 1998/99, not 2098/99
+        if short and int(match.group(1)) >= 50:  # "98/99" is 1998/99; "27/28" stays 2027/28
             start -= 100
         end = int(match.group(2))
         if end != start + 1 and end != (start + 1) % 100:
@@ -204,19 +223,32 @@ def historical_scorer_season(query: str, current_season: str | None) -> tuple[st
     return _season_in(text, current_season)
 
 
+def _head_to_head(text: str) -> bool:
+    return _has(text, HEAD_TO_HEAD_WORDS) or bool(HEAD_TO_HEAD_COUNT.search(text))
+
+
+def _season_label(start: int) -> str:
+    return f"{start}/{str(start + 1)[2:]}"
+
+
 def history_filters(query: str, team_count: int, current_season: str | None) -> dict | None:
     """Questions the 07 Premier League archive answers (CONTRACT v1.11)."""
     text = query.lower()
     if _has(text, (*OTHER_COMPETITIONS, *INTERNATIONAL_WORDS, *CUP_WORDS)):
         return None
-    if team_count == 2 and _has(text, HEAD_TO_HEAD_WORDS):
+    if team_count == 2 and _head_to_head(text) and not _has(text, CURRENT_WORDS):
         return {"category": [HISTORICAL]}
     if not str(current_season or "").isdigit() or not _has(text, HISTORY_SEASON_WORDS):
         return None
-    season = _season_in(text, current_season)
-    if season is None or int(season[0]) >= int(current_season):
+    if team_count == 0 and not _has(text, (*PL_WORDS, *ARCHIVE_CLUB_WORDS)):
         return None
-    return {"category": [HISTORICAL], "season": season[0]}
+    season = _season_in(text, current_season)
+    # Before 1992/93 the archive has nothing; trivia may still know (old First Division).
+    if season is None or not 1992 <= int(season[0]) < int(current_season):
+        return None
+    start, assumed = season
+    # A bare year may mean the season that starts or ends in it: search both, do not filter.
+    return {"category": [HISTORICAL]} if assumed else {"category": [HISTORICAL], "season": start}
 
 
 def league_wide_scorer_query(query: str, teams: TeamDirectory) -> bool:
@@ -319,10 +351,14 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
     teams = " ".join(names)
     if filters.get("category") == [HISTORICAL]:
         start = filters.get("season")
-        if start is None:
+        if start is not None:
+            return keep_question(teams, "Premier League", _season_label(int(start)), "final table standings")
+        year = None if _head_to_head(query.lower()) else re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", query)
+        if year is None:
             return keep_question(teams, "Premier League head-to-head record")
-        label = f"{start}/{str(int(start) + 1)[2:]}"
-        return keep_question(teams, "Premier League", label, "final table standings")
+        end = int(year.group(1))
+        return keep_question(teams, "Premier League", _season_label(end - 1), _season_label(end),
+                             "final table standings")
     season = filters.get("season", "")
     matchweek = f"matchweek {filters['matchweek']}" if "matchweek" in filters else ""
     dates = " ".join(str(filters[key]) for key in ("date_from", "date_to") if key in filters)
