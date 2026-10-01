@@ -32,6 +32,14 @@ CONDENSE_SYSTEM = (
     "If it is already understandable on its own, return it unchanged. "
     'Return a JSON object {"standalone_query": string, "changed": boolean}.'
 )
+TRANSLATE_SYSTEM = (
+    "Rewrite the user's Thai football question as one short English search query for an English "
+    "football knowledge base. Translate Thai team nicknames to club names: ปืนใหญ่=Arsenal, "
+    "หงส์แดง=Liverpool, ผีแดง=Manchester United, เรือใบ=Manchester City, สิงห์บลู=Chelsea, "
+    "ไก่เดือยทอง=Tottenham, สาลิกาดง=Newcastle, สิงห์ผงาด=Aston Villa. Keep names and years. "
+    "Do not answer the question. "
+    'Return a JSON object {"query": string}.'
+)
 
 
 class ServiceClients:
@@ -185,4 +193,9 @@ class ServiceClients:
         user = "Chat:\n" + "\n".join(lines) + f"\n\nLatest question: {query}"
         return await self._chat_json(CONDENSE_SYSTEM, user, request_id,
                                      timeout=CONDENSE_PROVIDER_TIMEOUT, required="standalone_query",
+                                     model_envs=CONDENSE_MODEL_ENVS)
+
+    async def translate(self, text: str, request_id: str):
+        return await self._chat_json(TRANSLATE_SYSTEM, text, request_id,
+                                     timeout=CONDENSE_PROVIDER_TIMEOUT, required="query",
                                      model_envs=CONDENSE_MODEL_ENVS)

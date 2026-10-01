@@ -40,8 +40,22 @@ SEASON_PREDICTION = re.compile(
 MATCH_GOAL_WORDS = ("ยิงกี่ลูก", "ยิงกี่ประตู", "ได้กี่ประตู", "ยิงได้กี่", "ใครทำประตู", "ใครยิง")
 MATCH_RESULT_EN = re.compile(r"\bwho (?:scored|won)\b|\bdid \w+(?: \w+)? win\b|\bhow did \w+(?: \w+)? do\b")
 NEXT_MATCH_EN = re.compile(r"\bnext (?:match|game|opponent)\b|\bplay next\b")
-RECORD_WORDS_TH = ("มากที่สุด", "เร็วที่สุด", "สถิติ", "ตลอดกาล", "ประวัติศาสตร์", "นัดชิง")
+RECORD_WORDS_TH = ("มากที่สุด", "เร็วที่สุด", "สถิติ", "ตลอดกาล", "ตลอดมา", "ประวัติศาสตร์", "นัดชิง",
+                   "คนแรก", "ทีมแรก", "ครั้งแรก", "ก่อนคนอื่น")
 RECORD_WORDS_EN = re.compile(r"\b(?:league|title|trophy|cup|ever|record|fastest|ballon|award)\b")
+# Competitions outside the Premier League. Their questions are history, and the trivia documents
+# name them in English, so the search text carries the English name instead of "Premier League".
+COMPETITION_TERMS = (
+    ("ฟุตบอลโลก", "FIFA World Cup"), ("บอลโลก", "FIFA World Cup"), ("เวิลด์คัพ", "FIFA World Cup"),
+    ("แชมเปียนส์ลีก", "UEFA Champions League European Cup"),
+    ("แชมเปี้ยนส์ลีก", "UEFA Champions League European Cup"),
+    ("ถ้วยยุโรป", "UEFA Champions League European Cup"),
+    ("แชมป์ยุโรป", "UEFA European Championship Euro UEFA Champions League European Cup"),
+    ("ยูโร", "UEFA European Championship Euro"), ("คอนเฟด", "FIFA Confederations Cup"),
+    ("โคปา", "Copa America"), ("โอลิมปิก", "Olympic Games football"),
+)
+INTERNATIONAL_WORDS = (*(thai for thai, _ in COMPETITION_TERMS), "ทีมชาติ", "world cup", "euro",
+                       "champions league", "copa america", "olympic", "national team", "confederations")
 SEASON_WORDS = ("แชมป์", "ท็อปโฟร์", "ท็อป 4", "ท็อป4", "top 4", "top four", "ตกชั้น", "relegat",
                 "อันดับ", "title", "finish")
 
@@ -105,14 +119,15 @@ def _has(text: str, words: tuple[str, ...]) -> bool:
 
 
 def _has_historical_marker(text: str) -> bool:
-    if _has(text, ("ตลอดกาล", "ประวัติศาสตร์", "ย้อนหลัง", "ฤดูกาลที่แล้ว",
+    if _has(text, ("ตลอดกาล", "ตลอดมา", "ประวัติศาสตร์", "ย้อนหลัง", "ฤดูกาลที่แล้ว",
                    "ซีซั่นที่แล้ว", "ปีที่แล้ว", "ฤดูกาลก่อน", "ซีซั่นก่อน")):
         return True
     return bool(re.search(r"\b(?:all[- ]time|ever|in history|last season|previous season)\b", text))
 
 
 def _record_question(text: str, current_season: str | None = None) -> bool:
-    if _has_historical_marker(text) or _has(text, RECORD_WORDS_TH) or RECORD_WORDS_EN.search(text):
+    if (_has_historical_marker(text) or _has(text, RECORD_WORDS_TH) or RECORD_WORDS_EN.search(text)
+            or _has(text, INTERNATIONAL_WORDS)):
         return True
     # A year outside the current season ("นัดชิงปี 2005") points at history, not at the latest match.
     season = str(current_season or "")
@@ -127,6 +142,7 @@ def _previous_season(text: str) -> bool:
 
 
 def _top_scorer_question(text: str) -> bool:
+    text = text.replace("ลีกสูงสุด", "")  # "top-flight league", not "most goals"
     return _has(text, ("ดาวซัลโว", "top scorer", "leading scorer", "golden boot")) or (
         _has(text, ("ยิง", "ทำประตู", "goals", "scored"))
         and _has(text, ("เยอะสุด", "เยอะที่สุด", "มากที่สุด", "สูงสุด", "most goals", "top scorer", "leading scorer"))
@@ -188,7 +204,7 @@ def league_wide_scorer_query(query: str, teams: TeamDirectory) -> bool:
 
 
 def _current_top_scorer(text: str, current_season: str | None = None) -> bool:
-    if not _top_scorer_question(text) or _has_historical_marker(text):
+    if not _top_scorer_question(text) or _has_historical_marker(text) or _has(text, INTERNATIONAL_WORDS):
         return False
     if historical_scorer_season(text, current_season):
         return False
@@ -245,7 +261,14 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
         return "match_result"
     if _has(text, ("ใครได้", "เคยได้", "ประวัติ", "กี่ครั้ง", "บัลลงดอร์", "ใครยิง", "trivia", "history")):
         return "trivia_history"
+    if _has(text, INTERNATIONAL_WORDS):
+        return "trivia_history"
     return None
+
+
+def _competition_names(query: str) -> str:
+    names = [english for thai, english in COMPETITION_TERMS if thai in query]
+    return " ".join(dict.fromkeys(" ".join(names).split()))
 
 
 def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
@@ -270,13 +293,18 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
         return keep_question(teams, "Premier League weekly report summary", season, matchweek, dates)
     if intent == "player_info":
         return keep_question(teams, "Premier League squad players position nationality coach", season)
-    if "บัลลงดอร์" in query:
-        years = " ".join(re.findall(r"(?:19|20)\d{2}", query))
-        return keep_question("Ballon d'Or winner", years)
-    if "แชมป์" in query:
-        return keep_question(teams, "Premier League title championship history count")
     years = " ".join(re.findall(r"(?:19|20)\d{2}", query))
-    return keep_question(teams, "football trivia history", years)
+    if "บัลลงดอร์" in query:
+        return keep_question("Ballon d'Or winner", years)
+    competitions = _competition_names(query)
+    if competitions:
+        return keep_question(teams, competitions, years)
+    # A title question about a named Premier League team; without a team the Thai text already
+    # names the league and an English prefix only pulled other documents up (Thai golden set).
+    if "แชมป์" in query and teams:
+        return keep_question(teams, "Premier League title", "count" if "กี่ครั้ง" in query else "")
+    # No generic English prefix: it pulled the same unrelated trivia to the top (Thai golden set).
+    return keep_question(teams, years)
 
 
 def enrich(decision: Decision, query: str, context: dict, history: list[dict], teams: TeamDirectory,

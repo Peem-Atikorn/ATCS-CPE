@@ -8,9 +8,11 @@ from .decisions import (MATCHWEEK_PATTERN, classify_intent, decide, enrich, from
 from .prediction_text import (NEEDS_TEAM_TEXT, TEAM_NOT_FOUND_TEXT, UNAVAILABLE_TEXT,
                               match_prediction_text, simulation_focus, summarize_simulation)
 from .teams import TeamDirectory
+from .translate import fuse, multi_query_enabled, needs_translation, validate_translation
 
 
 CONDENSE_TIMEOUT = 4
+TRANSLATE_TIMEOUT = 4
 
 
 class UpstreamError(Exception):
@@ -35,6 +37,7 @@ class Router:
         context = request.get("context", {})
         trace = {"decided_at_layer": "guard", "intent": None, "rewritten_query": None,
                  "standalone_query": None, "condense": None,
+                 "search_query_en": None, "multi_query": None,
                  "filters": {}, "fallback": None, "steps": []}
         engines = []
         usage = {"input": 0, "output": 0}
@@ -46,6 +49,22 @@ class Router:
             part = payload.get("token_usage") or {}
             for key in usage:
                 usage[key] += int(part.get(key) or 0)
+
+        async def english_query(text):
+            translate_at = time.monotonic()
+            try:
+                raw = await asyncio.wait_for(self.clients.translate(text, request_id),
+                                             timeout=TRANSLATE_TIMEOUT)
+            except (UpstreamError, ValueError, TypeError, asyncio.TimeoutError):
+                trace["multi_query"] = "unavailable"
+                return None
+            finally:
+                step("router.translate", translate_at)
+            add_usage(raw)
+            checked = validate_translation(text, str(raw.get("query") or ""), self.teams)
+            trace["multi_query"] = "applied" if checked else "rejected"
+            trace["search_query_en"] = checked
+            return checked
 
         def finish(answer, route, confidence, reasoning, sources=None):
             return {"request_id": request_id, "answer": answer, "sources": sources or [],
@@ -175,6 +194,10 @@ class Router:
                     filters = dict(decision.filters)
                     payload = {"request_id": request_id, "query": decision.rewritten_query or routing_query,
                                "query_original": query, "top_k": 5, "filters": filters, "mode": "hybrid"}
+                    english_task = None
+                    english = None
+                    if multi_query_enabled() and needs_translation(routing_query):
+                        english_task = asyncio.create_task(english_query(routing_query))
                     for attempt in range(2):
                         try:
                             search_at = time.monotonic()
@@ -186,6 +209,18 @@ class Router:
                         except UpstreamError:
                             retrieval_down = True
                             break
+                        if english_task is not None:
+                            english = await english_task
+                            english_task = None
+                        if english:
+                            try:
+                                search_en_at = time.monotonic()
+                                extra = await self.clients.search({**payload, "query": english},
+                                                                  request_id)
+                                step("retrieval.search_en", search_en_at)
+                                chunks = fuse(chunks, extra.get("chunks") or [])
+                            except UpstreamError:
+                                pass  # the first search still answers
                         if chunks:
                             break
                         explicit_standings_week = (
@@ -203,6 +238,8 @@ class Router:
                             trace["filters"] = filters
                         else:
                             break
+                    if english_task is not None:  # the first search failed before we waited for it
+                        english_task.cancel()
                     if chunks:
                         contexts = [{"ref": index, "text": chunk["text"],
                                      "source": {**chunk["source"], "ref": index}}

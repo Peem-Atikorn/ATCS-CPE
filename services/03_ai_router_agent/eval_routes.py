@@ -41,6 +41,9 @@ class EvalClients:
     async def condense(self, query, history, request_id):
         return {"standalone_query": query, "changed": False}
 
+    async def translate(self, text, request_id):
+        return {"query": text}
+
 
 async def evaluate():
     cases = [json.loads(line) for line in (ROOT / "tests" / "routing_cases.jsonl").read_text(encoding="utf-8").splitlines()]
