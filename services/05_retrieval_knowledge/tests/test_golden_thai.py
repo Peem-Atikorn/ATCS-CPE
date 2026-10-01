@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 
 from app.kb.trivia import load_trivia_documents
+from app.schemas.search import SearchFiltersIn
 from scripts.build_golden_thai import OUT_OF_KB_TH, SIZES
 from scripts.eval_retrieval import EVAL_DIR, load_live_documents
 
@@ -48,3 +49,16 @@ def test_every_item_has_the_routers_routing() -> None:
         routed = item["routed"]
         assert set(routed) == {"query", "query_original", "filters", "route", "intent"}, item["id"]
         assert routed["query_original"] == item["query_th"], item["id"]
+
+
+def test_every_routed_filter_is_a_valid_search_filter() -> None:
+    for item in items():
+        SearchFiltersIn(**item["routed"]["filters"]).to_filters()
+
+
+def test_true_false_trivia_is_not_a_question_source() -> None:
+    trivia = {d.doc_id: d.text for d in load_trivia_documents(str(TRIVIA_FILE))[0]}
+    for item in items():
+        for doc_id in item["expected_doc_ids"]:
+            answer = trivia.get(doc_id, "A: -").rsplit("A:", 1)[-1].strip().lower()
+            assert answer not in ("f", "false"), (item["id"], doc_id)

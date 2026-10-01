@@ -23,11 +23,14 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.core.clock import bangkok_now, version_stamp
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.kb.store import KnowledgeStore
 from app.kb.trivia import load_trivia_documents
+from app.schemas.search import SearchFiltersIn
 from app.search.aliases import load_alias_file
 from app.search.embedder import SentenceTransformerEmbedder
 from app.search.hybrid import Mode, Searcher
@@ -121,11 +124,33 @@ def _without_retry_filters(filters: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in filters.items() if key not in RETRY_DROPS}
 
 
+def _valid_filters(filters: dict[str, Any]) -> bool:
+    try:
+        SearchFiltersIn(**filters)
+    except ValidationError:
+        return False
+    return True
+
+
+def excluded_by_filters(snapshot: Snapshot, query: ThaiQuery) -> bool:
+    """An expected document the query's filters can never return (no search needed)."""
+    if not query.filters or not _valid_filters(query.filters):
+        return False
+    filters = SearchFiltersIn(**query.filters).to_filters()
+    documents = {r.chunk.doc_id: r.document for r in snapshot.records}
+    return any(
+        doc_id in documents and not filters.accepts(documents[doc_id]) for doc_id in query.expected
+    )
+
+
 def run_queries(
     searcher: Searcher, snapshot: Snapshot, queries: Iterable[ThaiQuery], modes: Sequence[Mode]
 ) -> list[ThaiOutcome]:
     outcomes: list[ThaiOutcome] = []
     for query in queries:
+        if not query.routed_away and not _valid_filters(query.filters):
+            # 05 answers such a request with 422; the router would report retrieval as down.
+            query = replace(query, routed_away="invalid_filters")
         for mode in modes:
             if query.routed_away:
                 outcomes.append(ThaiOutcome(query, mode, None, 0, 0, ()))
@@ -192,13 +217,19 @@ def returned_anyway(outcomes: Sequence[ThaiOutcome]) -> list[dict[str, Any]]:
 
 
 def label_miss(
-    *, routed: ThaiOutcome, raw: ThaiOutcome, raw_filtered: ThaiOutcome | None
+    *,
+    routed: ThaiOutcome,
+    raw: ThaiOutcome,
+    raw_filtered: ThaiOutcome | None,
+    filtered_out: bool = False,
 ) -> str | None:
     """Why the routed question missed its documents in the first TOP (spec §5)."""
     if _hit(routed, TOP):
         return None
     if routed.query.routed_away:
         return "router_route"
+    if filtered_out:  # no rewording can bring back a document the filters exclude
+        return "router_filter"
     if routed.query.need_all and routed.found > 0:
         return "multi_doc_partial"
     if raw_filtered is not None and _hit(raw_filtered, TOP):
@@ -221,11 +252,17 @@ def misses(
         if not routed.query.routed_away:
             probe = replace(raw.query, variant="raw_filtered", filters=routed.query.filters)
             [raw_filtered] = run_queries(searcher, snapshot, [probe], ("hybrid",))
+        filtered_out = excluded_by_filters(snapshot, routed.query)
+        label = label_miss(
+            routed=routed, raw=raw, raw_filtered=raw_filtered, filtered_out=filtered_out
+        )
         rows.append(
             {
                 "id": qid,
                 "kind": routed.query.kind,
-                "label": label_miss(routed=routed, raw=raw, raw_filtered=raw_filtered),
+                "label": label,
+                # The rules could not decide: "routed" stands in for the classifier/LLM path.
+                "undecided": routed.query.undecided,
                 "query_th": raw.query.query,
                 "routed_query": routed.query.query,
                 "filters": routed.query.filters,
@@ -235,6 +272,14 @@ def misses(
             }
         )
     return rows
+
+
+def label_counts(rows: Sequence[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    """Miss labels, split by whether the router's rules decided the question."""
+    counts: dict[str, Counter[str]] = {"decided": Counter(), "undecided": Counter()}
+    for row in rows:
+        counts["undecided" if row["undecided"] else "decided"][row["label"]] += 1
+    return {name: dict(sorted(counter.items())) for name, counter in counts.items()}
 
 
 def table(rows: Sequence[dict[str, Any]]) -> str:
@@ -273,11 +318,15 @@ async def _run(args: argparse.Namespace, store: KnowledgeStore) -> dict[str, Any
         "embedding_model": settings.embedding_model,
         "golden_file": "eval/golden_thai.jsonl",
         "questions": dict(sorted(kinds.items())),
-        "metric_note": "multi_doc hit@5 needs every expected document in the top 5",
+        "metric_note": (
+            "multi_doc hit@5 needs every expected document in the top 5; routed questions the "
+            "rules cannot decide are searched as raw Thai, so their misses and returned chunks "
+            "stand in for the classifier/LLM path"
+        ),
         "measured_on": provenance(),
         "results": summarize_thai(outcomes),
         "unanswerable_returned_chunks": returned_anyway(outcomes),
-        "miss_labels": dict(sorted(Counter(r["label"] for r in miss_rows).items())),
+        "miss_labels": label_counts(miss_rows),
         "misses": miss_rows,
     }
 

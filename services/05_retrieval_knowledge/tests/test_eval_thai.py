@@ -6,12 +6,16 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from app.kb.documents import Document
 from app.schemas.search import SearchFiltersIn
 from scripts.eval_thai import (
     ThaiOutcome,
     ThaiQuery,
+    excluded_by_filters,
+    label_counts,
     label_miss,
     load_thai_queries,
+    misses,
     rank_for,
     returned_anyway,
     run_queries,
@@ -230,3 +234,63 @@ def test_label_miss_cases() -> None:
         )
         == "vocabulary"
     )
+
+
+def snapshot_with(*documents: Document) -> SimpleNamespace:
+    return SimpleNamespace(
+        records=[
+            SimpleNamespace(chunk=SimpleNamespace(doc_id=d.doc_id), document=d) for d in documents
+        ]
+    )
+
+
+TRIVIA_DOC = Document(doc_id="a", title="t", category="trivia", origin="o", text="x")
+
+
+def test_invalid_filters_are_a_router_failure_not_a_crash() -> None:
+    searcher = FakeSearcher(["a"])
+    [result] = run_queries(
+        searcher, SimpleNamespace(), [query(filters={"team_ids": []})], ("hybrid",)
+    )
+    assert searcher.calls == []
+    assert result.rank is None and result.query.routed_away == "invalid_filters"
+
+
+def test_excluded_by_filters() -> None:
+    snapshot = snapshot_with(TRIVIA_DOC)
+    assert excluded_by_filters(snapshot, query(filters={"category": ["standings"], "matchweek": 5}))
+    assert not excluded_by_filters(snapshot, query(filters={"category": ["trivia"]}))
+    assert not excluded_by_filters(snapshot, query(filters={}))
+
+
+def test_label_filtered_out_before_partial_or_vocabulary() -> None:
+    raw = query(variant="raw")
+    multi = query(need_all=True, expected=frozenset({"a", "b"}))
+    assert (
+        label_miss(
+            routed=outcome(multi, None, found=1),
+            raw=outcome(raw, None),
+            raw_filtered=None,
+            filtered_out=True,
+        )
+        == "router_filter"
+    )
+    assert (
+        label_miss(
+            routed=outcome(query(), None),
+            raw=outcome(raw, None),
+            raw_filtered=None,
+            filtered_out=True,
+        )
+        == "router_filter"
+    )
+
+
+def test_miss_rows_mark_undecided_and_counts_split() -> None:
+    routed = query(id="t1", undecided=True)
+    raw = query(id="t1", variant="raw")
+    rows = misses(
+        FakeSearcher([]), snapshot_with(TRIVIA_DOC), [outcome(routed, None), outcome(raw, None)]
+    )
+    assert rows[0]["undecided"] is True and rows[0]["label"] == "vocabulary"
+    assert label_counts(rows) == {"decided": {}, "undecided": {"vocabulary": 1}}
