@@ -8,7 +8,13 @@ import re
 from dataclasses import asdict, dataclass
 
 CATEGORIES = (
-    "trivia", "match_report", "standings", "fixtures", "weekly_report", "player", "historical"
+    "trivia",
+    "match_report",
+    "standings",
+    "fixtures",
+    "weekly_report",
+    "player",
+    "historical",
 )
 ORIGINS = ("kb", "football-data.org", "api-football", "generated", "openfootball", "fjelstul")
 
