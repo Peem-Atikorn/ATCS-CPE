@@ -82,6 +82,14 @@ def test_draft_items_shapes_every_kind(trivia, live) -> None:
         assert item["routed"] is None
 
 
+def test_out_of_kb_covers_chatter_and_vague_questions() -> None:
+    kinds = Counter(kind for _, kind in OUT_OF_KB_TH)
+    assert set(kinds) == {"football", "other", "meta", "vague"}
+    assert kinds["meta"] >= 5 and kinds["vague"] >= 5
+    questions = {question for question, _ in OUT_OF_KB_TH}
+    assert {"คุณช่วยอะไรฉันได้มั้ย", "นี้ๆ", "ใครวิ่งเร็วสุด", "ถามอะไรได้บ้าง"} <= questions
+
+
 def test_routed_batch_runs_the_router_rules() -> None:
     standings, betting = routed_batch(["อาร์เซนอลอยู่อันดับเท่าไหร่", "ราคาบอลคืนนี้เป็นยังไง"])
     assert standings["route"] == "football_rag" and standings["intent"] == "standings_stats"

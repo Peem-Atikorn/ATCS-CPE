@@ -63,7 +63,8 @@ ANGLES = (
     "ถามเรื่องหลักของเอกสาร เช่น ผล สกอร์ อันดับ หรือโปรแกรม",
     "ถามรายละเอียดอื่น เช่น คนยิง เวลาที่ยิง สนาม หรือเหตุการณ์ในเกม",
 )
-# Hand-written: the knowledge base has no answer (other leagues, transfers, not football).
+# Hand-written: the knowledge base has no answer (other leagues, transfers, not football,
+# chatter about the assistant, or questions too vague to point at a document).
 OUT_OF_KB_TH = (
     ("ลาลีกาเมื่อคืนบาร์ซ่าชนะใครมา", "football"),
     ("ทีมชาติไทยนัดล่าสุดเจอใคร", "football"),
@@ -75,6 +76,18 @@ OUT_OF_KB_TH = (
     ("สูตรต้มยำกุ้งทำยังไง", "other"),
     ("หุ้นตัวไหนน่าซื้อ", "other"),
     ("ช่วยเขียนโค้ด python อ่านไฟล์ csv ให้หน่อย", "other"),
+    # meta: greetings and questions about the assistant itself
+    ("คุณช่วยอะไรฉันได้มั้ย", "meta"),
+    ("ถามอะไรได้บ้าง", "meta"),
+    ("นี้ๆ", "meta"),
+    ("สวัสดีครับ", "meta"),
+    ("บอทนี้เอาข้อมูลมาจากไหน", "meta"),
+    # vague: too open to point at any document
+    ("ใครวิ่งเร็วสุด", "vague"),
+    ("ใครเก่งสุด", "vague"),
+    ("ทีมไหนดี", "vague"),
+    ("แล้วไงต่อ", "vague"),
+    ("ขอข้อมูลหน่อย", "vague"),
 )
 ROUTER_SNIPPET = """
 import json, sys
@@ -238,7 +251,8 @@ def _write(path: Path, items: Sequence[dict[str, Any]]) -> None:
 def _groq() -> Callable[[str], str]:
     from openai import OpenAI  # dev-only: the draft step, never the service or CI
 
-    client = OpenAI(api_key=os.environ["GROQ_API_KEY"], base_url=GROQ_URL)
+    # The free tier allows 8k tokens a minute; the client waits out each 429 and retries.
+    client = OpenAI(api_key=os.environ["GROQ_API_KEY"], base_url=GROQ_URL, max_retries=20)
     model = os.environ["GROQ_MODEL"]
 
     def ask(prompt: str) -> str:

@@ -60,6 +60,7 @@ class ThaiQuery:
     need_all: bool = False  # multi_doc: a hit needs every expected document
     routed_away: str | None = None  # the route when the router does not search
     undecided: bool = False  # the rules could not decide; the classifier/LLM would
+    group: str = ""  # out_of_kb_th only: football | other | meta | vague
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +81,7 @@ def load_thai_queries(path: Path = GOLDEN_FILE) -> list[ThaiQuery]:
             "kind": item["kind"],
             "expected": frozenset(item["expected_doc_ids"]),
             "need_all": bool(item.get("need_all")),
+            "group": item.get("note", "") if item["kind"] == "out_of_kb_th" else "",
         }
         text = item["query_th"]
         queries.append(
@@ -171,19 +173,21 @@ def summarize_thai(outcomes: Sequence[ThaiOutcome]) -> list[dict[str, Any]]:
 
 
 def returned_anyway(outcomes: Sequence[ThaiOutcome]) -> list[dict[str, Any]]:
-    """Unanswerable questions that still got documents back."""
-    groups: dict[tuple[str, str], list[ThaiOutcome]] = {}
+    """Unanswerable questions that still got documents back, per kind of question."""
+    groups: dict[tuple[str, str, str], list[ThaiOutcome]] = {}
     for outcome in outcomes:
         if not outcome.query.expected:
-            groups.setdefault((outcome.query.variant, outcome.mode), []).append(outcome)
+            key = (outcome.query.group, outcome.query.variant, outcome.mode)
+            groups.setdefault(key, []).append(outcome)
     return [
         {
+            "group": name,
             "variant": variant,
             "mode": mode,
             "n": len(group),
             "returned_chunks": sum(o.returned > 0 for o in group) / len(group),
         }
-        for (variant, mode), group in sorted(groups.items())
+        for (name, variant, mode), group in sorted(groups.items())
     ]
 
 

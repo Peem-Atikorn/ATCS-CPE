@@ -55,7 +55,7 @@ LINES = [
             "route": "decline",
             "intent": "out_of_scope",
         },
-        "note": "",
+        "note": "other",
     },
     {
         "id": "th-trivia-001",
@@ -130,6 +130,8 @@ def test_load_gives_raw_and_routed_per_question(tmp_path: Path) -> None:
     assert routed.query.startswith("Liverpool latest match result")
     assert routed.filters["team_ids"] == [64]
     assert queries[3].routed_away == "decline"
+    assert queries[2].group == "other" and queries[3].group == "other"
+    assert queries[0].group == ""
     assert queries[5].undecided and queries[5].routed_away is None
 
 
@@ -189,9 +191,13 @@ def test_summarize_counts_router_misses_and_skips_unanswerable() -> None:
 
 
 def test_returned_anyway_only_reads_unanswerable() -> None:
-    unanswerable = query(id="u1", kind="out_of_kb_th", expected=frozenset())
-    rows = returned_anyway([outcome(unanswerable, None), outcome(query(), 1)])
-    assert rows == [{"variant": "routed", "mode": "hybrid", "n": 1, "returned_chunks": 0.0}]
+    meta = query(id="u1", kind="out_of_kb_th", expected=frozenset(), group="meta")
+    vague = query(id="u2", kind="out_of_kb_th", expected=frozenset(), group="vague")
+    rows = returned_anyway([outcome(meta, None), outcome(vague, 3), outcome(query(), 1)])
+    assert rows == [
+        {"group": "meta", "variant": "routed", "mode": "hybrid", "n": 1, "returned_chunks": 0.0},
+        {"group": "vague", "variant": "routed", "mode": "hybrid", "n": 1, "returned_chunks": 1.0},
+    ]
 
 
 def test_label_miss_cases() -> None:
