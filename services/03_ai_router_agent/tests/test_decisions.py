@@ -497,3 +497,10 @@ class HistoricalDecisionTests(unittest.TestCase):
         self.assertIn("2003/04", result.rewritten_query)
         self.assertIn("2004/05", result.rewritten_query)
         self.assertNotIn("head-to-head", result.rewritten_query)
+
+    def test_archive_search_names_former_clubs_in_english(self):
+        cases = (("แบล็คเบิร์น โรเวอร์ส ฤดูกาล 1994/95 จบอันดับเท่าไหร่", "Blackburn Rovers"),
+                 ("เลสเตอร์ซิตี้ฤดูกาล 2015/16 ได้กี่แต้ม", "Leicester City"))
+        for query, name in cases:
+            with self.subTest(query=query):
+                self.assertIn(name, decide(query, CONTEXT, [], TEAMS).rewritten_query)

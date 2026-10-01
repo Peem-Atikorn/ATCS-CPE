@@ -70,17 +70,41 @@ CURRENT_WORDS = ("เมื่อวาน", "วันนี้", "คืนน
                  "last match", "next match")
 # Without a known club, a season question must name the league to be about the Premier League.
 PL_WORDS = ("พรีเมียร์ลีก", "premier league", "ลีกอังกฤษ", "epl", "พรีเมียร์ชิพ")
-# Former Premier League clubs the team directory does not know (no team_id in 07's archive).
-ARCHIVE_CLUB_WORDS = (
-    "แบล็คเบิร์น", "blackburn", "โบลตัน", "bolton", "เลสเตอร์", "leicester", "เวสต์แฮม", "west ham",
-    "วูล์ฟส์", "wolves", "wolverhampton", "เบิร์นลีย์", "burnley", "เซาธ์แฮมป์ตัน", "southampton",
-    "มิดเดิลสโบรช์", "middlesbrough", "วัตฟอร์ด", "watford", "นอริช", "norwich", "สโต๊ค", "stoke",
-    "สวอนซี", "swansea", "วีแกน", "wigan", "พอร์ทสมัธ", "portsmouth", "เรดดิ้ง", "reading", "ดาร์บี้",
-    "derby", "เบอร์มิงแฮม", "birmingham", "แบล็คพูล", "blackpool", "แบรดฟอร์ด", "bradford", "คาร์ดิฟฟ์",
-    "cardiff", "ชาร์ลตัน", "charlton", "ฮัดเดอร์สฟิลด์", "huddersfield", "ลูตัน", "luton", "โอลด์แฮม",
-    "oldham", "คิวพีอาร์", "qpr", "queens park", "เชฟฟิลด์", "sheffield", "สวินดอน", "swindon",
-    "เวสต์บรอม", "west brom", "วิมเบิลดัน", "wimbledon", "บาร์นสลีย์", "barnsley",
-)
+# Former Premier League clubs the team directory does not know (no team_id in 07's archive),
+# with the English name the archive documents use.
+ARCHIVE_CLUBS = {
+    "แบล็คเบิร์น": "Blackburn Rovers", "blackburn": "Blackburn Rovers",
+    "โบลตัน": "Bolton Wanderers", "bolton": "Bolton Wanderers",
+    "เลสเตอร์": "Leicester City", "leicester": "Leicester City",
+    "เวสต์แฮม": "West Ham United", "west ham": "West Ham United",
+    "วูล์ฟส์": "Wolverhampton Wanderers", "wolves": "Wolverhampton Wanderers",
+    "เบิร์นลีย์": "Burnley", "burnley": "Burnley",
+    "เซาธ์แฮมป์ตัน": "Southampton", "southampton": "Southampton",
+    "มิดเดิลสโบรช์": "Middlesbrough", "middlesbrough": "Middlesbrough",
+    "วัตฟอร์ด": "Watford", "watford": "Watford",
+    "นอริช": "Norwich City", "norwich": "Norwich City",
+    "สโต๊ค": "Stoke City", "stoke": "Stoke City",
+    "สวอนซี": "Swansea City", "swansea": "Swansea City",
+    "วีแกน": "Wigan Athletic", "wigan": "Wigan Athletic",
+    "พอร์ทสมัธ": "Portsmouth", "portsmouth": "Portsmouth",
+    "เรดดิ้ง": "Reading", "reading": "Reading",
+    "ดาร์บี้": "Derby County", "derby": "Derby County",
+    "เบอร์มิงแฮม": "Birmingham City", "birmingham": "Birmingham City",
+    "แบล็คพูล": "Blackpool", "blackpool": "Blackpool",
+    "แบรดฟอร์ด": "Bradford City", "bradford": "Bradford City",
+    "คาร์ดิฟฟ์": "Cardiff City", "cardiff": "Cardiff City",
+    "ชาร์ลตัน": "Charlton Athletic", "charlton": "Charlton Athletic",
+    "ฮัดเดอร์สฟิลด์": "Huddersfield Town", "huddersfield": "Huddersfield Town",
+    "ลูตัน": "Luton Town", "luton": "Luton Town",
+    "โอลด์แฮม": "Oldham Athletic", "oldham": "Oldham Athletic",
+    "คิวพีอาร์": "Queens Park Rangers", "qpr": "Queens Park Rangers",
+    "เชฟฟิลด์": "Sheffield", "sheffield": "Sheffield",
+    "สวินดอน": "Swindon Town", "swindon": "Swindon Town",
+    "เวสต์บรอม": "West Bromwich Albion", "west brom": "West Bromwich Albion",
+    "วิมเบิลดัน": "Wimbledon", "wimbledon": "Wimbledon",
+    "บาร์นสลีย์": "Barnsley", "barnsley": "Barnsley",
+}
+ARCHIVE_CLUB_WORDS = tuple(ARCHIVE_CLUBS)
 HISTORY_SEASON_WORDS = ("แชมป์", "อันดับ", "ตาราง", "ตกชั้น", "แต้ม", "คะแนน", "ผลงาน", "ชนะกี่", "แพ้กี่",
                         "เสมอกี่", "ยิงได้กี่", "ดาวซัลโว", "champion", "title", "table", "relegat", "finish",
                         "points", "who won", "winner")
@@ -351,6 +375,10 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
     teams = " ".join(names)
     if filters.get("category") == [HISTORICAL]:
         start = filters.get("season")
+        # Archive documents name clubs in English; add the ones the team directory cannot.
+        lowered = query.lower()
+        former = [name for word, name in ARCHIVE_CLUBS.items() if word in lowered and name not in teams]
+        teams = " ".join(dict.fromkeys([*names, *former]))
         if start is not None:
             return keep_question(teams, "Premier League", _season_label(int(start)), "final table standings")
         year = None if _head_to_head(query.lower()) else re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", query)
