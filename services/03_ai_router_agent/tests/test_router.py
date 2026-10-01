@@ -498,6 +498,14 @@ class MultiQueryRouterTests(unittest.IsolatedAsyncioTestCase):
     QUERY = "เมื่อวานปืนใหญ่ชนะไหม"
     ENGLISH = "Did Arsenal win yesterday?"
 
+    async def test_archive_questions_keep_the_routers_english_search_only(self):
+        # The archive rewrite already names the season in English; a free translation pulled
+        # look-alike team-season chunks over the champions line (live probe 2004/05).
+        self.clients.english = "Premier League champion 2004/05"
+        await self.ask("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05")
+        self.assertNotIn("translate", self.names())
+        self.assertEqual(len(self.searches()), 1)
+
     def setUp(self):
         patcher = patch.dict("os.environ", {"ROUTER_MULTI_QUERY_ENABLED": "true",
                                             "ROUTER_CONDENSE_ENABLED": "false"})

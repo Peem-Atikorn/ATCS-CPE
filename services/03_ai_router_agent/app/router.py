@@ -196,7 +196,10 @@ class Router:
                                "query_original": query, "top_k": 5, "filters": filters, "mode": "hybrid"}
                     english_task = None
                     english = None
-                    if multi_query_enabled() and needs_translation(routing_query):
+                    # Archive searches already carry an English season rewrite; a free translation
+                    # pulls look-alike team-season chunks over the answer (CONTRACT v1.11).
+                    if (multi_query_enabled() and needs_translation(routing_query)
+                            and filters.get("category") != [HISTORICAL]):
                         english_task = asyncio.create_task(english_query(routing_query))
                     for attempt in range(2):
                         try:
