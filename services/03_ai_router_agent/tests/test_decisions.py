@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from app.decisions import (classify_intent, decide, from_intent, historical_scorer_season,
-                           prediction_kind)
+                           history_filters, prediction_kind)
 from app.teams import TeamDirectory
 
 
@@ -146,13 +146,13 @@ class DecisionTests(unittest.TestCase):
     def test_title_history_when_is_trivia(self):
         result = decide("ลิเวอร์พูลได้แชมป์ครั้งล่าสุดเมื่อไร", CONTEXT, [], TEAMS)
         self.assertEqual(result.intent, "trivia_history")
-        self.assertEqual(result.filters["category"], ["trivia"])
+        self.assertEqual(result.filters["category"], ["trivia", "historical"])
         self.assertNotIn("season", result.filters)
 
     def test_team_trivia_does_not_filter_unlabeled_trivia_documents(self):
         result = decide("อาร์เซนอลได้แชมป์พรีเมียร์ลีกกี่ครั้ง", CONTEXT, [], TEAMS)
         self.assertEqual(result.team_ids, [57])
-        self.assertEqual(result.filters, {"category": ["trivia"]})
+        self.assertEqual(result.filters, {"category": ["trivia", "historical"]})
 
     def test_full_manchester_club_names_are_recognized(self):
         for name, team_id in (("Manchester United", 66), ("Manchester City", 65)):
@@ -394,3 +394,70 @@ class InternationalTriviaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HistoricalDecisionTests(unittest.TestCase):
+    def test_past_season_questions_search_the_archive_for_that_season(self):
+        cases = (
+            ("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05", "2004"),
+            ("พรีเมียร์ลีกปี 2015 ทีมไหนตกชั้นบ้าง", "2015"),
+            ("ฤดูกาล 98/99 ใครได้รองแชมป์พรีเมียร์ลีก", "1998"),
+            ("ฤดูกาลที่แล้วใครได้แชมป์พรีเมียร์ลีก", "2025"),
+            ("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", "2015"),
+            ("เลสเตอร์ซิตี้ฤดูกาล 2015/16 ได้กี่แต้ม", "2015"),
+            ("Who won the Premier League in 2004/05?", "2004"),
+        )
+        for query, season in cases:
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((result.route, result.intent, result.layer),
+                                 ("football_rag", "trivia_history", "rules"))
+                self.assertEqual(result.filters, {"category": ["historical"], "season": season})
+
+    def test_archive_search_names_teams_without_filtering_by_them(self):
+        result = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
+        self.assertEqual(result.team_ids, [57])
+        self.assertNotIn("team_ids", result.filters)
+        self.assertIn("Premier League 2015/16 final table standings", result.rewritten_query)
+
+    def test_head_to_head_questions_search_the_archive_without_a_season(self):
+        for query in ("แมนยูเคยชนะลิเวอร์พูลกี่นัดในพรีเมียร์ลีก", "ลิเวอร์พูลกับเอฟเวอร์ตันเจอกันกี่ครั้ง",
+                      "อาร์เซนอลกับเชลซี สถิติพบกันเป็นยังไง", "Arsenal vs Chelsea head to head"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(result.intent, "trivia_history")
+                self.assertEqual(result.filters, {"category": ["historical"]})
+                self.assertEqual(len(result.team_ids), 2)
+        thai = decide("ลิเวอร์พูลกับเอฟเวอร์ตันเจอกันกี่ครั้ง", CONTEXT, [], TEAMS)
+        self.assertIn("head-to-head", thai.rewritten_query)
+
+    def test_season_label_crosses_the_century(self):
+        result = decide("ฤดูกาล 1999/2000 ใครได้แชมป์พรีเมียร์ลีก", CONTEXT, [], TEAMS)
+        self.assertEqual(result.filters["season"], "1999")
+        self.assertIn("1999/00", result.rewritten_query)
+
+    def test_questions_the_archive_must_not_take(self):
+        for query in ("อาร์เซนอลอยู่อันดับเท่าไหร่", "ตารางคะแนนพรีเมียร์ลีกฤดูกาล 2026/27",
+                      "ตารางคะแนนปี 2026", "ตารางคะแนนฤดูกาล 2030/31", "อาร์เซนอลกับเชลซีใครจะชนะ",
+                      "ใครได้แชมป์บอลโลกปี 1954", "ใครได้บัลลงดอร์ปี 2008", "ใครได้แชมป์เอฟเอคัพปี 2005",
+                      "ใครได้แชมป์ยูฟ่าแชมเปียนส์ลีกปี 2005", "เมื่อวานอาร์เซนอลชนะไหม",
+                      "ลิเวอร์พูลชนะไปกี่นัดแล้วฤดูกาลนี้", "อาร์เซนอลเคยชนะกี่นัดติด"):
+            with self.subTest(query=query):
+                result = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual((result.filters if result else {}).get("category"), ["historical"])
+
+    def test_without_a_current_season_past_years_are_not_assumed(self):
+        self.assertIsNone(history_filters("ใครได้แชมป์ฤดูกาล 2004/05", 0, None))
+        self.assertEqual(history_filters("อาร์เซนอลกับเชลซีสถิติพบกัน", 2, None),
+                         {"category": ["historical"]})
+
+    def test_other_history_searches_trivia_and_archive(self):
+        self.assertEqual(classify_intent("trivia_history", 0.9).filters,
+                         {"category": ["trivia", "historical"]})
+        self.assertEqual(from_intent("trivia_history", 0.8).filters,
+                         {"category": ["trivia", "historical"]})
+        self.assertEqual(classify_intent("match_result", 0.9).filters, {"category": ["match_report"]})
+
+    def test_nineties_short_season_for_scorers(self):
+        self.assertEqual(historical_scorer_season("ดาวซัลโวพรีเมียร์ลีก 98/99", "2026"), ("1998", False))
+        self.assertEqual(historical_scorer_season("ดาวซัลโวพรีเมียร์ลีก 24/25", "2026"), ("2024", False))

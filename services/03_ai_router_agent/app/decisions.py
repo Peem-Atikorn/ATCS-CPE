@@ -58,6 +58,16 @@ INTERNATIONAL_WORDS = (*(thai for thai, _ in COMPETITION_TERMS), "ทีมช�
                        "champions league", "copa america", "olympic", "national team", "confederations")
 SEASON_WORDS = ("แชมป์", "ท็อปโฟร์", "ท็อป 4", "ท็อป4", "top 4", "top four", "ตกชั้น", "relegat",
                 "อันดับ", "title", "finish")
+# v1.11: 07's Premier League archive (past seasons and head-to-head) lives in its own category.
+HISTORICAL = "historical"
+HEAD_TO_HEAD_WORDS = ("เคยชนะ", "เคยเจอ", "เจอกันกี่", "ชนะกี่นัด", "ชนะกันกี่", "สถิติพบกัน", "สถิติเจอกัน",
+                      "ประวัติการพบกัน", "head to head", "head-to-head", "h2h")
+HISTORY_SEASON_WORDS = ("แชมป์", "อันดับ", "ตาราง", "ตกชั้น", "แต้ม", "คะแนน", "ผลงาน", "ชนะกี่", "แพ้กี่",
+                        "เสมอกี่", "ยิงได้กี่", "ดาวซัลโว", "champion", "title", "table", "relegat", "finish",
+                        "points", "who won", "winner")
+# Cups are not in the league archive: a league champion must not answer a cup question.
+CUP_WORDS = ("เอฟเอคัพ", "fa cup", "ลีกคัพ", "league cup", "คาราบาว", "carabao", "คอมมูนิตี้ชิลด์",
+             "community shield", "บัลลงดอร์", "ballon")
 
 
 def normalize_thai(text: str) -> str:
@@ -93,12 +103,18 @@ class Decision:
     team_ids: list[int] = field(default_factory=list)
 
 
+def _category_filter(intent: str) -> dict:
+    if intent == "trivia_history":
+        return {"category": ["trivia", HISTORICAL]}
+    category = INTENT_MAP[intent][1]
+    return {"category": [category]} if category else {}
+
+
 def classify_intent(label: str, score: float) -> Decision | None:
     if label not in INTENT_MAP or score < 0.75:
         return None
-    route, category = INTENT_MAP[label]
-    filters = {"category": [category]} if category else {}
-    return Decision(route, label, "classifier", score, f"classifier: {label}", filters)
+    return Decision(INTENT_MAP[label][0], label, "classifier", score, f"classifier: {label}",
+                    _category_filter(label))
 
 
 def from_intent(label: str, confidence: float, layer: str = "llm") -> Decision | None:
@@ -149,18 +165,16 @@ def _top_scorer_question(text: str) -> bool:
     )
 
 
-def historical_scorer_season(query: str, current_season: str | None) -> tuple[str, bool] | None:
+def _season_in(text: str, current_season: str | None) -> tuple[str, bool] | None:
     """Read explicit season years; a bare year means its starting season."""
-    text = query.lower()
-    if not _top_scorer_question(text) or _has(text, ("ตลอดกาล", "ประวัติศาสตร์")) or re.search(
-        r"\b(?:all[- ]time|ever|in history)\b", text
-    ):
-        return None
     full = re.search(r"(?<!\d)((?:19|20)\d{2})\s*[/\-]\s*((?:19|20)\d{2}|\d{2})(?!\d)", text)
     short = re.search(r"(?<!\d)(\d{2})\s*[/\-]\s*(\d{2})(?!\d)", text) if not full else None
     if full or short:
         match = full or short
         start = int(match.group(1)) if full else 2000 + int(match.group(1))
+        latest = int(current_season) if str(current_season or "").isdigit() else 2099
+        if short and start > latest:  # "98/99" is 1998/99, not 2098/99
+            start -= 100
         end = int(match.group(2))
         if end != start + 1 and end != (start + 1) % 100:
             return None
@@ -178,6 +192,31 @@ def historical_scorer_season(query: str, current_season: str | None) -> tuple[st
     if str(start) == str(current_season):
         return None
     return str(start), assumed
+
+
+def historical_scorer_season(query: str, current_season: str | None) -> tuple[str, bool] | None:
+    """Read explicit season years; a bare year means its starting season."""
+    text = query.lower()
+    if not _top_scorer_question(text) or _has(text, ("ตลอดกาล", "ประวัติศาสตร์")) or re.search(
+        r"\b(?:all[- ]time|ever|in history)\b", text
+    ):
+        return None
+    return _season_in(text, current_season)
+
+
+def history_filters(query: str, team_count: int, current_season: str | None) -> dict | None:
+    """Questions the 07 Premier League archive answers (CONTRACT v1.11)."""
+    text = query.lower()
+    if _has(text, (*OTHER_COMPETITIONS, *INTERNATIONAL_WORDS, *CUP_WORDS)):
+        return None
+    if team_count == 2 and _has(text, HEAD_TO_HEAD_WORDS):
+        return {"category": [HISTORICAL]}
+    if not str(current_season or "").isdigit() or not _has(text, HISTORY_SEASON_WORDS):
+        return None
+    season = _season_in(text, current_season)
+    if season is None or int(season[0]) >= int(current_season):
+        return None
+    return {"category": [HISTORICAL], "season": season[0]}
 
 
 def league_wide_scorer_query(query: str, teams: TeamDirectory) -> bool:
@@ -278,6 +317,12 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
         return " ".join(part for part in (*parts, query.strip()) if part)
 
     teams = " ".join(names)
+    if filters.get("category") == [HISTORICAL]:
+        start = filters.get("season")
+        if start is None:
+            return keep_question(teams, "Premier League head-to-head record")
+        label = f"{start}/{str(int(start) + 1)[2:]}"
+        return keep_question(teams, "Premier League", label, "final table standings")
     season = filters.get("season", "")
     matchweek = f"matchweek {filters['matchweek']}" if "matchweek" in filters else ""
     dates = " ".join(str(filters[key]) for key in ("date_from", "date_to") if key in filters)
@@ -371,9 +416,15 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
                 intent = _intent(item.get("content", ""), context.get("season"))
                 if intent is not None:
                     break
+    if intent not in ("out_of_scope", "prediction"):
+        past = history_filters(query, len(found), context.get("season"))
+        if past is not None:
+            decision = Decision("football_rag", "trivia_history", "rules", 0.9,
+                                "คำถามสถิติย้อนหลังพรีเมียร์ลีก", past)
+            return enrich(decision, query, context, history, teams, favorite_team_id)
     if intent is None:
         return None
-    route, category = INTENT_MAP[intent]
+    route = INTENT_MAP[intent][0]
     decision = Decision(route, intent, "guard" if route == "decline" else "rules", 1.0 if route == "decline" else 0.9,
-                        f"ตรวจพบ intent {intent}", {"category": [category]} if category else {})
+                        f"ตรวจพบ intent {intent}", _category_filter(intent))
     return enrich(decision, query, context, history, teams, favorite_team_id)
