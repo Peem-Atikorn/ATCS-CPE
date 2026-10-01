@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.10
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.11
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -100,8 +100,9 @@
 **enum ที่ล็อกแล้ว**
 
 - `route`: `football_rag` | `general_ai` | `local_ai` | `clarify` | `decline`
-- `category` (ของเอกสาร): `trivia` | `match_report` | `standings` | `fixtures` | `weekly_report` | `player`
-- `origin`: `kb` | `football-data.org` | `api-football` | `generated` (เอกสารที่ LLM เขียน เช่น weekly report)
+- `category` (ของเอกสาร): `trivia` | `match_report` | `standings` | `fixtures` | `weekly_report` | `player` | `historical` (v1.11)
+- `origin`: `kb` | `football-data.org` | `api-football` | `generated` (เอกสารที่ LLM เขียน เช่น weekly report) | `openfootball` | `fjelstul` (v1.11 คลังย้อนหลังของ 07)
+- `topic` ของ `historical` (v1.11): `season_table` | `team_season` | `head_to_head`
 
 **ป้ายภาษาไทยบนหน้าเว็บ** (ห้ามโชว์ enum ดิบ):
 `football_rag` → "ตอบจากคลังข้อมูลฟุตบอล" · `general_ai` → "ความรู้ทั่วไป" · `local_ai` → "โมเดลทำนาย" · `clarify` → "ขอข้อมูลเพิ่ม" · `decline` → "นอกขอบเขต"
@@ -362,7 +363,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 
 | intent | route | `filters.category` ที่ router ส่งให้ 05 | ตัวอย่าง |
 |---|---|---|---|
-| `trivia_history` | `football_rag` | `["trivia"]` | ใครได้บัลลงดอร์ 2008 |
+| `trivia_history` | `football_rag` | `["trivia", "historical"]` · ถามฤดูกาลในอดีตหรือสถิติพบกันชัดเจน → `["historical"]` (+ `season`) (v1.11) | ใครได้บัลลงดอร์ 2008 · ฤดูกาล 2004/05 ใครแชมป์ |
 | `match_result` | `football_rag` | `["match_report"]` + `team_ids` / `matchweek` | เมื่อวานผีเจอใคร ผลเท่าไหร่ |
 | `fixture_schedule` | `football_rag` | `["fixtures"]` | หงส์เตะกับใครต่อ วันไหน |
 | `standings_stats` | `football_rag` | `["standings"]` | ตอนนี้ใครจ่าฝูง / ดาวซัลโว |
@@ -379,7 +380,8 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 ### ลำดับถอยของเส้น `football_rag` (ห้ามจบด้วย "ไม่มีข้อมูล" เฉย ๆ)
 1. 05 คืน `chunks` ว่าง **ด้วย filter** → ค้นซ้ำ 1 ครั้งโดยตัด `matchweek`/`date_*` ออก (เก็บ `category` + `team_ids`)
 2. ยังว่าง หรือ 05 ล่ม
-   - intent `trivia_history` → ถอยไป `general_ai` และต่อท้าย "คำตอบนี้มาจากความรู้ทั่วไป ไม่ได้อ้างอิงคลังข้อมูล"
+   - `filters.category` เป็น `["historical"]` อย่างเดียว (v1.11) → **ห้ามถอยไป `general_ai`** ตอบว่า "ยังไม่มีข้อมูลสถิติย้อนหลังนี้ในระบบ"
+   - intent `trivia_history` แบบอื่น → ถอยไป `general_ai` และต่อท้าย "คำตอบนี้มาจากความรู้ทั่วไป ไม่ได้อ้างอิงคลังข้อมูล"
    - intent ข้อมูลแมตช์ (`match_result`, `fixture_schedule`, `standings_stats`, `weekly_summary`, `player_info`) → **ห้ามถอยไป `general_ai`** (LLM จะเดาผล) ตอบว่า "ยังไม่มีข้อมูลของช่วงนี้ในระบบ ข้อมูลล่าสุด ณ `<context.last_ingest_at>`" พร้อม `trace.fallback` · ถ้า `context.last_ingest_at` เป็น null หรือไม่มี field (api รุ่นก่อน v1.3) ให้ตัดท่อน "ข้อมูลล่าสุด ณ ..." ออก ห้ามเดาเวลา
 
 ## 4. router → retrieval
@@ -520,6 +522,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | `fixtures` | `fixtures-<season>-team-<team_id>` | นัดที่เหลือของทีมนั้น ทับทุกครั้งที่ ingest |
 | `weekly_report` | `weekly-<season>-mw<NN>` | ที่มา `origin: generated` · **upsert เมื่อ publish เท่านั้น** และ delete เมื่อ unpublish (§7) |
 | `player` | `players-<season>-team-<team_id>` | (v1.5) squad ของทีมนั้น 1 เอกสารต่อทีม ทับทุกครั้งที่ ingest · `origin: football-data.org` · `matchweek: null` · `team_ids: [team_id]` · หัวข้อ `## <ชื่อผู้เล่น>` ต่อคน (05 ตัด 1 chunk ต่อคน) · 07 ส่งก็ต่อเมื่อเปิด `PLAYER_INDEX_ENABLED` |
+| `historical` | `hist-season-<YYYY>` · `hist-team-<YYYY>-<slug>` · `hist-h2h-<slug>-<slug>` | (v1.11) คลังพรีเมียร์ลีก 1992/93 ถึงฤดูกาลที่แล้ว จาก 07 · slug = ตัวพิมพ์เล็ก ตัวเลข ขีด (h2h เรียงตามตัวอักษร) · ส่งเมื่อรัน `ingest_history.py --index` พร้อม `HISTORICAL_INDEX_ENABLED=true` เท่านั้น (ไม่อยู่ในตารางเวลา) · `season` = ปีเริ่มฤดูกาล (h2h = null) · `team_ids` ว่างได้สำหรับสโมสรที่ไม่มี id · **ห้ามตัดส่วน "Sources and license"** (openfootball CC0, Fjelstul แชร์ต่อแบบ CC-BY-SA 4.0) |
 
 - **ช่วงเปลี่ยนผ่าน standings v1.4:** เมื่อ 07 ingest ฤดูกาลหนึ่งหลัง revision นี้มีผล ให้ upsert `standings-<season>` ก่อน แล้วค่อยลบ legacy `standings-<season>-mw01` ถึง `-mw38` ที่อาจค้างใน 05; งานลบล้มเหลวต้อง retry ได้ และห้ามลบก่อนเอกสารใหม่ index สำเร็จ ระหว่าง cleanup 05 ยังยอมรับ ID ทั้งสองรูปแบบ แต่หลัง cleanup ฝั่งเรียกควรใช้เฉพาะ ID ใหม่
 - เอกสาร `standings-<season>` ใน search คือ **snapshot ล่าสุดเท่านั้น** ไม่ใช่ประวัติรายแมตช์วีค; ผู้ใช้ที่ต้องการตารางย้อนหลังรายสัปดาห์ต้องใช้ข้อมูลหรือ endpoint สำหรับประวัติที่ตกลงแยก ไม่อนุมานจาก index นี้
@@ -638,6 +641,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 - ทุก response ที่มาจาก LLM ต้องบอก `model` ที่ใช้จริง และ `token_usage`
 - โมเดลเล็กสำหรับงานเขียนคำค้นของ router (condense v1.8, คำค้นอังกฤษ v1.9): env `GROQ_CONDENSE_MODEL` / `GEMINI_CONDENSE_MODEL` (ว่าง = ใช้ `GROQ_MODEL` / `GEMINI_MODEL`) · timeout provider ละ 2s · คำขอที่ไม่มี field ที่ต้องการถือว่าล้มและลอง provider ถัดไป
 - env ของ API ฟุตบอล (07 เท่านั้น): `FOOTBALL_DATA_API_KEY`, `API_FOOTBALL_KEY`, `API_FOOTBALL_DAILY_LIMIT=90`
+- `HISTORICAL_INDEX_ENABLED` (07, ค่าเริ่มต้น `false`, v1.11): อนุญาตให้ `ingest_history.py --index` ส่งคลังย้อนหลังเข้า 05
 
 ---
 
@@ -656,3 +660,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.8 | 1 ต.ค. 2026 (มีผลแล้ว · PR #38) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `standalone_query` และ `condense` · §2 router อาจ condense คำถามต่อเนื่องด้วย LLM ก่อนเลือก route/ค้นหา โดย generation ได้ query เดิม · env ใหม่ `ROUTER_CONDENSE_ENABLED`, `GROQ_CONDENSE_MODEL`, `GEMINI_CONDENSE_MODEL` · `fallback` ไม่มีค่าใหม่ · api (02) ส่งต่อได้เลยเพราะ `Trace` เป็น `extra="allow"` |
 | v1.9 | 1 ต.ค. 2026 (มีผลแล้ว · PR #42) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `search_query_en` และ `multi_query` · §2 router ค้นคำถามไทยซ้ำด้วยคำค้นอังกฤษจาก LLM แล้วรวมผลด้วย RRF · env ใหม่ `ROUTER_MULTI_QUERY_ENABLED` · `fallback` ไม่มีค่าใหม่ · §4 `/search` ไม่เปลี่ยน |
 | v1.10 | 1 ต.ค. 2026 | **เอกสารเท่านั้น ไม่เปลี่ยนพฤติกรรม** — Trace รวบรวมค่า `fallback` ที่ router ใช้อยู่จริงทั้งหมด (เพิ่ม `classifier_down`, `llm_unavailable`, `general_down`, `generation_down`, `historical_scorer_unavailable`, `historical_scorer_invalid`, `router_timeout` พร้อมความหมาย) · §8 ระบุ env โมเดลเล็กของ router · สถานะ v1.4–v1.9 เป็นมีผลแล้ว · หัวไฟล์เป็น v1.10 |
+| v1.11 | 1 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR ของ 05 และ 03 merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `historical` + `origin` `openfootball`/`fjelstul` + `topic` ของคลังย้อนหลัง · §6 รูปแบบ doc_id `hist-*` · §3 `trivia_history` ค้น `["trivia", "historical"]` และค้น `["historical"]` + `season` เมื่อถามฤดูกาลในอดีตหรือสถิติพบกัน · ค้นคลังย้อนหลังไม่เจอห้ามถอยไป `general_ai` · env `HISTORICAL_INDEX_ENABLED` |
