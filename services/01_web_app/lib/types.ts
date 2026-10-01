@@ -19,6 +19,8 @@ export type Trace = {
   decided_at_layer?: string | null;
   intent?: string | null;
   rewritten_query?: string | null;
+  standalone_query?: string | null;
+  condense?: "applied" | "unchanged" | "rejected" | "unavailable" | null;
   filters?: Record<string, unknown> | null;
   fallback?: string | null;
   steps?: { name: string; ms: number }[];

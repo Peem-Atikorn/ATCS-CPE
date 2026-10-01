@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import "./panball.css";
+import "./prediction.css";
 import { AppProvider } from "../components/AppProvider";
 import { AppShell } from "../components/AppShell";
 

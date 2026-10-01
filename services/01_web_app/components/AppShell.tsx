@@ -14,6 +14,7 @@ import {
   Settings,
   Home,
   CircleCheck,
+  ChartColumn,
 } from "lucide-react";
 import { useApp } from "./AppProvider";
 import { PersonalSettings } from "./PersonalSettings";
@@ -25,6 +26,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     path = usePathname(),
     router = useRouter();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const browsing = app.browsingTeam ?? app.team;
   const loginPage = path === "/login",
     adminPage = path.startsWith("/admin");
@@ -48,6 +50,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         ["/", "หน้าหลัก", Home],
         ["/football/fixtures", "ผลและโปรแกรมแข่ง", CalendarDays],
         ["/football/standings", "ตารางคะแนน", Trophy],
+        ["/football/simulation", "ผลจำลองฤดูกาล", ChartColumn],
         ["/football/reports", "รายงานประจำสัปดาห์", FileText],
       ] as const);
   return (
@@ -122,11 +125,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </nav>
               {!adminPage && (
                 <section
-                  className="session-sidebar"
+                  className={`session-sidebar ${historyOpen ? "history-open" : ""}`}
                   aria-label="ประวัติการสนทนา"
                 >
                   <div className="section-label">
-                    บทสนทนาของคุณ
+                    <span className="desktop-history-label">บทสนทนาของคุณ</span>
+                    <button
+                      className="mobile-history-toggle"
+                      aria-expanded={historyOpen}
+                      onClick={() => setHistoryOpen((x) => !x)}
+                    >
+                      บทสนทนาของคุณ {historyOpen ? "−" : "+"}
+                    </button>
                     <button
                       aria-label="เริ่มบทสนทนาใหม่"
                       onClick={() => {

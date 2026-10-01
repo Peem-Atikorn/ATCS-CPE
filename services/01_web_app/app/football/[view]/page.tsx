@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRemote } from "../../../lib/use-remote";
 import {
   dateTime,
@@ -19,6 +19,7 @@ import { recentForm } from "../../../lib/matchday";
 import { seasonRounds } from "../../../lib/competition";
 import { LeagueInsights } from "../../../components/LeagueInsights";
 import { FixtureList } from "../../../components/FixtureList";
+import { SimulationPage } from "../../../components/Simulation";
 import { Trophy, CalendarDays } from "lucide-react";
 const statusLabels: Record<string, string> = {
   SCHEDULED: "รอแข่งขัน",
@@ -27,22 +28,56 @@ const statusLabels: Record<string, string> = {
   POSTPONED: "เลื่อนการแข่งขัน",
   CANCELLED: "ยกเลิก",
 };
-export default function FootballPage({ params }: { params: { view: string } }) {
-  return <FootballView key={params.view} view={params.view} />;
+export default function FootballPage({
+  params,
+  searchParams = {},
+}: {
+  params: { view: string };
+  searchParams?: Record<string, string | string[] | undefined>;
+}) {
+  if (params.view === "simulation") return <SimulationPage />;
+  const initial = new URLSearchParams();
+  for (const key of ["season", "team_id", "matchweek", "status"]) {
+    const value = searchParams[key];
+    if (typeof value === "string") initial.set(key, value);
+  }
+  return (
+    <FootballView
+      key={params.view + initial.toString()}
+      view={params.view}
+      initialQuery={initial.toString()}
+    />
+  );
 }
-function FootballView({ view }: { view: string }) {
+function FootballView({
+  view,
+  initialQuery,
+}: {
+  view: string;
+  initialQuery: string;
+}) {
   const app = useApp();
   const browsingId = app.browsingTeam.teamId;
-  const [season, setSeason] = useState(""),
-    [week, setWeek] = useState(""),
-    [team, setTeam] = useState(String(browsingId)),
-    [status, setStatus] = useState("");
+  const initial = new URLSearchParams(initialQuery);
+  const initialTeam =
+    initial.get("team_id") === "all"
+      ? ""
+      : (initial.get("team_id") ?? String(browsingId));
+  initial.delete("team_id");
+  if (view === "fixtures" && initialTeam) initial.set("team_id", initialTeam);
+  const [season, setSeason] = useState(initial.get("season") ?? ""),
+    [week, setWeek] = useState(initial.get("matchweek") ?? ""),
+    [team, setTeam] = useState(initialTeam),
+    [status, setStatus] = useState(initial.get("status") ?? "");
   const [query, setQuery] = useState(
-      view === "fixtures" ? `?team_id=${browsingId}` : "",
+      initial.size ? "?" + initial.toString() : "",
     ),
     [revision, setRevision] = useState(0);
   const live = useRemote<FootballStatus>("/football/status", revision);
+  const previousBrowsing = useRef(browsingId);
   useEffect(() => {
+    if (previousBrowsing.current === browsingId) return;
+    previousBrowsing.current = browsingId;
     setTeam(String(browsingId));
     if (view === "fixtures")
       setQuery((current) => {

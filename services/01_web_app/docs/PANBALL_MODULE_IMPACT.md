@@ -6,6 +6,17 @@
 
 ## อัปเดตหลังลงมือทำ
 
+### Prediction handoff — 1 ตุลาคม 2026 (ฐาน `adbcd5e`)
+
+ทำเฉพาะ 01: Prediction card, SeasonOutlook, Season Lab ครบลีก, suggested prompts, trace v1.8, Hub fallback และ responsive มือถือ โดยใช้ API ที่รวมเข้า develop แล้ว ไม่มีการแก้ Contract, backend, router หรือ football-data
+
+- ทดสอบ API จริงได้ครบ 20 ทีม/10,000 simulations และคำถามต่อเนื่อง Liverpool → Arsenal ได้ `condense: applied`
+- ข้อสังเกตสำหรับเจ้าของ 02 (ยังไม่ได้ส่งข้อความหรือแก้ให้): demo stub ของ `/football/simulation` มี 1 ทีม แต่ `position_probs` ยาว 2 ค่า ซึ่งไม่สอดคล้องกับจำนวนทีม ควรปรับ fixture ทดสอบให้ตรง Contract เมื่อจะสาธิตฟีเจอร์นี้ผ่าน Compose ย่อยของ 01; runtime backend จริงไม่พบปัญหานี้
+- History API ไม่ส่ง trace กลับมา จึงยังไม่แสดง condense ของข้อความย้อนหลัง หากต้องการต้องเพิ่ม field ที่ 02 และ Contract ก่อน
+- Bookmarks ยังคงแยกบัญชีและเครื่อง; ไม่มีงานเปลี่ยนฐานข้อมูลหรือ API ใหม่ที่จำเป็นต่อฟีเจอร์รอบนี้
+
+ผลตรวจและภาพ responsive อยู่ใน [TEST_RESULTS.md](../TEST_RESULTS.md)
+
 ทำ PANBALL/Matchday Hub, แยก browsing team กับ favorite, ตั้งค่าส่วนตัว, โลโก้ local 20 ทีม, ฟอร์ม 5 นัด, จำนวนรอบ fallback เฉพาะฤดูกาล 2026, bookmarks ในเบราว์เซอร์ และแชทผ่านมาสคอสแล้ว เพิ่ม category `player` ใน Admin พร้อม regression tests ผลทดสอบล่าสุดอยู่ที่ [TEST_RESULTS.md](../TEST_RESULTS.md)
 
 งานข้ามโมดูลที่ยังเป็นทางเลือก: teams proxy, venue/season metadata, bookmarks ข้ามอุปกรณ์ และบริบท browsing team ในแชท ไม่มีการเพิ่ม endpoint หรือแก้บริการ 02–08 ในรอบนี้

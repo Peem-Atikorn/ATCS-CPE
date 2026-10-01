@@ -331,3 +331,26 @@ it("resets browsing state on identity switch", async () => {
   });
   expect(app.browsingTeam.teamId).toBe(66);
 });
+
+it("sends original follow-up text in the same session and resets context for a new chat", async () => {
+  const fetcher = await setup();
+  await act(async () => {
+    await app.sendQuestion("ลิเวอร์พูลมีโอกาสได้แชมป์กี่เปอร์เซ็นต์?");
+  });
+  await act(async () => {
+    await app.sendQuestion("แล้วอาร์เซนอลล่ะ");
+  });
+  act(() => app.newChat());
+  await act(async () => {
+    await app.sendQuestion("ใครจะได้แชมป์");
+  });
+  const requests = fetcher.mock.calls
+    .filter(([path]) => path === "/api/chat")
+    .map(([, init]) => JSON.parse(String(init?.body)));
+  expect(requests.map((item) => item.session_id)).toEqual([
+    null,
+    "session-A",
+    null,
+  ]);
+  expect(requests[1].message).toBe("แล้วอาร์เซนอลล่ะ");
+});

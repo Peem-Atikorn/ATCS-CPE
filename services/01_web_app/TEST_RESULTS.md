@@ -2,7 +2,45 @@
 
 วันที่ตรวจล่าสุด: 1 ตุลาคม 2026
 
-## รอบล่าสุด — ปรับภาพลักษณ์ตาม 5 ภาพอ้างอิง (1 ตุลาคม 2026)
+## รอบล่าสุด — Prediction / Season Lab / trace v1.8 / มือถือ (1 ตุลาคม 2026)
+
+ฐาน `adbcd5e` บน `feature/01-web-mekmai4234` เปลี่ยนเฉพาะ `services/01_web_app` ยังไม่ commit/push/PR
+
+| รายการ | ผล |
+| --- | --- |
+| `pnpm check` | ผ่าน **86 Vitest tests ใน 15 files + 5 Node tests = 91 tests**, typecheck, Prettier และ production build |
+| Docker production | Compose กลาง build เว็บและเปิดที่ **http://localhost:3000** สำเร็จ เว็บ/API/router/football-data/engines/generation/retrieval/PostgreSQL/Redis healthy |
+| Docker demo | rebuild image ของ 01, smoke ผ่าน **23 checks** รวม 12 page routes, auth/RBAC, jobs, reports, KB, 502 และ 504 โดยใช้ backend จริง + stubs ของ 02 |
+| API จริงผ่าน web proxy 3000 | simulation 20 ทีม, position_probs ครบ 20 อันดับต่อทีม, จำลอง 10,000 ครั้ง, `stale=false`; predict Arsenal–Leeds ส่ง 0.4006/0.2738/0.3256 และ xG 1.291/1.135 |
+| แชทต่อเนื่องจริง | ถามโอกาสแชมป์ Liverpool แล้ว “แล้วอาร์เซนอลล่ะ” ใช้ session เดิม; ตอบ Arsenal พร้อม `condense: applied`, standalone query ระบุ Arsenal และไม่มี fallback |
+| Regression ใหม่ | HTTP 404/422/503, invalid probabilities, delayed response หลังเปลี่ยนทีม, stale snapshot, เปลี่ยนทีมโดยใช้ snapshot เดิม, simulation 20 ทีม/expand/retry, prompts, trace เก่า/ใหม่, saved preview 2 นัด, live/next/latest, partial failure, deep-link filters และ new-chat reset |
+| Responsive browser | ตรวจ Hub/Simulation/แชท/Fixtures ที่ 390×844 และ Simulation ที่ 360×800; document ไม่ล้นแนวนอน (375/345 px หลังหัก scrollbar), ไม่พบรูปเสีย; desktop 1440×1000 ไม่ล้น |
+| Mobile interactions | ประวัติแชทพับได้ แก้ช่องว่าง min-height เดิม; ผลจำลองเป็นการ์ด; กราฟเลือกอันดับด้วย slider/ArrowRight ได้; คำถามแนะนำเติมร่างก่อนส่ง; ลิงก์ Arsenal + FINISHED คงตัวกรองถูกต้อง |
+| Browser logs | ไม่มี console error/warning ในรอบตรวจ production หลัง API พร้อม |
+
+### ภาพจากเว็บจริง
+
+ไฟล์ Git ignored อยู่ใน `node_modules/.cache/panball-qa/`:
+
+- `prediction-docker-desktop.jpg` — Hub บน Docker/บริการจริง 1440×1000
+- `prediction-docker-mobile.jpg` — Hub เต็มหน้าที่ 390×844
+- `prediction-docker-mobile-card.jpg` — การ์ดทำนายและฟอร์มบนมือถือ
+- `prediction-simulation-mobile.jpg` — การ์ด Arsenal/กราฟอันดับบนมือถือ (dev เชื่อม backend จริง)
+- `prediction-simulation-desktop.jpg` — ภาพรวม Season Lab (dev เชื่อม backend จริง)
+
+ทดสอบด้วยการจำลองขนาด viewport ใน desktop browser ไม่ใช่เครื่อง Android/iOS จริง และไม่ได้ยืนยัน virtual keyboard หรือ Safari เฉพาะอุปกรณ์ ภาพใช้ผลจากฐานข้อมูลท้องถิ่น/แบบจำลอง ไม่ได้ยืนยันว่าเป็นผลฟุตบอลโลกจริง
+
+### ข้อจำกัดและการปิดงานทดสอบ
+
+- demo stub ของ 02 ส่ง simulation 1 ทีมแต่ position_probs 2 ค่า เว็บแสดงข้อมูลไม่สมบูรณ์ตามที่ออกแบบ; backend จริงส่งครบ 20 ทีมและแสดงปกติ ไม่แก้ไฟล์ของ 02
+- History API ยังไม่ส่ง trace จึงแสดง condense/standalone query ย้อนหลังไม่ได้; ข้อมูลนี้แสดงเมื่อคำตอบใหม่หรือ admin API ส่ง trace มา
+- Bookmarks อยู่ใน localStorage แยก user ID สูงสุด 20 รายการ ไม่มี sync ข้ามอุปกรณ์
+- รอบแรกของ typecheck พบ `exact` ที่ Testing Library ไม่รองรับใน test ใหม่ แก้แล้ว rerun `pnpm check` ผ่านทั้งหมด
+- รอบแรกของ smoke หลังกลับมาทำงานต่อพบ backend ถูกหยุด (502); เปิดบริการและรันใหม่ผ่านครบ 23 checks
+- คืน favorite ของบัญชี admin จาก Man City เป็น Manchester United ตามค่าเดิมหลังเก็บภาพ ไม่มีการเปลี่ยนรหัสผ่านหรือ ingest ข้อมูลใหม่; มี chat sessions จากการทดสอบ API ตามปกติ
+- เปิด Compose กลางที่พอร์ต 3000 ไว้ให้ตรวจ และหยุดชุด demo `pitchside01` พอร์ต 3002 หลัง smoke test โดยเก็บ volume ไว้; ผลนี้เป็น local validation ยังไม่มี CI สำหรับการเปลี่ยนแปลงที่ยังไม่ commit
+
+## รอบก่อนหน้า — ปรับภาพลักษณ์ตาม 5 ภาพอ้างอิง (1 ตุลาคม 2026)
 
 ปรับพื้นหลังสนามต่อเนื่อง โทน Midnight/สีทีมโปรด เมนูและปุ่มเลือกทีม การ์ด Hub แบบสองคอลัมน์ ตารางพร้อมแผงสรุปลีกด้านขวา โปรแกรมแข่งแยกตามวัน และหน้าตั้งค่า preview ธีม/มาสคอส โดยแก้เฉพาะ 01 และยังไม่ commit/push/PR
 

@@ -76,14 +76,89 @@ it("states empty coverage and does not show invented zero stats", async () => {
   );
   render(<MatchdayHub />);
   expect(
-    await screen.findByText("ยังมีข้อมูลผลการแข่งขันไม่เพียงพอสำหรับสรุป"),
+    await screen.findByText("ยังไม่มีโปรแกรมนัดถัดไปของ Arsenal ในระบบ"),
   ).toBeInTheDocument();
   expect(
-    screen.getByText("เวลาข้อมูลเก่าสุดที่ใช้: ไม่ทราบเวลาอัปเดต"),
-  ).toBeInTheDocument();
+    screen.queryByRole("heading", { name: "เทียบฟอร์มก่อนเกม" }),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("heading", { name: "ประเด็นก่อนเกม" }),
+  ).not.toBeInTheDocument();
 });
 it("only falls back to verified season round counts", () => {
   expect(seasonRounds("2026")).toBe(38);
   expect(seasonRounds("1900")).toBeUndefined();
   expect(seasonRounds("1900", 42)).toBe(42);
+});
+
+it.each([true, false])(
+  "prioritizes live then latest result when no future fixture (live=%s)",
+  async (isLive) => {
+    const completed = {
+      ...fixture,
+      match_id: "finished",
+      kickoff: "2026-01-01T12:00:00Z",
+      status: "FINISHED",
+      score: { home: 2, away: 1 },
+    };
+    const inProgress = {
+      ...completed,
+      match_id: "live",
+      status: "LIVE",
+      score: { home: 1, away: 0 },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async (path: string) =>
+          new Response(
+            JSON.stringify(
+              path.includes("/status")
+                ? { current_season: "2026" }
+                : {
+                    matches: isLive
+                      ? [completed, fixture, inProgress]
+                      : [completed],
+                  },
+            ),
+          ),
+      ),
+    );
+    render(<MatchdayHub />);
+    await screen.findByRole("heading", {
+      name: isLive ? "กำลังแข่งขัน" : "ผลล่าสุดของทีม",
+    });
+    expect(
+      screen.getByRole("link", { name: "ดูรายละเอียดแมตช์" }),
+    ).toHaveAttribute("href", `/matches/${isLive ? "live" : "finished"}`);
+    expect(
+      screen.queryByRole("region", { name: "โอกาสจากแบบจำลอง" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "บันทึกแมตช์" }),
+    ).not.toBeInTheDocument();
+  },
+);
+
+it("keeps saved matches and season outlook reachable when fixtures fail", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) =>
+      path.includes("/status")
+        ? new Response(JSON.stringify({ current_season: "2026" }))
+        : new Response(JSON.stringify({ detail: "unavailable" }), {
+            status: 503,
+          }),
+    ),
+  );
+  render(<MatchdayHub />);
+  await waitFor(() =>
+    expect(screen.getAllByRole("alert").length).toBeGreaterThan(0),
+  );
+  expect(
+    screen.getByRole("heading", { name: "แมตช์ที่บันทึกไว้" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("heading", { name: "โอกาสทั้งฤดูกาล" }),
+  ).toBeInTheDocument();
 });
