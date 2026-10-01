@@ -89,6 +89,78 @@ OUT_OF_KB_TH = (
     ("แล้วไงต่อ", "vague"),
     ("ขอข้อมูลหน่อย", "vague"),
 )
+# Hand-written (v1.11): questions the 07 archive answers. Either listed document answers;
+# Blackburn, Leicester and West Ham have no team_id, so they test text-only matching.
+HISTORICAL_TH = (
+    ("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05", ("hist-season-2004",), "season_table"),
+    ("พรีเมียร์ลีกปี 2015 ทีมไหนตกชั้นบ้าง", ("hist-season-2015",), "season_table"),
+    ("ฤดูกาล 98/99 ใครได้รองแชมป์พรีเมียร์ลีก", ("hist-season-1998",), "season_table"),
+    (
+        "ตารางคะแนนพรีเมียร์ลีกฤดูกาล 2011/12 ใครเป็นแชมป์ ได้กี่แต้ม",
+        ("hist-season-2011",),
+        "season_table",
+    ),
+    ("ฤดูกาลที่แล้วใครได้แชมป์พรีเมียร์ลีก", ("hist-season-2025",), "season_table"),
+    ("พรีเมียร์ลีกฤดูกาล 1995/96 แชมป์คือทีมไหน", ("hist-season-1995",), "season_table"),
+    (
+        "ฤดูกาล 2003/04 ทีมไหนได้แชมป์แบบไม่แพ้ใคร",
+        ("hist-season-2003", "hist-team-2003-arsenal"),
+        "season_table",
+    ),
+    (
+        "อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16",
+        ("hist-team-2015-arsenal", "hist-season-2015"),
+        "team_season",
+    ),
+    (
+        "แมนยูฤดูกาล 2012/13 ได้กี่แต้ม",
+        ("hist-team-2012-manchester-united", "hist-season-2012"),
+        "team_season",
+    ),
+    (
+        "ลิเวอร์พูลฤดูกาล 2019/20 ชนะกี่นัด",
+        ("hist-team-2019-liverpool", "hist-season-2019"),
+        "team_season",
+    ),
+    ("เชลซีฤดูกาล 2016/17 แพ้กี่นัด", ("hist-team-2016-chelsea", "hist-season-2016"), "team_season"),
+    (
+        "เลสเตอร์ซิตี้ฤดูกาล 2015/16 ได้กี่แต้ม",
+        ("hist-team-2015-leicester-city", "hist-season-2015"),
+        "team_season no team_id",
+    ),
+    (
+        "แบล็คเบิร์น โรเวอร์ส ฤดูกาล 1994/95 จบอันดับเท่าไหร่",
+        ("hist-team-1994-blackburn-rovers", "hist-season-1994"),
+        "team_season no team_id",
+    ),
+    (
+        "เวสต์แฮมฤดูกาล 2015/16 จบอันดับที่เท่าไหร่",
+        ("hist-team-2015-west-ham", "hist-season-2015"),
+        "team_season no team_id",
+    ),
+    (
+        "อาร์เซนอลกับเชลซี สถิติพบกันในพรีเมียร์ลีกเป็นยังไง",
+        ("hist-h2h-arsenal-chelsea",),
+        "head_to_head",
+    ),
+    (
+        "แมนยูเคยชนะลิเวอร์พูลกี่นัดในพรีเมียร์ลีก",
+        ("hist-h2h-liverpool-manchester-united",),
+        "head_to_head",
+    ),
+    ("ลิเวอร์พูลกับเอฟเวอร์ตันเจอกันกี่ครั้ง", ("hist-h2h-everton-liverpool",), "head_to_head"),
+    ("สเปอร์สเคยชนะอาร์เซนอลกี่นัด", ("hist-h2h-arsenal-tottenham",), "head_to_head"),
+    (
+        "แมนซิตี้กับแมนยู head to head ใครชนะมากกว่า",
+        ("hist-h2h-manchester-city-manchester-united",),
+        "head_to_head",
+    ),
+    (
+        "นิวคาสเซิลกับซันเดอร์แลนด์ สถิติเจอกันในพรีเมียร์ลีก",
+        ("hist-h2h-newcastle-sunderland",),
+        "head_to_head",
+    ),
+)
 ROUTER_SNIPPET = """
 import json, sys
 from pathlib import Path
@@ -174,6 +246,21 @@ def _item(kind: str, number: int, question: str, documents: Sequence[Document]) 
         "routed": None,
         "note": " | ".join(d.title for d in documents),
     }
+
+
+def historical_items() -> list[dict[str, Any]]:
+    return [
+        {
+            "id": f"th-hist-{number:03d}",
+            "kind": "historical_th",
+            "query_th": question,
+            "expected_doc_ids": list(doc_ids),
+            "need_all": False,
+            "answerable": True,
+            "note": note,
+        }
+        for number, (question, doc_ids, note) in enumerate(HISTORICAL_TH, 1)
+    ]
 
 
 def draft_items(
@@ -269,7 +356,7 @@ def _groq() -> Callable[[str], str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=("draft", "refresh-routed"))
+    parser.add_argument("command", choices=("draft", "refresh-routed", "historical"))
     args = parser.parse_args()
     if args.command == "draft":
         trivia, _ = load_trivia_documents(get_settings().trivia_file)
@@ -277,10 +364,17 @@ def main() -> None:
         _write(DRAFT_FILE, items)
         print(f"{len(items)} items -> {DRAFT_FILE}")
         print(f"review every item, then save {GOLDEN_FILE.name}")
-    else:
+    elif args.command == "refresh-routed":
         items = refresh_routed(_jsonl(GOLDEN_FILE))
         _write(GOLDEN_FILE, items)
         print(f"routed refreshed for {len(items)} items -> {GOLDEN_FILE}")
+    else:
+        kept = [item for item in _jsonl(GOLDEN_FILE) if item["kind"] != "historical_th"]
+        items = refresh_routed([*kept, *historical_items()])
+        _write(GOLDEN_FILE, items)
+        print(
+            f"{len(historical_items())} historical questions, {len(items)} items -> {GOLDEN_FILE}"
+        )
 
 
 if __name__ == "__main__":

@@ -9,9 +9,11 @@ import pytest
 
 from app.kb.trivia import load_trivia_documents
 from scripts.build_golden_thai import (
+    HISTORICAL_TH,
     OUT_OF_KB_TH,
     SIZES,
     draft_items,
+    historical_items,
     parse_question,
     pick_groups,
     pick_matches,
@@ -113,3 +115,15 @@ def test_routed_field() -> None:
     }
     assert routed_field("ถาม", decision)["query"] == "Arsenal latest match result ถาม"
     assert routed_field("ถาม", {**decision, "rewritten_query": None})["query"] == "ถาม"
+
+
+def test_historical_items_are_hand_written_archive_questions() -> None:
+    items = historical_items()
+    assert len(items) == len(HISTORICAL_TH) == 20
+    assert len({item["id"] for item in items}) == 20
+    assert len({item["query_th"] for item in items}) == 20
+    for item in items:
+        assert item["kind"] == "historical_th"
+        assert item["answerable"] and not item["need_all"]
+        assert item["expected_doc_ids"]
+        assert all(doc_id.startswith("hist-") for doc_id in item["expected_doc_ids"])
