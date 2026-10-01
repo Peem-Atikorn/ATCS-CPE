@@ -239,3 +239,23 @@ class CondenseModelTests(unittest.IsolatedAsyncioTestCase):
              patch("openai.AsyncOpenAI", fake_openai(reply, seen)):
             await ServiceClients(None).llm_decide("ฟุตบอลเล่นกี่คน", "req")
         self.assertEqual(seen["model"], "big-model")
+
+
+class TranslateClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_translate_uses_the_small_model_and_the_nickname_table(self):
+        seen = {}
+        reply = '{"query": "Did Arsenal win yesterday?"}'
+        env = {**GROQ_ONLY, "GROQ_MODEL": "big-model", "GROQ_CONDENSE_MODEL": "small-model"}
+        with patch.dict("os.environ", env), patch("openai.AsyncOpenAI", fake_openai(reply, seen)):
+            result = await ServiceClients(None).translate("เมื่อวานปืนใหญ่ชนะไหม", "req")
+        self.assertEqual(result["query"], "Did Arsenal win yesterday?")
+        self.assertEqual(seen["model"], "small-model")
+        system = seen["messages"][0]["content"]
+        self.assertIn("ปืนใหญ่=Arsenal", system)
+        self.assertIn("Do not answer", system)
+        self.assertEqual(seen["messages"][1]["content"], "เมื่อวานปืนใหญ่ชนะไหม")
+
+    async def test_translate_without_query_is_upstream_error(self):
+        with patch.dict("os.environ", GROQ_ONLY), patch("openai.AsyncOpenAI", fake_openai('{"q": "x"}', {})):
+            with self.assertRaises(UpstreamError):
+                await ServiceClients(None).translate("ใครยิง", "req")
