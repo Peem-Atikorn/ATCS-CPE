@@ -36,6 +36,12 @@ SEASON_PREDICTION = re.compile(
     r"|(?:มี\s*)?โอกาส\s*(?:ได้\s*)?(?:แชมป์|ติดท็อป|ท็อป|ตกชั้น|จบอันดับ)"
     r"|\bwho will (?:win the (?:premier league|league|title)|be relegated|finish)\b"
     r"|\bchances? of (?:winning the (?:league|title)|(?:a )?top[- ]?(?:4|four)|relegation|being relegated)\b")
+# Short follow-ups about one match ("เขายิงกี่ลูก", "who scored?") and the next one ("who do they play next?").
+MATCH_GOAL_WORDS = ("ยิงกี่ลูก", "ยิงกี่ประตู", "ได้กี่ประตู", "ยิงได้กี่", "ใครทำประตู", "ใครยิง")
+MATCH_RESULT_EN = re.compile(r"\bwho (?:scored|won)\b|\bdid \w+(?: \w+)? win\b|\bhow did \w+(?: \w+)? do\b")
+NEXT_MATCH_EN = re.compile(r"\bnext (?:match|game|opponent)\b|\bplay next\b")
+RECORD_WORDS_TH = ("มากที่สุด", "เร็วที่สุด", "สถิติ", "ตลอดกาล", "ประวัติศาสตร์", "นัดชิง")
+RECORD_WORDS_EN = re.compile(r"\b(?:league|title|trophy|cup|ever|record|fastest|ballon|award)\b")
 SEASON_WORDS = ("แชมป์", "ท็อปโฟร์", "ท็อป 4", "ท็อป4", "top 4", "top four", "ตกชั้น", "relegat",
                 "อันดับ", "title", "finish")
 
@@ -103,6 +109,15 @@ def _has_historical_marker(text: str) -> bool:
                    "ซีซั่นที่แล้ว", "ปีที่แล้ว", "ฤดูกาลก่อน", "ซีซั่นก่อน")):
         return True
     return bool(re.search(r"\b(?:all[- ]time|ever|in history|last season|previous season)\b", text))
+
+
+def _record_question(text: str, current_season: str | None = None) -> bool:
+    if _has_historical_marker(text) or _has(text, RECORD_WORDS_TH) or RECORD_WORDS_EN.search(text):
+        return True
+    # A year outside the current season ("นัดชิงปี 2005") points at history, not at the latest match.
+    season = str(current_season or "")
+    allowed = {season, str(int(season) + 1)} if season.isdigit() else set()
+    return any(year not in allowed for year in re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", text))
 
 
 def _previous_season(text: str) -> bool:
@@ -210,17 +225,22 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
         return "weekly_summary"
     if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history")):
         return "trivia_history"
-    if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule")):
+    if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule",
+                   "นัดต่อไป", "นัดถัดไป", "เจอใครต่อ", "เจอกับใครต่อ")) or NEXT_MATCH_EN.search(text):
         return "fixture_schedule"
     if _top_scorer_question(text):
         return "standings_stats" if _current_top_scorer(text, current_season) else "trivia_history"
     if re.search(r"\bscorers?\b", text):
         return "trivia_history" if _has_historical_marker(text) else "standings_stats"
-    if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "standings", "points")):
+    if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "standings", "points", "top of the table",
+                   "league table")):
         return "standings_stats"
     if (_has(text, PLAYER_WORDS) or re.search(r"\bposition\b.*\bplay", text)) and not _has(
             text, NOT_PLAYER_WORDS):
         return "player_info"
+    if _has(text, MATCH_GOAL_WORDS) or MATCH_RESULT_EN.search(text):
+        # "Who scored the fastest goal ever" asks for a record, not for one match.
+        return "trivia_history" if _record_question(text, current_season) else "match_result"
     if _has(text, ("เมื่อวาน", "นัดล่าสุด", "นัดก่อน", "ชนะไหม", "ผลนัด", "ผลแข่ง", "จบเท่าไร", "สกอร์", "result")) or re.search(r"\bscore\b", text):
         return "match_result"
     if _has(text, ("ใครได้", "เคยได้", "ประวัติ", "กี่ครั้ง", "บัลลงดอร์", "ใครยิง", "trivia", "history")):
