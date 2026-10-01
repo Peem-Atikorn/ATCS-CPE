@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-02T00:13:22.004+07:00",
+  "generated_at": "2026-10-02T01:21:20.621+07:00",
   "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
   "golden_file": "eval/golden_thai.jsonl",
   "questions": {
