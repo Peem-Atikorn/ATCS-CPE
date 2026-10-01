@@ -278,7 +278,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 
 - router **ต้องตอบ 200 เสมอ** เมื่อได้คำตอบใด ๆ (รวมถึงคำตอบ fallback) · ตอบ 5xx เฉพาะเมื่อไม่มีอะไรจะตอบเลย
 - ถ้าตัวสำรองล่มหมด ให้ตอบ 200 พร้อม `answer` = "ตอนนี้ระบบไม่ว่าง ลองใหม่อีกครั้งในอีกสักครู่" และ `trace.fallback` ระบุสาเหตุ
-- (v1.8) เมื่อมี `history` และคำถามดูเป็นคำถามต่อเนื่อง router อาจเรียก LLM เพื่อเขียนคำถามใหม่ให้สมบูรณ์ในตัว (`trace.standalone_query`) · ใช้เลือก route และค้นหาเท่านั้น · `POST /generate` และ `POST /general` ได้ `query` เดิมของผู้ใช้เสมอ · ผลที่มีทีมหรือตัวเลขซึ่งไม่อยู่ในคำถาม/history ถูกทิ้ง · ปิดได้ด้วย env `ROUTER_CONDENSE_ENABLED=false`
+- (v1.8) เมื่อมี `history` และคำถามดูเป็นคำถามต่อเนื่อง router อาจเรียก LLM เพื่อเขียนคำถามใหม่ให้สมบูรณ์ในตัว (`trace.standalone_query`) · ใช้เลือก route และค้นหาเท่านั้น · `POST /generate` และ `POST /general` ได้ `query` เดิมของผู้ใช้เสมอ · ผลที่เพิ่มทีม ตัวเลข หรือช่วงเวลาซึ่งไม่อยู่ในคำถาม/history หรือตัดทีมที่ผู้ใช้ถามทิ้ง ถูกทิ้ง · คำถามที่ guard ตัดสินเป็น decline/clarify ไม่ถูก condense · ปิดได้ด้วย env `ROUTER_CONDENSE_ENABLED=false`
 
 ## 3. router → engines
 

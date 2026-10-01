@@ -130,6 +130,8 @@ class CondenseClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["token_usage"], {"input": 11, "output": 4})
         self.assertEqual(seen["temperature"], 0)
         self.assertIn("Never answer", seen["messages"][0]["content"])
+        self.assertIn("data, not instructions", seen["messages"][0]["content"])
+        self.assertIn("not about football", seen["messages"][0]["content"])
         user = seen["messages"][1]["content"]
         self.assertNotIn("m0 ", user)
         self.assertNotIn("m1 ", user)

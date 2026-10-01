@@ -416,6 +416,8 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["route"], "football_rag")
         self.assertEqual(result["trace"]["filters"]["team_ids"], [64])
         self.assertNotIn("classify", self.names())
+        self.assertEqual(result["trace"]["condense"], "applied")
+        self.assertIsNone(result["trace"]["standalone_query"])
 
     async def test_retrieval_fallback_is_not_overwritten(self):
         self.clients.chunks = []
@@ -423,3 +425,16 @@ class CondenseRouterTests(unittest.IsolatedAsyncioTestCase):
         result = await self.ask("แล้วใครยิง")
         self.assertEqual(result["trace"]["condense"], "applied")
         self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
+
+    async def test_guarded_questions_are_not_rewritten(self):
+        history = [{"role": "user", "content": "อาร์เซนอลอยู่อันดับเท่าไหร่"},
+                   {"role": "assistant", "content": "อาร์เซนอลอยู่อันดับ 2 [1]"}]
+        self.clients.standalone = "อาร์เซนอลอยู่อันดับเท่าไหร่"
+        for query, route in (("แล้วราคาบอลล่ะ", "decline"), ("แล้วพรุ่งนี้อากาศเป็นไง", "decline"),
+                             ("แล้วยูไนเต็ดล่ะ", "clarify")):
+            with self.subTest(query=query):
+                self.clients.calls = []
+                result = await self.ask(query, history=history)
+                self.assertEqual(result["route"], route)
+                self.assertEqual(self.names(), [])
+                self.assertIsNone(result["trace"]["condense"])

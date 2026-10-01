@@ -56,7 +56,11 @@ class Router:
         try:
             async with asyncio.timeout(40):
                 routing_query = query
-                if condense_enabled() and needs_condense(query, history, self.teams, context.get("season")):
+                original = decide(query, context, history, self.teams, user.get("favorite_team_id"))
+                # Declines and clarifying guards stand as asked; a rewrite must never talk past them.
+                guarded = original is not None and (original.route == "decline" or original.layer == "guard")
+                if (not guarded and condense_enabled()
+                        and needs_condense(query, history, self.teams, context.get("season"))):
                     condense_at = time.monotonic()
                     try:
                         raw = await asyncio.wait_for(self.clients.condense(query, history, request_id),
@@ -73,12 +77,15 @@ class Router:
                     except (UpstreamError, ValueError, TypeError, asyncio.TimeoutError):
                         trace["condense"] = "unavailable"
                     step("router.condense", condense_at)
-                trace["standalone_query"] = routing_query if routing_query != query else None
 
                 decided_at = time.monotonic()
-                decision = decide(routing_query, context, history, self.teams, user.get("favorite_team_id"))
-                if decision is None and routing_query != query:
-                    decision = decide(query, context, history, self.teams, user.get("favorite_team_id"))
+                decision = original
+                if routing_query != query:
+                    decision = decide(routing_query, context, history, self.teams, user.get("favorite_team_id"))
+                    if decision is None and original is not None:
+                        # The rules know the original follow-up but not its rewrite: keep the original.
+                        decision, routing_query = original, query
+                trace["standalone_query"] = routing_query if routing_query != query else None
                 historical_scorer = historical_scorer_season(routing_query, context.get("season"))
                 if (historical_scorer and league_wide_scorer_query(routing_query, self.teams)
                         and (decision is None or decision.route == "football_rag")):

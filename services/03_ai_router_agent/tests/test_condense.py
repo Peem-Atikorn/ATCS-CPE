@@ -94,3 +94,28 @@ class ValidateTests(unittest.TestCase):
         self.assertEqual(invented_entities("แล้วใครยิง", "เชลซีกับลิเวอร์พูลนัดที่ 7 ใครยิง",
                                            LIVERPOOL_TURN, TEAMS), ["Chelsea", "7"])
         self.assertEqual(invented_entities("แล้วใครยิง", "ใครยิงให้ลิเวอร์พูล", LIVERPOOL_TURN, TEAMS), [])
+
+
+class ReviewFixValidateTests(unittest.TestCase):
+    ARSENAL_TURN = [{"role": "user", "content": "อาร์เซนอลอยู่อันดับเท่าไหร่"},
+                    {"role": "assistant", "content": "อาร์เซนอลอยู่อันดับ 2 [1]"}]
+    SCORER_TURN = [{"role": "user", "content": "ใครยิงประตูมากที่สุด"},
+                   {"role": "assistant", "content": "ฮาลันด์ [1]"}]
+
+    def test_rejects_rewrite_that_drops_the_users_team(self):
+        self.assertIsNone(validate("แล้วเชลซีล่ะ", "อยู่อันดับเท่าไหร่", self.ARSENAL_TURN, TEAMS))
+        self.assertIsNone(validate("แล้วเชลซีล่ะ", "อาร์เซนอลอยู่อันดับเท่าไหร่", self.ARSENAL_TURN, TEAMS))
+
+    def test_rejects_added_time_scope(self):
+        self.assertIsNone(validate("แล้วใครยิงเยอะสุดล่ะ", "ฤดูกาลที่แล้วใครยิงประตูมากที่สุด",
+                                   self.SCORER_TURN, TEAMS))
+        self.assertIsNone(validate("and the top scorer?", "Who was the top scorer last season?",
+                                   self.SCORER_TURN, TEAMS))
+        self.assertIsNone(validate("แล้วเชลซีล่ะ", "เชลซีเมื่อวานอยู่อันดับเท่าไหร่", self.ARSENAL_TURN, TEAMS))
+
+    def test_keeps_time_scope_already_in_the_chat(self):
+        self.assertIsNotNone(validate("แล้วใครยิง", "ใครยิงประตูให้ลิเวอร์พูลเมื่อวาน", LIVERPOOL_TURN, TEAMS))
+
+    def test_invented_entities_lists_added_time_scope(self):
+        self.assertEqual(invented_entities("แล้วใครยิงเยอะสุดล่ะ", "ฤดูกาลที่แล้วใครยิงประตูมากที่สุด",
+                                           self.SCORER_TURN, TEAMS), ["ฤดูกาลที่แล้ว"])
