@@ -27,7 +27,7 @@ def needs_translation(text: str) -> bool:
 
 
 def validate_translation(source: str, english: str, teams: TeamDirectory) -> str | None:
-    """The English query, or None when it adds a team or a number the question does not have.
+    """The English query, or None when its teams differ from the question's or it adds a number.
 
     Time words are not checked: "เมื่อวาน" becoming "yesterday" is the translation working.
     """
@@ -35,7 +35,10 @@ def validate_translation(source: str, english: str, teams: TeamDirectory) -> str
     if not candidate or len(candidate) > 3 * len(source.strip()) + 120 or CITATION.search(candidate):
         return None
     known = {team.team_id for team in teams.find(source)}
-    if any(team.team_id not in known for team in teams.find(candidate)):
+    named = {team.team_id for team in teams.find(candidate)}
+    # An added team pulls other clubs' documents in; a dropped one ("Did they win?") lets any
+    # document in. Either way the fused top 5 could carry chunks the question is not about.
+    if named != known:
         return None
     if set(NUMBER.findall(candidate)) - set(NUMBER.findall(source)):
         return None

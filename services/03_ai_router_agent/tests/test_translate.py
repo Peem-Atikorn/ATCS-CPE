@@ -43,6 +43,12 @@ class ValidateTests(unittest.TestCase):
         self.assertIsNone(validate_translation("เมื่อวานปืนใหญ่ชนะไหม",
                                                "Arsenal vs Chelsea result yesterday", TEAMS))
 
+    def test_validate_rejects_dropped_team(self):
+        self.assertIsNone(validate_translation("ปืนใหญ่ชนะไหม", "Did they win?", TEAMS))
+        self.assertIsNone(validate_translation("ปืนใหญ่เจอสิงห์บลูผลเป็นยังไง", "Arsenal result", TEAMS))
+        self.assertIsNotNone(validate_translation("ปืนใหญ่เจอสิงห์บลูผลเป็นยังไง",
+                                                  "Arsenal vs Chelsea result", TEAMS))
+
     def test_validate_rejects_added_number(self):
         self.assertIsNone(validate_translation("ทีมไหนแชมป์ยุโรป 88", "European champion 1988", TEAMS))
         self.assertIsNotNone(validate_translation("ใครได้แชมป์บอลโลกปี 1954",
