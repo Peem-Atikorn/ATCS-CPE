@@ -10,6 +10,19 @@ from .teams import TeamDirectory
 
 
 LLM_PROVIDER_TIMEOUT = 3
+LLM_PROVIDERS = [
+    ("GROQ_API_KEY", "GROQ_MODEL", "https://api.groq.com/openai/v1"),
+    ("GEMINI_API_KEY", "GEMINI_MODEL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
+]
+CONDENSE_HISTORY_MESSAGES = 6
+CONDENSE_HISTORY_CHARS = 300
+CONDENSE_SYSTEM = (
+    "Rewrite the user's latest Premier League football question so it can be understood without the chat. "
+    "Use only team names, player names, dates and facts that appear in the chat or in the question. "
+    "Never answer the question. Never add years, matchweeks, scores or teams that are not present. "
+    "Keep the language of the latest question. If it is already understandable on its own, return it unchanged. "
+    'Return a JSON object {"standalone_query": string, "changed": boolean}.'
+)
 
 
 class ServiceClients:
@@ -103,25 +116,11 @@ class ServiceClients:
     async def generate(self, payload: dict, request_id: str):
         return await self._post(self.generation_url, "/generate", payload, request_id, 25, "generation")
 
-    async def llm_decide(self, query: str, request_id: str):
+    async def _chat_json(self, system: str, user: str, request_id: str) -> dict:
         from openai import AsyncOpenAI
 
-        system = ("Classify the user's Premier League football question. Return a JSON object with "
-                  "intent (one of trivia_history, match_result, fixture_schedule, standings_stats, "
-                  "weekly_summary, player_info, general_football, prediction, out_of_scope, clarify), "
-                  "confidence (0 to 1), and rewritten_query (an English search query when factual). "
-                  "standings_stats covers league tables and current-season top scorer or most-goals rankings. "
-                  "player_info covers squads and named-player profiles or individual statistics, not league-wide rankings. "
-                  "trivia_history covers past seasons, historical records, and all-time rankings. "
-                  "Do not answer the question. Gambling and non-football requests are out_of_scope. "
-                  "Ambiguous team or match references are clarify."
-                  )
-        providers = [
-            ("GROQ_API_KEY", "GROQ_MODEL", "https://api.groq.com/openai/v1"),
-            ("GEMINI_API_KEY", "GEMINI_MODEL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
-        ]
         tried_primary = False
-        for index, (key_name, model_name, base_url) in enumerate(providers):
+        for index, (key_name, model_name, base_url) in enumerate(LLM_PROVIDERS):
             key = os.getenv(key_name)
             model = os.getenv(model_name)
             if not key or not model:
@@ -135,12 +134,12 @@ class ServiceClients:
                     response = await client.chat.completions.create(
                         model=model, temperature=0,
                         messages=[{"role": "system", "content": system},
-                                  {"role": "user", "content": query}],
+                                  {"role": "user", "content": user}],
                         response_format={"type": "json_object"},
                         extra_headers={"X-Request-ID": request_id})
                 data = json.loads(response.choices[0].message.content or "{}")
                 if not isinstance(data, dict):
-                    raise ValueError("invalid classification")
+                    raise ValueError("expected JSON object")
                 data["fallback"] = "llm_fallback_provider" if index and tried_primary else None
                 data["token_usage"] = {
                     "input": response.usage.prompt_tokens if response.usage else 0,
@@ -150,3 +149,27 @@ class ServiceClients:
             except Exception:
                 continue
         raise UpstreamError("llm")
+
+    async def llm_decide(self, query: str, request_id: str):
+        system = ("Classify the user's Premier League football question. Return a JSON object with "
+                  "intent (one of trivia_history, match_result, fixture_schedule, standings_stats, "
+                  "weekly_summary, player_info, general_football, prediction, out_of_scope, clarify), "
+                  "confidence (0 to 1), and rewritten_query (an English search query when factual). "
+                  "standings_stats covers league tables and current-season top scorer or most-goals rankings. "
+                  "player_info covers squads and named-player profiles or individual statistics, not league-wide rankings. "
+                  "trivia_history covers past seasons, historical records, and all-time rankings. "
+                  "Do not answer the question. Gambling and non-football requests are out_of_scope. "
+                  "Ambiguous team or match references are clarify."
+                  )
+        return await self._chat_json(system, query, request_id)
+
+    async def condense(self, query: str, history: list[dict], request_id: str):
+        lines = []
+        for item in history[-CONDENSE_HISTORY_MESSAGES:]:
+            name = "User" if item.get("role") == "user" else "Assistant"
+            lines.append(f"{name}: {str(item.get('content', ''))[:CONDENSE_HISTORY_CHARS]}")
+        user = "Chat:\n" + "\n".join(lines) + f"\n\nLatest question: {query}"
+        data = await self._chat_json(CONDENSE_SYSTEM, user, request_id)
+        if not isinstance(data.get("standalone_query"), str):
+            raise ValueError("condense reply has no standalone_query")
+        return data

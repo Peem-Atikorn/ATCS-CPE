@@ -98,3 +98,53 @@ class LlmPromptTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("current-season top scorer", seen["system"])
         self.assertIn("not league-wide rankings", seen["system"])
         self.assertEqual(result["intent"], "player_info")
+
+
+def fake_openai(content, seen):
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            seen.update(kwargs)
+            return type("Response", (), {
+                "choices": [type("Choice", (), {"message": type("Message", (), {"content": content})()})()],
+                "usage": type("Usage", (), {"prompt_tokens": 11, "completion_tokens": 4})()})()
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            self.chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    return FakeOpenAI
+
+
+GROQ_ONLY = {"GROQ_API_KEY": "test", "GROQ_MODEL": "test", "GEMINI_API_KEY": "", "GEMINI_MODEL": ""}
+
+
+class CondenseClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_condense_sends_recent_trimmed_history(self):
+        seen = {}
+        history = [{"role": "user" if index % 2 == 0 else "assistant", "content": f"m{index} " + "x" * 400}
+                   for index in range(8)]
+        reply = '{"standalone_query": "ใครยิงให้ลิเวอร์พูล", "changed": true}'
+        with patch.dict("os.environ", GROQ_ONLY), patch("openai.AsyncOpenAI", fake_openai(reply, seen)):
+            result = await ServiceClients(None).condense("แล้วใครยิง", history, "req")
+        self.assertEqual(result["standalone_query"], "ใครยิงให้ลิเวอร์พูล")
+        self.assertEqual(result["token_usage"], {"input": 11, "output": 4})
+        self.assertEqual(seen["temperature"], 0)
+        self.assertIn("Never answer", seen["messages"][0]["content"])
+        user = seen["messages"][1]["content"]
+        self.assertNotIn("m0 ", user)
+        self.assertNotIn("m1 ", user)
+        self.assertIn("User: m2 ", user)
+        self.assertIn("Assistant: m7 ", user)
+        self.assertNotIn("x" * 300, user)
+        self.assertTrue(user.endswith("Latest question: แล้วใครยิง"))
+
+    async def test_condense_without_standalone_query_is_value_error(self):
+        with patch.dict("os.environ", GROQ_ONLY), patch("openai.AsyncOpenAI", fake_openai('{"changed": false}', {})):
+            with self.assertRaises(ValueError):
+                await ServiceClients(None).condense("แล้วใครยิง", [], "req")
+
+    async def test_condense_without_providers_is_upstream_error(self):
+        with patch.dict("os.environ", {"GROQ_API_KEY": "", "GROQ_MODEL": "",
+                                       "GEMINI_API_KEY": "", "GEMINI_MODEL": ""}):
+            with self.assertRaises(UpstreamError):
+                await ServiceClients(None).condense("แล้วใครยิง", [], "req")
