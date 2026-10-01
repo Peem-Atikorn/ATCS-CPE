@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-01T15:28:00.036+07:00",
+  "generated_at": "2026-10-01T16:27:46.902+07:00",
   "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
   "golden_file": "eval/golden_thai.jsonl",
   "questions": {
@@ -141,7 +141,7 @@
       "n": 10,
       "hit@1": 0.0,
       "hit@5": 0.4,
-      "mrr": 0.15333333333333332,
+      "mrr": 0.15958333333333333,
       "router_miss": 1,
       "rules_undecided": 3
     },
@@ -152,7 +152,7 @@
       "n": 10,
       "hit@1": 0.0,
       "hit@5": 0.2,
-      "mrr": 0.1,
+      "mrr": 0.10714285714285714,
       "router_miss": 1,
       "rules_undecided": 3
     },
@@ -194,33 +194,33 @@
       "variant": "routed",
       "mode": "bm25",
       "n": 39,
-      "hit@1": 0.05128205128205128,
-      "hit@5": 0.20512820512820512,
-      "mrr": 0.11714581714581715,
+      "hit@1": 0.15384615384615385,
+      "hit@5": 0.358974358974359,
+      "mrr": 0.2351851851851852,
       "router_miss": 0,
-      "rules_undecided": 19
+      "rules_undecided": 13
     },
     {
       "kind": "trivia_th",
       "variant": "routed",
       "mode": "hybrid",
       "n": 39,
-      "hit@1": 0.20512820512820512,
-      "hit@5": 0.46153846153846156,
-      "mrr": 0.32336182336182334,
+      "hit@1": 0.3333333333333333,
+      "hit@5": 0.7435897435897436,
+      "mrr": 0.5090455840455841,
       "router_miss": 0,
-      "rules_undecided": 19
+      "rules_undecided": 13
     },
     {
       "kind": "trivia_th",
       "variant": "routed",
       "mode": "vector",
       "n": 39,
-      "hit@1": 0.2564102564102564,
-      "hit@5": 0.48717948717948717,
-      "mrr": 0.3619579007736902,
+      "hit@1": 0.41025641025641024,
+      "hit@5": 0.7948717948717948,
+      "mrr": 0.5766899766899767,
       "router_miss": 0,
-      "rules_undecided": 19
+      "rules_undecided": 13
     }
   ],
   "unanswerable_returned_chunks": [
@@ -395,11 +395,11 @@
   ],
   "miss_labels": {
     "decided": {
-      "multi_doc_partial": 1,
-      "rewrite": 7,
-      "router_filter": 8,
+      "multi_doc_partial": 2,
+      "rewrite": 1,
+      "router_filter": 3,
       "router_route": 1,
-      "vocabulary": 4
+      "vocabulary": 3
     },
     "undecided": {
       "multi_doc_partial": 1,
@@ -451,10 +451,10 @@
     {
       "id": "th-multi_doc-007",
       "kind": "multi_doc",
-      "label": "vocabulary",
+      "label": "multi_doc_partial",
       "undecided": false,
       "query_th": "คนนอกยุโรปคนแรกที่ได้รองเท้าทองคำพรีเมียร์ลีกคือใคร แล้วทีมแรกที่ได้แชมป์โดยไม่ได้มาจากแมนเชสเตอร์หรือลอนดอนคือทีมไหน",
-      "routed_query": "Premier League title championship history count คนนอกยุโรปคนแรกที่ได้รองเท้าทองคำพรีเมียร์ลีกคือใคร แล้วทีมแรกที่ได้แชมป์โดยไม่ได้มาจากแมนเชสเตอร์หรือลอนดอนคือทีมไหน",
+      "routed_query": "คนนอกยุโรปคนแรกที่ได้รองเท้าทองคำพรีเมียร์ลีกคือใคร แล้วทีมแรกที่ได้แชมป์โดยไม่ได้มาจากแมนเชสเตอร์หรือลอนดอนคือทีมไหน",
       "filters": {
         "category": [
           "trivia"
@@ -466,11 +466,11 @@
         "trivia-0586"
       ],
       "top5": [
-        "trivia-1034",
-        "trivia-0897",
-        "trivia-0599",
-        "trivia-1829",
-        "trivia-1849"
+        "trivia-0574",
+        "trivia-1885",
+        "trivia-1818",
+        "trivia-0732",
+        "trivia-0731"
       ]
     },
     {
@@ -479,7 +479,7 @@
       "label": "multi_doc_partial",
       "undecided": false,
       "query_th": "ใครคือคนที่ทำ 100 ลูกแรกในพรีเมียร์ลีก แล้วใครทำประตูเร็วที่สุดในลีก?",
-      "routed_query": "football trivia history ใครคือคนที่ทำ 100 ลูกแรกในพรีเมียร์ลีก แล้วใครทำประตูเร็วที่สุดในลีก?",
+      "routed_query": "ใครคือคนที่ทำ 100 ลูกแรกในพรีเมียร์ลีก แล้วใครทำประตูเร็วที่สุดในลีก?",
       "filters": {
         "category": [
           "trivia"
@@ -492,10 +492,10 @@
       ],
       "top5": [
         "trivia-0573",
-        "trivia-1832",
         "trivia-0591",
-        "trivia-0224",
-        "trivia-0239"
+        "trivia-1832",
+        "trivia-0655",
+        "trivia-0062"
       ]
     },
     {
@@ -525,7 +525,7 @@
       "label": "vocabulary",
       "undecided": false,
       "query_th": "กองหน้าอังกฤษที่เคยจับคู่ฟาวเลอร์กับรัชที่หงส์แดงช่วงปี 95-97 คือใคร แล้วก่อนเปลี่ยนเป็นพรีเมียร์ลีก ดิวิชั่น 1 เดิมมีกี่ทีมที่เคยได้แชมป์",
-      "routed_query": "Liverpool Premier League title championship history count กองหน้าอังกฤษที่เคยจับคู่ฟาวเลอร์กับรัชที่หงส์แดงช่วงปี 95-97 คือใคร แล้วก่อนเปลี่ยนเป็นพรีเมียร์ลีก ดิวิชั่น 1 เดิมมีกี่ทีมที่เคยได้แชมป์",
+      "routed_query": "Liverpool Premier League title กองหน้าอังกฤษที่เคยจับคู่ฟาวเลอร์กับรัชที่หงส์แดงช่วงปี 95-97 คือใคร แล้วก่อนเปลี่ยนเป็นพรีเมียร์ลีก ดิวิชั่น 1 เดิมมีกี่ทีมที่เคยได้แชมป์",
       "filters": {
         "category": [
           "trivia"
@@ -540,8 +540,8 @@
         "trivia-0034",
         "trivia-0304",
         "trivia-0223",
-        "trivia-1186",
-        "trivia-1193"
+        "trivia-1193",
+        "trivia-0083"
       ]
     },
     {
@@ -550,7 +550,7 @@
       "label": "vocabulary",
       "undecided": false,
       "query_th": "ประเทศไหนเข้าร่วมบอลโลกหลายครั้งที่สุดแล้วก็ยังไม่เคยแชมป์?",
-      "routed_query": "Premier League title championship history count ประเทศไหนเข้าร่วมบอลโลกหลายครั้งที่สุดแล้วก็ยังไม่เคยแชมป์?",
+      "routed_query": "FIFA World Cup ประเทศไหนเข้าร่วมบอลโลกหลายครั้งที่สุดแล้วก็ยังไม่เคยแชมป์?",
       "filters": {
         "category": [
           "trivia"
@@ -561,11 +561,11 @@
         "trivia-0075"
       ],
       "top5": [
-        "trivia-0599",
-        "trivia-0592",
-        "trivia-0753",
-        "trivia-1849",
-        "trivia-0692"
+        "trivia-0566",
+        "trivia-0618",
+        "trivia-0758",
+        "trivia-1397",
+        "trivia-0668"
       ]
     },
     {
@@ -588,54 +588,6 @@
       "top5": []
     },
     {
-      "id": "th-trivia-005",
-      "kind": "trivia_th",
-      "label": "rewrite",
-      "undecided": false,
-      "query_th": "คอนเฟดคัพปี 2003 ใครได้แชมป์",
-      "routed_query": "Premier League title championship history count คอนเฟดคัพปี 2003 ใครได้แชมป์",
-      "filters": {
-        "category": [
-          "trivia"
-        ]
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0313"
-      ],
-      "top5": [
-        "trivia-0599",
-        "trivia-0244",
-        "trivia-0593",
-        "trivia-0294",
-        "trivia-1849"
-      ]
-    },
-    {
-      "id": "th-trivia-008",
-      "kind": "trivia_th",
-      "label": "rewrite",
-      "undecided": false,
-      "query_th": "ทีมไหนเคยแชมป์ทวีปตั้งแต่ครั้งแรกจนถึงครั้งที่ห้าต่อเนื่อง?",
-      "routed_query": "Premier League title championship history count ทีมไหนเคยแชมป์ทวีปตั้งแต่ครั้งแรกจนถึงครั้งที่ห้าต่อเนื่อง?",
-      "filters": {
-        "category": [
-          "trivia"
-        ]
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0392"
-      ],
-      "top5": [
-        "trivia-0592",
-        "trivia-0753",
-        "trivia-1849",
-        "trivia-0294",
-        "trivia-0244"
-      ]
-    },
-    {
       "id": "th-trivia-009",
       "kind": "trivia_th",
       "label": "vocabulary",
@@ -653,168 +605,6 @@
         "trivia-1654",
         "trivia-0318",
         "trivia-0947"
-      ]
-    },
-    {
-      "id": "th-trivia-010",
-      "kind": "trivia_th",
-      "label": "rewrite",
-      "undecided": false,
-      "query_th": "ทีมแรกที่ได้แชมป์พรีเมียร์ลีกโดยไม่ได้มาจากแมนเชสเตอร์หรือลอนดอนคือทีมไหน",
-      "routed_query": "Premier League title championship history count ทีมแรกที่ได้แชมป์พรีเมียร์ลีกโดยไม่ได้มาจากแมนเชสเตอร์หรือลอนดอนคือทีมไหน",
-      "filters": {
-        "category": [
-          "trivia"
-        ]
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0586"
-      ],
-      "top5": [
-        "trivia-0592",
-        "trivia-1034",
-        "trivia-0753",
-        "trivia-1849",
-        "trivia-0241"
-      ]
-    },
-    {
-      "id": "th-trivia-011",
-      "kind": "trivia_th",
-      "label": "router_filter",
-      "undecided": false,
-      "query_th": "ใครทำประตูครบร้อยในลีกสูงสุดอังกฤษก่อนคนอื่น?",
-      "routed_query": "Premier League top scorer 2026 matchweek 5 ใครทำประตูครบร้อยในลีกสูงสุดอังกฤษก่อนคนอื่น?",
-      "filters": {
-        "category": [
-          "standings"
-        ],
-        "season": "2026",
-        "matchweek": 5
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0591"
-      ],
-      "top5": [
-        "standings-2026-mw05"
-      ]
-    },
-    {
-      "id": "th-trivia-013",
-      "kind": "trivia_th",
-      "label": "router_filter",
-      "undecided": false,
-      "query_th": "ผู้ยิงประตูได้เยอะที่สุดของทีมชาติโปแลนด์คือใคร?",
-      "routed_query": "Premier League top scorer 2026 matchweek 5 ผู้ยิงประตูได้เยอะที่สุดของทีมชาติโปแลนด์คือใคร?",
-      "filters": {
-        "category": [
-          "standings"
-        ],
-        "season": "2026",
-        "matchweek": 5
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0707"
-      ],
-      "top5": [
-        "standings-2026-mw05"
-      ]
-    },
-    {
-      "id": "th-trivia-014",
-      "kind": "trivia_th",
-      "label": "router_filter",
-      "undecided": false,
-      "query_th": "ทีมชาติอังกฤษผู้ยิงประตูเยอะสุดคือใครอะ?",
-      "routed_query": "Premier League top scorer 2026 matchweek 5 ทีมชาติอังกฤษผู้ยิงประตูเยอะสุดคือใครอะ?",
-      "filters": {
-        "category": [
-          "standings"
-        ],
-        "season": "2026",
-        "matchweek": 5
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0718"
-      ],
-      "top5": [
-        "standings-2026-mw05"
-      ]
-    },
-    {
-      "id": "th-trivia-015",
-      "kind": "trivia_th",
-      "label": "rewrite",
-      "undecided": false,
-      "query_th": "ใครได้แชมป์บอลโลกปี 1954 นะ",
-      "routed_query": "Premier League title championship history count ใครได้แชมป์บอลโลกปี 1954 นะ",
-      "filters": {
-        "category": [
-          "trivia"
-        ]
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0762"
-      ],
-      "top5": [
-        "trivia-0599",
-        "trivia-0593",
-        "trivia-0753",
-        "trivia-1849",
-        "trivia-0294"
-      ]
-    },
-    {
-      "id": "th-trivia-016",
-      "kind": "trivia_th",
-      "label": "rewrite",
-      "undecided": false,
-      "query_th": "1990 แชมป์บอลโลกเป็นใคร?",
-      "routed_query": "Premier League title championship history count 1990 แชมป์บอลโลกเป็นใคร?",
-      "filters": {
-        "category": [
-          "trivia"
-        ]
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0771"
-      ],
-      "top5": [
-        "trivia-0304",
-        "trivia-1267",
-        "trivia-1849",
-        "trivia-0592",
-        "trivia-1199"
-      ]
-    },
-    {
-      "id": "th-trivia-018",
-      "kind": "trivia_th",
-      "label": "rewrite",
-      "undecided": false,
-      "query_th": "ทีมไหนแชมป์ยุโรป 88?",
-      "routed_query": "Premier League title championship history count ทีมไหนแชมป์ยุโรป 88?",
-      "filters": {
-        "category": [
-          "trivia"
-        ]
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-0787"
-      ],
-      "top5": [
-        "trivia-0304",
-        "trivia-1849",
-        "trivia-0592",
-        "trivia-0753",
-        "trivia-0244"
       ]
     },
     {
@@ -843,7 +633,7 @@
       "label": "rewrite",
       "undecided": false,
       "query_th": "ทีมอิตาลีที่ชนะแชมป์ยุโรปในปี 69 คือทีมไหน?",
-      "routed_query": "Premier League title championship history count ทีมอิตาลีที่ชนะแชมป์ยุโรปในปี 69 คือทีมไหน?",
+      "routed_query": "UEFA European Championship Euro Champions League Cup ทีมอิตาลีที่ชนะแชมป์ยุโรปในปี 69 คือทีมไหน?",
       "filters": {
         "category": [
           "trivia"
@@ -854,33 +644,11 @@
         "trivia-1178"
       ],
       "top5": [
-        "trivia-1398",
-        "trivia-1849",
-        "trivia-0592",
         "trivia-0782",
-        "trivia-0244"
-      ]
-    },
-    {
-      "id": "th-trivia-028",
-      "kind": "trivia_th",
-      "label": "router_filter",
-      "undecided": false,
-      "query_th": "ใครเป็นผู้ทำประตูสูงสุดของทีมซัมเบียตลอดมา?",
-      "routed_query": "Premier League top scorer 2026 matchweek 5 ใครเป็นผู้ทำประตูสูงสุดของทีมซัมเบียตลอดมา?",
-      "filters": {
-        "category": [
-          "standings"
-        ],
-        "season": "2026",
-        "matchweek": 5
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-1361"
-      ],
-      "top5": [
-        "standings-2026-mw05"
+        "trivia-0781",
+        "trivia-0880",
+        "trivia-0787",
+        "trivia-0783"
       ]
     },
     {
@@ -921,31 +689,6 @@
         "trivia-0179",
         "match-2026-mw05-73-64",
         "trivia-0172"
-      ]
-    },
-    {
-      "id": "th-trivia-032",
-      "kind": "trivia_th",
-      "label": "router_filter",
-      "undecided": false,
-      "query_th": "ใครทำประตูแรกในบอลโลกอะ?",
-      "routed_query": "latest match result 2026 ใครทำประตูแรกในบอลโลกอะ?",
-      "filters": {
-        "category": [
-          "match_report"
-        ],
-        "season": "2026"
-      },
-      "routed_away": null,
-      "expected": [
-        "trivia-1590"
-      ],
-      "top5": [
-        "match-2026-mw04-61-67",
-        "match-2026-mw04-64-66",
-        "match-2026-mw05-57-61",
-        "match-2026-mw04-58-57",
-        "match-2026-mw05-73-64"
       ]
     },
     {
@@ -996,7 +739,7 @@
       "label": "vocabulary",
       "undecided": false,
       "query_th": "นอกจากเปญาโรลกับนาซิอองนาล ทีมแรกที่ได้แชมป์ลีกอุรุกวัยคือทีมไหน",
-      "routed_query": "Premier League title championship history count นอกจากเปญาโรลกับนาซิอองนาล ทีมแรกที่ได้แชมป์ลีกอุรุกวัยคือทีมไหน",
+      "routed_query": "นอกจากเปญาโรลกับนาซิอองนาล ทีมแรกที่ได้แชมป์ลีกอุรุกวัยคือทีมไหน",
       "filters": {
         "category": [
           "trivia"
@@ -1007,11 +750,11 @@
         "trivia-1935"
       ],
       "top5": [
-        "trivia-0592",
-        "trivia-1034",
-        "trivia-0753",
-        "trivia-1849",
-        "trivia-0294"
+        "trivia-0736",
+        "trivia-0390",
+        "trivia-0389",
+        "trivia-0386",
+        "trivia-0733"
       ]
     }
   ]
