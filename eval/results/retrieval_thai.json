@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-01T23:55:33.790+07:00",
+  "generated_at": "2026-10-02T00:13:22.004+07:00",
   "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
   "golden_file": "eval/golden_thai.jsonl",
   "questions": {
@@ -63,9 +63,9 @@
       "variant": "routed",
       "mode": "bm25",
       "n": 20,
-      "hit@1": 0.95,
-      "hit@5": 1.0,
-      "mrr": 0.9666666666666666,
+      "hit@1": 0.85,
+      "hit@5": 0.95,
+      "mrr": 0.8808333333333334,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -74,9 +74,9 @@
       "variant": "routed",
       "mode": "hybrid",
       "n": 20,
-      "hit@1": 1.0,
-      "hit@5": 1.0,
-      "mrr": 1.0,
+      "hit@1": 0.9,
+      "hit@5": 0.95,
+      "mrr": 0.9175000000000001,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -85,9 +85,9 @@
       "variant": "routed",
       "mode": "vector",
       "n": 20,
-      "hit@1": 1.0,
-      "hit@5": 1.0,
-      "mrr": 1.0,
+      "hit@1": 0.9,
+      "hit@5": 0.95,
+      "mrr": 0.925,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -466,7 +466,7 @@
       "rewrite": 1,
       "router_filter": 3,
       "router_route": 1,
-      "vocabulary": 3
+      "vocabulary": 4
     },
     "undecided": {
       "multi_doc_partial": 1,
@@ -474,6 +474,32 @@
     }
   },
   "misses": [
+    {
+      "id": "th-hist-007",
+      "kind": "historical_th",
+      "label": "vocabulary",
+      "undecided": false,
+      "query_th": "ฤดูกาล 2003/04 ทีมไหนได้แชมป์แบบไม่แพ้ใคร",
+      "routed_query": "2003 ฤดูกาล 2003/04 ทีมไหนได้แชมป์แบบไม่แพ้ใคร",
+      "filters": {
+        "category": [
+          "trivia",
+          "historical"
+        ]
+      },
+      "routed_away": null,
+      "expected": [
+        "hist-season-2003",
+        "hist-team-2003-arsenal"
+      ],
+      "top5": [
+        "trivia-0386",
+        "hist-team-2002-arsenal",
+        "trivia-1212",
+        "hist-team-2002-chelsea",
+        "trivia-1452"
+      ]
+    },
     {
       "id": "th-multi_doc-001",
       "kind": "multi_doc",
