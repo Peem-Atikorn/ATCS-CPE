@@ -14,8 +14,17 @@ from .schemas import (
     GeneralRequest,
     PredictRequest,
     ProblemDetail,
+    SimulateRequest,
+    StrengthIn,
     TokenUsage,
 )
+from .poisson import (
+    LEAGUE_AVG_GOALS_PER_MATCH,
+    TeamStrength,
+    format_percent,
+    match_outcome_probabilities,
+)
+from .simulate import SimulationInputError, simulate_season
 from .token_budget import trim_history_to_budget
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -202,35 +211,85 @@ def local_classify(body: ClassifyRequest, request: Request):
     return result.model_dump()
 
 
+def _strength(s: StrengthIn) -> TeamStrength:
+    return TeamStrength(
+        attack_goals_per_match=s.attack,
+        defense_goals_conceded_per_match=s.defense,
+        matches_used=s.matches_used,
+    )
+
+
 @app.post("/local/predict")
 def local_predict(body: PredictRequest, request: Request):
     """
-    D5 (Could) — ทำนายผลนัดด้วย Poisson model จากผลที่ 07 (football-data) เก็บไว้
-
-    ยังตอบ 501 ตามที่ CONTRACT.md §3 อนุญาตไว้ล่วงหน้า เพราะมี 2 อย่างที่ยังไม่พร้อมจริง ๆ
-    (ไม่ใช่แค่ "ยังไม่ได้เขียนโค้ด"):
-
-    1. service `07_football_data` ยังไม่ถูกสร้าง (ตาม SCHEDULE.md ทุก service ยังเป็น placeholder)
-       จึงไม่มี "ผลที่ 07 เก็บไว้" ให้ดึงจริง
-    2. CONTRACT.md §7 (api → football-data) ไม่ได้ให้สิทธิ์ `engines` เรียก football-data โดยตรง —
-       คนเรียกที่ระบุไว้มีแค่ `api` และ `router` (เฉพาะ `/football/teams`) เท่านั้น การจะให้ /local/predict
-       ดึงผลย้อนหลังมาคำนวณเองต้องแก้ CONTRACT.md เพิ่ม § ใหม่ก่อน (ต้อง approve จาก sakda1306 + เจ้าของ 07)
-
-    ส่วนที่ "ทำแล้วจริง" คือคณิตศาสตร์ Poisson ล้วน ๆ ใน app/poisson.py (มี unit test ครบ
-    ใน tests/test_poisson.py) — พร้อมต่อกับข้อมูลจริงทันทีที่มี 07 และ path การเรียกที่ตกลงกันแล้ว
+    ทำนายผลนัดด้วย Poisson model · 07 (football-data) คำนวณความแข็งของทีมแล้วส่งมา (CONTRACT v1.7)
+    ถ้าไม่ส่ง strength มา ยังตอบ 501 ตาม CONTRACT §3 เพื่อไม่ให้ผู้เรียกรุ่นเก่าพัง
     """
-    # [ข้อ 5] เหตุผลเดียวกับ /general
     request_id = request.state.request_id
-    return _problem(
-        status=501,
-        code="NOT_IMPLEMENTED",
-        title="Prediction feature not available yet",
-        detail=(
-            "ฟีเจอร์ทำนายผลยังไม่เปิดใช้งาน — รอ service 07_football_data และการเพิ่ม CONTRACT.md "
-            "ให้ engines อ่านผลย้อนหลังได้ก่อน (ดู docstring ของ endpoint นี้ใน main.py)"
-        ),
-        request_id=request_id,
+    if body.home_strength is None or body.away_strength is None:
+        return _problem(
+            status=501,
+            code="NOT_IMPLEMENTED",
+            title="Prediction feature not available yet",
+            detail="ต้องส่ง home_strength และ away_strength (เรียกผ่าน 07 /football/predict)",
+            request_id=request_id,
+        )
+    t0 = time.monotonic()
+    probs = match_outcome_probabilities(
+        _strength(body.home_strength),
+        _strength(body.away_strength),
+        league_avg=body.league_avg_goals or LEAGUE_AVG_GOALS_PER_MATCH,
     )
+    home = body.home_name or f"ทีม {body.home_team_id}"
+    away = body.away_name or f"ทีม {body.away_team_id}"
+    score = probs["most_likely_score"]
+    content = (
+        f"{home} ชนะ {format_percent(probs['home_win'])} · เสมอ {format_percent(probs['draw'])} · "
+        f"{away} ชนะ {format_percent(probs['away_win'])} · "
+        f"สกอร์ที่น่าจะเป็นที่สุด {score['home']}–{score['away']}"
+    )
+    data = {
+        **probs,
+        "method": "poisson-v1",
+        "matches_used": min(body.home_strength.matches_used, body.away_strength.matches_used),
+    }
+    result = EngineResult(
+        engine="local_ai",
+        content=content,
+        data=data,
+        sources=[],
+        model="poisson-v1",
+        latency_ms=int((time.monotonic() - t0) * 1000),
+        token_usage=TokenUsage(input=0, output=0),
+    )
+    return result.model_dump()
+
+
+@app.post("/local/simulate")
+def local_simulate(body: SimulateRequest, request: Request):
+    """จำลองฤดูกาลที่เหลือ (CONTRACT v1.7 §3) · sync def → FastAPI รันใน threadpool ไม่บล็อก event loop"""
+    request_id = request.state.request_id
+    t0 = time.monotonic()
+    try:
+        data, content = simulate_season(body.inputs.model_dump(), body.n_sims, body.seed)
+    except SimulationInputError as e:
+        return _problem(
+            status=422,
+            code="VALIDATION_ERROR",
+            title="Invalid simulation inputs",
+            detail=str(e),
+            request_id=request_id,
+        )
+    result = EngineResult(
+        engine="local_ai",
+        content=content,
+        data=data,
+        sources=[],
+        model="poisson-mc-v1",
+        latency_ms=int((time.monotonic() - t0) * 1000),
+        token_usage=TokenUsage(input=0, output=0),
+    )
+    return result.model_dump()
 
 
 @app.exception_handler(Exception)

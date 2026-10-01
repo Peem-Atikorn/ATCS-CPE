@@ -1,7 +1,11 @@
 import asyncio
 import time
 
-from .decisions import MATCHWEEK_PATTERN, decide, enrich, classify_intent, from_intent
+from .decisions import (MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
+                        historical_scorer_season, league_wide_scorer_query, normalize_thai,
+                        prediction_kind)
+from .prediction_text import (NEEDS_TEAM_TEXT, TEAM_NOT_FOUND_TEXT, UNAVAILABLE_TEXT,
+                              match_prediction_text, simulation_focus, summarize_simulation)
 from .teams import TeamDirectory
 
 
@@ -20,8 +24,9 @@ class Router:
     async def route(self, request: dict) -> dict:
         start = time.monotonic()
         request_id = request["request_id"]
-        query = request["query"]
-        history = request.get("history", [])[-10:]
+        query = normalize_thai(request["query"])
+        history = [{**item, "content": normalize_thai(str(item.get("content", "")))}
+                   for item in request.get("history", [])[-10:]]
         user = request.get("user", {})
         context = request.get("context", {})
         trace = {"decided_at_layer": "guard", "intent": None, "rewritten_query": None,
@@ -47,6 +52,40 @@ class Router:
             async with asyncio.timeout(40):
                 decided_at = time.monotonic()
                 decision = decide(query, context, history, self.teams, user.get("favorite_team_id"))
+                historical_scorer = historical_scorer_season(query, context.get("season"))
+                if (historical_scorer and league_wide_scorer_query(query, self.teams)
+                        and (decision is None or decision.route == "football_rag")):
+                    season, assumed = historical_scorer
+                    season_label = f"{season}/{(int(season) + 1) % 100:02d}"
+                    trace.update(decided_at_layer="rules", intent="trivia_history",
+                                 rewritten_query=f"Premier League {season_label} top scorer",
+                                 filters={"season": season, "source": "official_scorer_reference"})
+                    step("router.rules", decided_at)
+                    try:
+                        source_at = time.monotonic()
+                        record = await self.clients.historical_scorer(season, request_id)
+                        step("football_data.verified_scorer", source_at)
+                        engines.append("football_data")
+                    except UpstreamError as exc:
+                        trace["fallback"] = "historical_scorer_unavailable"
+                        if exc.status == 404:
+                            return finish(f"ยังไม่มีข้อมูลดาวซัลโวพรีเมียร์ลีกฤดูกาล {season_label} ที่ตรวจสอบได้ในระบบ",
+                                          "football_rag", 0.9, "ไม่มีแหล่งอันดับดาวซัลโวที่ยืนยันได้")
+                        return finish("ตอนนี้ระบบข้อมูลย้อนหลังไม่พร้อมใช้งาน ลองใหม่อีกครั้งในภายหลัง",
+                                      "football_rag", 0.9, "แหล่งข้อมูลย้อนหลังไม่พร้อมใช้งาน")
+                    if record["season"] != season or not isinstance(record["goals"], int):
+                        trace["fallback"] = "historical_scorer_invalid"
+                        return finish("ข้อมูลดาวซัลโวย้อนหลังไม่ตรงกับฤดูกาลที่ถาม",
+                                      "football_rag", 0.0, "ข้อมูลต้นทางไม่ถูกต้อง")
+                    source = {"ref": 1, "doc_id": f"official-scorer-{season}",
+                              "title": f"Premier League Golden Boot {season_label}",
+                              "category": "historical", "origin": "premierleague.com",
+                              "season": season, "matchweek": None, "team_ids": [],
+                              "fetched_at": None, "url": record["source_url"]}
+                    prefix = "ถ้าหมายถึงพรีเมียร์ลีกฤดูกาล" if assumed else "พรีเมียร์ลีกฤดูกาล"
+                    answer = f"{prefix} {season_label} ดาวซัลโวคือ {record['player']} ทำ {record['goals']} ประตู [1]"
+                    return finish(answer, "football_rag", 0.95,
+                                  "อันดับดาวซัลโวจากแหล่งพรีเมียร์ลีกที่ตรวจสอบแล้ว", [source])
                 if decision is None:
                     try:
                         classify_at = time.monotonic()
@@ -137,6 +176,7 @@ class Router:
                             generated_at = time.monotonic()
                             result = await self.clients.generate({"request_id": request_id, "mode": "grounded",
                                 "query": query, "language": user.get("language", "th"), "contexts": contexts,
+                                "scope_team_ids": decision.team_ids,
                                 "draft": None, "history": history}, request_id)
                             step("generation.grounded", generated_at)
                             engines.append("generation")
@@ -159,22 +199,31 @@ class Router:
                     caveat = ""
 
                 if decision.route == "local_ai":
-                    if len(decision.team_ids) != 2:
-                        trace["fallback"] = "prediction_needs_two_teams"
-                        return finish("กรุณาระบุสองทีมที่ต้องการทำนายผล", "clarify", decision.confidence,
-                                      decision.reasoning)
+                    kind = prediction_kind(query, decision.team_ids)
+                    if kind == "needs_team":
+                        trace["fallback"] = "prediction_needs_team"
+                        return finish(NEEDS_TEAM_TEXT, "clarify", decision.confidence, decision.reasoning)
                     try:
                         predict_at = time.monotonic()
-                        result = await self.clients.predict({"request_id": request_id,
-                            "home_team_id": decision.team_ids[0], "away_team_id": decision.team_ids[1],
-                            "season": str(context.get("season", ""))}, request_id)
-                        step("engines.predict", predict_at)
+                        if kind == "match":
+                            prediction = await self.clients.predict_match(
+                                decision.team_ids[0], decision.team_ids[1], request_id)
+                            step("football_data.predict", predict_at)
+                            draft = match_prediction_text(prediction)
+                        else:
+                            snapshot = await self.clients.season_simulation(request_id)
+                            step("football_data.simulation", predict_at)
+                            draft = summarize_simulation(snapshot, simulation_focus(query),
+                                                         decision.team_ids)
                         engines.append("local_ai")
-                        add_usage(result)
                     except UpstreamError as exc:
-                        trace["fallback"] = "prediction_unavailable"
-                        answer = "ฟีเจอร์ทำนายผลยังไม่เปิดใช้งาน" if exc.status == 501 else "ตอนนี้ระบบทำนายผลไม่พร้อมใช้งาน"
-                        return finish(answer, "local_ai", decision.confidence, decision.reasoning)
+                        if kind == "match" and exc.status == 404:
+                            trace["fallback"] = "prediction_team_not_found"
+                            return finish(TEAM_NOT_FOUND_TEXT, "local_ai", decision.confidence,
+                                          decision.reasoning)
+                        trace["fallback"] = "simulation_down"
+                        return finish(UNAVAILABLE_TEXT, "local_ai", decision.confidence, decision.reasoning)
+                    result = {"content": draft}
                 else:
                     try:
                         general_at = time.monotonic()

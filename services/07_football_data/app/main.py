@@ -18,7 +18,9 @@ from sqlalchemy import text
 
 from app.config import Settings, get_settings
 from app.db import Base, make_database, schema_for
+from app.history import verified_season_top_scorer
 from app.service import FootballService, ServiceError
+from app.simulation import SimulationService
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 
@@ -83,6 +85,7 @@ def create_app(
     owns_http = http is None
     http = http or httpx.AsyncClient()
     service = FootballService(settings, sessions, http)
+    simulation = SimulationService(settings, sessions, http)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -112,6 +115,8 @@ def create_app(
         default_response_class=UTF8JSONResponse,
     )
     app.state.service = service
+    app.state.simulation = simulation
+    service.after_ingest = simulation.refresh
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
@@ -175,6 +180,27 @@ def create_app(
     @app.get("/football/standings")
     async def standings(season: str | None = Query(default=None, pattern=r"^\d{4}$")):
         return await service.standings(season)
+
+    @app.get("/football/history/top-scorer/{season}")
+    async def historical_top_scorer(season: str):
+        if not season.isdigit() or len(season) != 4:
+            raise ServiceError("VALIDATION_ERROR", 422, "season must be a four-digit start year")
+        result = verified_season_top_scorer(season)
+        if result is None:
+            raise ServiceError(
+                "HISTORICAL_SCORER_UNAVAILABLE",
+                404,
+                "No verified top-scorer reference for this season",
+            )
+        return result
+
+    @app.get("/football/predict")
+    async def predict(home_team_id: int = Query(ge=1), away_team_id: int = Query(ge=1)):
+        return await simulation.predict(home_team_id, away_team_id, request_id_var.get())
+
+    @app.get("/football/simulation")
+    async def season_simulation(season: str | None = Query(default=None, pattern=r"^\d{4}$")):
+        return await simulation.snapshot(season, request_id_var.get())
 
     @app.get("/football/fixtures")
     async def fixtures(

@@ -33,6 +33,23 @@ class ServiceClients:
         except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError) as exc:
             raise UpstreamError("football-data") from exc
 
+    async def historical_scorer(self, season: str, request_id: str):
+        try:
+            response = await self.http.get(
+                self.football_data_url + f"/football/history/top-scorer/{season}",
+                headers={"X-Request-ID": request_id}, timeout=5,
+            )
+            if response.status_code >= 400:
+                raise UpstreamError("football-data", response.status_code)
+            data = response.json()
+            if not isinstance(data, dict) or not all(
+                key in data for key in ("season", "season_label", "player", "goals", "source_url")
+            ):
+                raise ValueError("invalid historical scorer response")
+            return data
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise UpstreamError("football-data") from exc
+
     async def _post(self, base: str, path: str, payload: dict, request_id: str, timeout: float, service: str):
         try:
             response = await self.http.post(base + path, json=payload,
@@ -58,8 +75,30 @@ class ServiceClients:
     async def general(self, payload: dict, request_id: str):
         return await self._post(self.engines_url, "/general", payload, request_id, 25, "engines")
 
-    async def predict(self, payload: dict, request_id: str):
-        return await self._post(self.engines_url, "/local/predict", payload, request_id, 25, "engines")
+    async def _get(self, base: str, path: str, params: dict, request_id: str, timeout: float, service: str):
+        try:
+            response = await self.http.get(base + path, params=params,
+                                           headers={"X-Request-ID": request_id}, timeout=timeout)
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            raise UpstreamError(service) from exc
+        if response.status_code >= 400:
+            raise UpstreamError(service, response.status_code)
+        try:
+            data = response.json()
+            if not isinstance(data, dict):
+                raise ValueError("expected object")
+            return data
+        except ValueError as exc:
+            raise UpstreamError(service) from exc
+
+    async def predict_match(self, home_team_id: int, away_team_id: int, request_id: str):
+        return await self._get(self.football_data_url, "/football/predict",
+                               {"home_team_id": home_team_id, "away_team_id": away_team_id},
+                               request_id, 15, "football-data")
+
+    async def season_simulation(self, request_id: str):
+        return await self._get(self.football_data_url, "/football/simulation", {}, request_id, 15,
+                               "football-data")
 
     async def generate(self, payload: dict, request_id: str):
         return await self._post(self.generation_url, "/generate", payload, request_id, 25, "generation")
@@ -71,6 +110,9 @@ class ServiceClients:
                   "intent (one of trivia_history, match_result, fixture_schedule, standings_stats, "
                   "weekly_summary, player_info, general_football, prediction, out_of_scope, clarify), "
                   "confidence (0 to 1), and rewritten_query (an English search query when factual). "
+                  "standings_stats covers league tables and current-season top scorer or most-goals rankings. "
+                  "player_info covers squads and named-player profiles or individual statistics, not league-wide rankings. "
+                  "trivia_history covers past seasons, historical records, and all-time rankings. "
                   "Do not answer the question. Gambling and non-football requests are out_of_scope. "
                   "Ambiguous team or match references are clarify."
                   )

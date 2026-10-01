@@ -27,6 +27,38 @@ NOT_PLAYER_WORDS = ("ยิง", "ทำประตู", "กี่ประต
                     "table")
 
 MATCHWEEK_PATTERN = re.compile(r"(?:นัดที่\s*|แมตช์วีค\s*|สัปดาห์ที่\s*|matchweek\s*)(\d+)")
+OTHER_COMPETITIONS = ("ลาลีกา", "แชมเปียนส์ลีก", "แชมเปี้ยนส์ลีก", "ยูฟ่า",
+                      "บุนเดสลีกา", "กัลโช่", "ฟุตบอลโลก", "la liga",
+                      "champions league", "serie a", "bundesliga", "ligue 1", "world cup")
+# Whole-season outlook questions (CONTRACT v1.7): answered from 07 /football/simulation.
+SEASON_PREDICTION = re.compile(
+    r"จะ\s*(?:ได้|เป็น|คว้า)?\s*แชมป์|จะ\s*ตกชั้น|จะ\s*(?:ติด|จบ)\s*(?:ท็อป|อันดับ)|เสี่ยง\s*ตกชั้น"
+    r"|มีโอกาส\s*(?:ได้\s*)?(?:แชมป์|ติดท็อป|ท็อป|ตกชั้น|จบอันดับ)"
+    r"|\bwho will (?:win the (?:premier league|league|title)|be relegated|finish)\b"
+    r"|\bchances? of (?:winning the (?:league|title)|(?:a )?top[- ]?(?:4|four)|relegation|being relegated)\b")
+SEASON_WORDS = ("แชมป์", "ท็อปโฟร์", "ท็อป 4", "ท็อป4", "top 4", "top four", "ตกชั้น", "relegat",
+                "อันดับ", "title", "finish")
+
+
+def normalize_thai(text: str) -> str:
+    """Users often type two sara e (เเ) where they mean sara ae (แ)."""
+    return text.replace("เเ", "แ")
+
+
+def season_prediction(query: str) -> bool:
+    return bool(SEASON_PREDICTION.search(query.lower()))
+
+
+def prediction_kind(query: str, team_ids: list[int]) -> str:
+    """season = title / top 4 / relegation outlook · match = two teams · otherwise ask."""
+    text = query.lower()
+    if season_prediction(text):
+        return "season"
+    if len(team_ids) >= 2:
+        return "match"
+    if _has(text, SEASON_WORDS):
+        return "season"
+    return "needs_team"
 
 
 @dataclass
@@ -66,13 +98,108 @@ def _has(text: str, words: tuple[str, ...]) -> bool:
     return any(word in text for word in words)
 
 
-def _intent(query: str) -> str | None:
+def _has_historical_marker(text: str) -> bool:
+    if _has(text, ("ตลอดกาล", "ประวัติศาสตร์", "ย้อนหลัง", "ฤดูกาลที่แล้ว",
+                   "ซีซั่นที่แล้ว", "ปีที่แล้ว", "ฤดูกาลก่อน", "ซีซั่นก่อน")):
+        return True
+    return bool(re.search(r"\b(?:all[- ]time|ever|in history|last season|previous season)\b", text))
+
+
+def _previous_season(text: str) -> bool:
+    return _has(text, ("ฤดูกาลที่แล้ว", "ซีซั่นที่แล้ว", "ปีที่แล้ว", "ฤดูกาลก่อน", "ซีซั่นก่อน")) or bool(
+        re.search(r"\b(?:last season|previous season)\b", text)
+    )
+
+
+def _top_scorer_question(text: str) -> bool:
+    return _has(text, ("ดาวซัลโว", "top scorer", "leading scorer", "golden boot")) or (
+        _has(text, ("ยิง", "ทำประตู", "goals", "scored"))
+        and _has(text, ("เยอะสุด", "เยอะที่สุด", "มากที่สุด", "สูงสุด", "most goals", "top scorer", "leading scorer"))
+    )
+
+
+def historical_scorer_season(query: str, current_season: str | None) -> tuple[str, bool] | None:
+    """Read explicit season years; a bare year means its starting season."""
     text = query.lower()
+    if not _top_scorer_question(text) or _has(text, ("ตลอดกาล", "ประวัติศาสตร์")) or re.search(
+        r"\b(?:all[- ]time|ever|in history)\b", text
+    ):
+        return None
+    full = re.search(r"(?<!\d)((?:19|20)\d{2})\s*[/\-]\s*((?:19|20)\d{2}|\d{2})(?!\d)", text)
+    short = re.search(r"(?<!\d)(\d{2})\s*[/\-]\s*(\d{2})(?!\d)", text) if not full else None
+    if full or short:
+        match = full or short
+        start = int(match.group(1)) if full else 2000 + int(match.group(1))
+        end = int(match.group(2))
+        if end != start + 1 and end != (start + 1) % 100:
+            return None
+        assumed = False
+    else:
+        years = re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", text)
+        if len(years) == 1:
+            start = int(years[0])
+            assumed = True
+        elif not years and _previous_season(text) and str(current_season or "").isdigit():
+            start = int(current_season) - 1
+            assumed = False
+        else:
+            return None
+    if str(start) == str(current_season):
+        return None
+    return str(start), assumed
+
+
+def league_wide_scorer_query(query: str, teams: TeamDirectory) -> bool:
+    """Limit the verified winner shortcut to league player rankings."""
+    text = query.lower()
+    if teams.find(query) or MATCHWEEK_PATTERN.search(text) or _has(text, OTHER_COMPETITIONS):
+        return False
+    if _has(text, ("ทีมไหน", "สโมสรไหน", "which team", "which club", "team with most",
+                   "เสียประตู", "conceded", "goals against", "ผู้รักษาประตู", "goalkeeper",
+                   "เกมไหน", "นัดไหน", "ในเกม", "ในแมตช์", "which match", "which game",
+                   "per match", "against",
+                   "รอง", "runner-up", "second place", "อันดับสอง", "อันดับ 2",
+                   "ตั้งแต่", "since", "จนถึง", "ถึง", "เดือน", "มกราคม", "กุมภาพันธ์",
+                   "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน", "กรกฎาคม", "สิงหาคม",
+                   "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม")):
+        return False
+    if re.search(r"\bsecond\b", text) or re.search(r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+                 r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+                 r"dec(?:ember)?)\b", text):
+        return False
+    return _has(text, ("ใคร", "ดาวซัลโว", "top scorer", "leading scorer", "golden boot")) or bool(
+        re.search(r"\bwho\b", text)
+    )
+
+
+def _current_top_scorer(text: str, current_season: str | None = None) -> bool:
+    if not _top_scorer_question(text) or _has_historical_marker(text):
+        return False
+    if historical_scorer_season(text, current_season):
+        return False
+    years = re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)", text)
+    if not years:
+        return True
+    if not str(current_season or "").isdigit():
+        return False
+    if all(year == str(current_season) for year in years):
+        return True
+    next_year = str(int(current_season) + 1)
+    return years == [str(current_season), next_year] and bool(re.search(
+        rf"(?<!\d){re.escape(str(current_season))}\s*[/\-]\s*{re.escape(next_year)}(?!\d)", text
+    ))
+
+
+def _intent(query: str, current_season: str | None = None) -> str | None:
+    text = query.lower()
+    if _has(text, OTHER_COMPETITIONS) and _top_scorer_question(text):
+        return "out_of_scope"
     if _has(text, ("พนัน", "เดิมพัน", "ราคาบอล", "ทีเด็ด", "แทงบอล", "odds", "betting", "bet ")):
         return "out_of_scope"
     if _has(text, ("อากาศ", "ร้านอาหาร", "bitcoin", "โค้ด python", "เขียนเว็บ", "หุ้น")):
         return "out_of_scope"
-    if _has(text, ("ทำนาย", "คาดการณ์", "พยากรณ์ผล", "predict", "who will win", "โอกาสชนะ", "น่าจะชนะ")):
+    if _has(text, ("ทำนาย", "คาดการณ์", "พยากรณ์ผล", "predict", "who will win", "โอกาสชนะ", "จะชนะ")) or (
+            season_prediction(text)):
         return "prediction"
     if _has(text, ("ใบเหลือง", "ใบแดง", "ลูกโทษ")) and _has(
             text, ("เมื่อวาน", "เมื่อคืน", "นัดล่าสุด", "นัดก่อน", "นัดที่", "แมตช์", "เกมล่าสุด", "ผลแข่ง")):
@@ -85,7 +212,11 @@ def _intent(query: str) -> str | None:
         return "trivia_history"
     if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule")):
         return "fixture_schedule"
-    if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "ดาวซัลโว", "standings", "points", "scorer", "golden boot")):
+    if _top_scorer_question(text):
+        return "standings_stats" if _current_top_scorer(text, current_season) else "trivia_history"
+    if re.search(r"\bscorers?\b", text):
+        return "trivia_history" if _has_historical_marker(text) else "standings_stats"
+    if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "standings", "points")):
         return "standings_stats"
     if (_has(text, PLAYER_WORDS) or re.search(r"\bposition\b.*\bplay", text)) and not _has(
             text, NOT_PLAYER_WORDS):
@@ -113,7 +244,7 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
     if intent == "fixture_schedule":
         return keep_question(teams, "next Premier League fixture date opponent", season, matchweek, dates)
     if intent == "standings_stats":
-        topic = "top scorer" if "ดาวซัลโว" in query else "standings points ranking"
+        topic = "top scorer" if _top_scorer_question(query.lower()) else "standings points ranking"
         return keep_question(teams, "Premier League", topic, season, matchweek)
     if intent == "weekly_summary":
         return keep_question(teams, "Premier League weekly report summary", season, matchweek, dates)
@@ -185,11 +316,11 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
         return Decision("clarify", None, "guard", 1.0, "ขาดทีมที่อ้างถึง")
     if len(found) > 2:
         return Decision("clarify", None, "guard", 1.0, "พบหลายทีมในคำถาม")
-    intent = _intent(query)
+    intent = _intent(query, context.get("season"))
     if intent is None and history and re.search(r"(แล้ว|นัดก่อน|นัดนั้น)", text):
         for item in reversed(history[-10:]):
             if item.get("role") == "user":
-                intent = _intent(item.get("content", ""))
+                intent = _intent(item.get("content", ""), context.get("season"))
                 if intent is not None:
                     break
     if intent is None:

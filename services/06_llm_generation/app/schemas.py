@@ -52,6 +52,7 @@ class GenerateRequest(BaseModel):
     query: str = ""
     language: str = "th"
     contexts: list[Context] = Field(default_factory=list)
+    scope_team_ids: list[int] = Field(default_factory=list)
     draft: str | None = None
     history: list[HistoryMessage] = Field(default_factory=list)
 

@@ -28,6 +28,7 @@ class ErrorCode(StrEnum):
     INTERNAL_ERROR = "INTERNAL_ERROR"
     ROUTER_UNAVAILABLE = "ROUTER_UNAVAILABLE"
     FOOTBALL_DATA_UNAVAILABLE = "FOOTBALL_DATA_UNAVAILABLE"
+    SIMULATION_UNAVAILABLE = "SIMULATION_UNAVAILABLE"
     RETRIEVAL_UNAVAILABLE = "RETRIEVAL_UNAVAILABLE"
     INDEX_UPDATE_FAILED = "INDEX_UPDATE_FAILED"
     ROUTER_TIMEOUT = "ROUTER_TIMEOUT"
@@ -74,6 +75,9 @@ ERROR_SPECS: dict[ErrorCode, ErrorSpec] = {
     ),
     ErrorCode.FOOTBALL_DATA_UNAVAILABLE: ErrorSpec(
         502, "Football data unavailable", "บริการข้อมูลฟุตบอลไม่พร้อมใช้งานชั่วคราว"
+    ),
+    ErrorCode.SIMULATION_UNAVAILABLE: ErrorSpec(
+        503, "Simulation unavailable", "ระบบทำนายผลไม่พร้อมใช้งานตอนนี้"
     ),
     ErrorCode.RETRIEVAL_UNAVAILABLE: ErrorSpec(
         502, "Retrieval unavailable", "บริการคลังความรู้ไม่พร้อมใช้งานชั่วคราว"
