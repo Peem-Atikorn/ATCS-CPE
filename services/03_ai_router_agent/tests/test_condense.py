@@ -179,3 +179,15 @@ class RulesResolvedTests(unittest.TestCase):
         self.assertFalse(rules_resolved(self.decision("trivia_history", [64])))
         self.assertFalse(rules_resolved(self.decision("prediction", [57], route="clarify")))
         self.assertFalse(rules_resolved(self.decision("match_result", [64], layer="classifier")))
+
+
+class LanguageTests(unittest.TestCase):
+    def test_rejects_english_rewrite_of_thai_question(self):
+        self.assertIsNone(validate("แล้วใครยิง", "Who scored for Liverpool in the 2-1 win?", LIVERPOOL_TURN, TEAMS))
+
+    def test_rejects_thai_rewrite_of_english_question(self):
+        history = [{"role": "user", "content": "Who won Arsenal vs Chelsea?"}, {"role": "assistant", "content": "Arsenal [1]"}]
+        self.assertIsNone(validate("who scored?", "ใครยิงประตูให้อาร์เซนอล", history, TEAMS))
+
+    def test_mixed_team_name_keeps_thai_rewrite(self):
+        self.assertIsNotNone(validate("แล้วใครยิง", "ใครยิงประตูให้ Liverpool เมื่อวาน", LIVERPOOL_TURN, TEAMS))

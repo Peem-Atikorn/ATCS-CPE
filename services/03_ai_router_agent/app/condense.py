@@ -24,6 +24,7 @@ FOLLOWUP_EN_PRONOUN = re.compile(r"\b(?:he|she|him|his|her|they|them|their|it|it
 QUESTION_TH = re.compile(r"ไหม|มั้ย|อะไร|ใคร|เท่าไหร่|ยังไง|อย่างไร|กี่|ที่ไหน|ไหน|เมื่อไหร่|บ้าง|ล่ะ|หรือเปล่า")
 QUESTION_EN = re.compile(r"^(?:who|what|when|where|which|why|how|is|are|was|were|did|does|do|can|will)\b",
                          re.IGNORECASE)
+THAI = re.compile(r"[ก-๙]")
 CITATION = re.compile(r"\[\d+\]")
 NUMBER = re.compile(r"\d+")
 NUMBER_WORDS_TH = ("หนึ่ง", "สอง", "สาม", "สี่", "ห้า", "หก", "เจ็ด", "แปด", "เก้า", "สิบ", "ยี่สิบ", "ร้อย")
@@ -102,6 +103,9 @@ def validate(original: str, rewritten: str, history: list[dict], teams: TeamDire
     if not candidate or len(candidate) > 3 * len(original.strip()) + 120:
         return None
     if CITATION.search(candidate):
+        return None
+    # The rules read Thai questions; a rewrite in the other language would route differently.
+    if bool(THAI.search(original)) != bool(THAI.search(candidate)):
         return None
     if _is_question(original) and not _is_question(candidate):
         return None

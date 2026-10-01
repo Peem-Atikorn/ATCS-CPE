@@ -210,3 +210,32 @@ class CondenseClientTests(unittest.IsolatedAsyncioTestCase):
                                        "GEMINI_API_KEY": "", "GEMINI_MODEL": ""}):
             with self.assertRaises(UpstreamError):
                 await ServiceClients(None).condense("แล้วใครยิง", [], "req")
+
+
+class CondenseModelTests(unittest.IsolatedAsyncioTestCase):
+    ENV = {"GROQ_API_KEY": "test", "GROQ_MODEL": "big-model", "GEMINI_API_KEY": "", "GEMINI_MODEL": ""}
+
+    async def test_condense_uses_its_own_small_model(self):
+        seen = {}
+        reply = '{"standalone_query": "q", "changed": false}'
+        with patch.dict("os.environ", {**self.ENV, "GROQ_CONDENSE_MODEL": "small-model"}), \
+             patch("openai.AsyncOpenAI", fake_openai(reply, seen)):
+            await ServiceClients(None).condense("แล้วใครยิง", [], "req")
+        self.assertEqual(seen["model"], "small-model")
+        self.assertIn("Thai question gets a Thai rewrite", seen["messages"][0]["content"])
+
+    async def test_condense_falls_back_to_the_main_model(self):
+        seen = {}
+        reply = '{"standalone_query": "q", "changed": false}'
+        with patch.dict("os.environ", {**self.ENV, "GROQ_CONDENSE_MODEL": ""}), \
+             patch("openai.AsyncOpenAI", fake_openai(reply, seen)):
+            await ServiceClients(None).condense("แล้วใครยิง", [], "req")
+        self.assertEqual(seen["model"], "big-model")
+
+    async def test_classification_keeps_the_main_model(self):
+        seen = {}
+        reply = '{"intent": "general_football", "confidence": 0.9}'
+        with patch.dict("os.environ", {**self.ENV, "GROQ_CONDENSE_MODEL": "small-model"}), \
+             patch("openai.AsyncOpenAI", fake_openai(reply, seen)):
+            await ServiceClients(None).llm_decide("ฟุตบอลเล่นกี่คน", "req")
+        self.assertEqual(seen["model"], "big-model")

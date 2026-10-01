@@ -160,6 +160,8 @@ services:
       GENERATION_URL: http://generation:8000
       FOOTBALL_DATA_URL: http://football-data:8000
       ROUTER_CONDENSE_ENABLED: ${ROUTER_CONDENSE_ENABLED:-true}
+      GROQ_CONDENSE_MODEL: ${GROQ_CONDENSE_MODEL:-qwen/qwen3.8-27b}
+      GEMINI_CONDENSE_MODEL: ${GEMINI_CONDENSE_MODEL:-}
     depends_on:
       engines: {condition: service_started}
       generation: {condition: service_started}

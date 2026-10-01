@@ -33,7 +33,7 @@ OTHER_COMPETITIONS = ("ลาลีกา", "แชมเปียนส์ล�
 # Whole-season outlook questions (CONTRACT v1.7): answered from 07 /football/simulation.
 SEASON_PREDICTION = re.compile(
     r"จะ\s*(?:ได้|เป็น|คว้า)?\s*แชมป์|จะ\s*ตกชั้น|จะ\s*(?:ติด|จบ)\s*(?:ท็อป|อันดับ)|เสี่ยง\s*ตกชั้น"
-    r"|มีโอกาส\s*(?:ได้\s*)?(?:แชมป์|ติดท็อป|ท็อป|ตกชั้น|จบอันดับ)"
+    r"|(?:มี\s*)?โอกาส\s*(?:ได้\s*)?(?:แชมป์|ติดท็อป|ท็อป|ตกชั้น|จบอันดับ)"
     r"|\bwho will (?:win the (?:premier league|league|title)|be relegated|finish)\b"
     r"|\bchances? of (?:winning the (?:league|title)|(?:a )?top[- ]?(?:4|four)|relegation|being relegated)\b")
 SEASON_WORDS = ("แชมป์", "ท็อปโฟร์", "ท็อป 4", "ท็อป4", "top 4", "top four", "ตกชั้น", "relegat",
