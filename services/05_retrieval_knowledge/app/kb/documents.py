@@ -7,8 +7,10 @@ import json
 import re
 from dataclasses import asdict, dataclass
 
-CATEGORIES = ("trivia", "match_report", "standings", "fixtures", "weekly_report", "player")
-ORIGINS = ("kb", "football-data.org", "api-football", "generated")
+CATEGORIES = (
+    "trivia", "match_report", "standings", "fixtures", "weekly_report", "player", "historical"
+)
+ORIGINS = ("kb", "football-data.org", "api-football", "generated", "openfootball", "fjelstul")
 
 # Locked in CONTRACT §6: upserting the same doc_id replaces the document, so no duplicates.
 DOC_ID_PATTERNS: dict[str, re.Pattern[str]] = {
@@ -19,6 +21,10 @@ DOC_ID_PATTERNS: dict[str, re.Pattern[str]] = {
     "fixtures": re.compile(r"fixtures-\d{4}-team-\d+"),
     "weekly_report": re.compile(r"weekly-\d{4}-mw\d{2}"),
     "player": re.compile(r"players-\d{4}-team-\d+"),
+    # v1.11: 07's Premier League archive; club slugs are lowercase words joined by hyphens.
+    "historical": re.compile(
+        r"hist-(?:season-\d{4}|team-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*|h2h-[a-z0-9]+(?:-[a-z0-9]+)*)"
+    ),
 }
 
 
