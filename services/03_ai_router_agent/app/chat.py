@@ -90,6 +90,29 @@ TEMPLATES = {
     },
 }
 
+# What a reply may never say about itself, even about a team the question names or the user's favorite.
+_FIRST_PERSON = r"(?:ผม|ฉัน|เรา|หนู)"
+CLAIM_PATTERNS = (
+    re.compile(rf"{_FIRST_PERSON}\s*(?:ก็\s*)?(?:ชอบ|ชื่นชอบ|เชียร์|รัก|เป็นแฟน|สนับสนุน)"),
+    re.compile(rf"{_FIRST_PERSON}\s*(?:ดีใจ|เสียใจ|ตื่นเต้น|เหนื่อย|หิว|รู้สึก|สนุก|เศร้า|มีความสุข|กลัว|โกรธ)"),
+    re.compile(rf"{_FIRST_PERSON}\s*(?:อยู่|อาศัย|ทำงาน)(?:ที่)?\s*(?:กรุงเทพ|เชียงใหม่|ลอนดอน|ประเทศ|เมือง|จังหวัด|บ้าน)|"
+               rf"{_FIRST_PERSON}\s*(?:สังกัด|แต่งงาน|มีครอบครัว|มีลูก)"),
+    re.compile(r"(?:สร้าง|พัฒนา|ออกแบบ|เขียน)(?:ขึ้น)?(?:มา)?โดย(?!ทีม)"),
+    re.compile(r"ใช้\s*โมเดล|บริษัท"),
+    re.compile(r"\bi(?:'m| am)\b[^.!?]{0,20}\bfan\b"),
+    re.compile(r"\bi (?:also |really |personally )?(?:support|root for)\s+(?!questions\b|queries\b|you\b|your\b)"),
+    re.compile(r"\bi (?:also |really |personally )?love\b"),
+    re.compile(r"\b(?:created|built|made|developed|trained|designed|programmed) by (?!the\b|this\b|a\b|an\b|our\b|project\b)"),
+    re.compile(r"\bcompany\b|\bi run on\b|\bi(?:'m| am) powered by\b"),
+)
+# Some kinds have one honest answer; a reply that does not say it is replaced by the template.
+ANCHORS = {
+    "favorite": re.compile(r"ไม่มี\S{0,12}(?:โปรด|ที่ชอบ|ที่เชียร์|ความชอบ)|"
+                           r"(?:don['’]t|do not|no)\s+(?:have\s+)?(?:a\s+)?(?:personal\s+)?favou?rite", re.IGNORECASE),
+    "creator": re.compile(r"ทีมพัฒนา|development team|ไม่ทราบ|don['’]t know|do not know", re.IGNORECASE),
+    "identity": re.compile(r"\bai\b|ระบบ|ไม่ใช่คน|ไม่ใช่มนุษย์|assistant|system|ผู้ช่วย", re.IGNORECASE),
+}
+
 LEAK_WORDS = ("system prompt", "คำสั่งระบบ", "พรอมต์", "prompt")
 PERSONAL_CLAIMS = (
     "เคยไป", "เคยดู", "เคยเล่น", "เคยเห็น", "เคยเจอ", "ไปดู", "ผมชอบทีม", "ฉันชอบทีม", "ผมเชียร์", "ฉันเชียร์",
@@ -117,17 +140,22 @@ _FAVORITE_B = re.compile(
     rf"{SUBJECT}\s*(?:ชอบ|เชียร์|เป็นแฟน|สนับสนุน)\s*(?:ทีม|team|ฟุตบอล)|do you (?:support|like|root for)\s+(?:a |any )?team")
 _FAVORITE_C = re.compile(rf"{SUBJECT}\s*(?:ชอบ|เชียร์|เป็นแฟน|สนับสนุน)|do you (?:support|like|root for)")
 _CREATOR = re.compile(
-    r"ใคร(?:เป็นคน)?\s*(?:สร้าง|ทำ|พัฒนา|เขียน)\s*(?:คุณ|เธอ|บอท|ระบบ|เว็บ|แชต)|"
+    # "ระบบ VAR" is football: only "this system / this site / you" count as the assistant.
+    r"ใคร(?:เป็นคน)?\s*(?:สร้าง|ทำ|พัฒนา|เขียน)\s*(?:คุณ|เธอ|บอท|(?:ระบบ|เว็บ|แชต|แอป)นี้)|"
     r"(?:คุณ|เธอ|บอท)\s*(?:ถูก)?\s*(?:สร้าง|พัฒนา|ทำ)\s*(?:โดย|มาจาก)|"
-    r"who (?:made|created|built|developed|trained) you|who is your (?:creator|developer|maker)")
+    r"who (?:made|created|built|developed|trained) you(?!\w)|who is your (?:creator|developer|maker)")
 _IDENTITY = re.compile(
     rf"{SUBJECT}\s*ชื่อ\s*(?:ว่า\s*)?(?:อะไร|ไร)|{SUBJECT}\s*(?:คือ|เป็น)\s*(?:ใคร|อะไร)|"
     rf"{SUBJECT}\s*เป็น\s*(?:บอท|ai|เอไอ|คน|หุ่นยนต์|มนุษย์|โมเดล)|เป็นบอท(?:หรือ|รึ)|"
-    r"who are you|what(?:'s| is) your name|are you (?:a |an )?(?:bot|ai|human|robot|real|person)|what are you")
+    r"who are you(?!\w)|what(?:'s| is) your name|are you (?:a |an )?(?:bot|ai|human|robot|real|person)(?!\w)|"
+    r"what are you(?!\w)")
+# Capability questions only count at the start of the message ("ผู้ตัดสินทำอะไรได้บ้าง" is football), after an
+# optional greeting and an optional "you".
 _CAPABILITY = re.compile(
+    rf"(?:(?:สวัสดี|หวัดดี|hello|hi|hey)(?:ครับ|ค่ะ|คับ)?[\s,!]*)?(?:{SUBJECT}\s*)?(?:"
     r"ช่วย\s*(?:อะไร|เรื่องอะไร).{0,8}ได้|ทำ\s*อะไร.{0,6}ได้|ตอบ\s*(?:เรื่อง)?\s*อะไร.{0,8}ได้|ตอบ.{0,12}เรื่องอะไร.{0,6}ได้|"
     r"ถาม\s*(?:อะไร|เรื่องอะไร)\s*(?:ได้)?\s*บ้าง|ถามได้\s*(?:อะไร|เรื่องอะไร)\s*บ้าง|ใช้(?:งาน)?\s*(?:ยังไง|อย่างไร)|"
-    r"what can you (?:do|help|answer)|what (?:can|should) i ask|how (?:do|can) i use you")
+    r"what can you (?:do|help|answer)|what (?:can|should) i ask|how (?:do|can) i use you)")
 _SOURCE = re.compile(
     r"ข้อมูล.{0,8}(?:มาจาก|เอามาจาก|ได้มาจาก)|แหล่งข้อมูล|(?:ใช้|อ้างอิง)ข้อมูลจาก|"
     r"where (?:do|does) (?:you|the bot|this).{0,20}(?:data|information)|data sources?|your sources?")
@@ -160,10 +188,11 @@ def chat_kind(text: str, team_count: int) -> str | None:
     if team_count:
         return None
     # "แหล่งข้อมูลของคุณคืออะไร" also fits identity ("คุณคืออะไร"): the specific kinds go first.
-    for kind, pattern in (("creator", _CREATOR), ("source", _SOURCE), ("identity", _IDENTITY),
-                          ("capability", _CAPABILITY)):
+    for kind, pattern in (("creator", _CREATOR), ("source", _SOURCE), ("identity", _IDENTITY)):
         if pattern.search(text):
             return kind
+    if _CAPABILITY.match(text):
+        return "capability"
     for kind, pattern in (("greeting", _GREETING), ("thanks", _THANKS), ("farewell", _FAREWELL)):
         if pattern.fullmatch(text):
             return kind
@@ -206,7 +235,7 @@ def _echoes(reply: str, rules: str) -> bool:
 
 
 def validate_reply(reply: str, query: str, language: str, teams: TeamDirectory,
-                   favorite: str | None = None) -> str | None:
+                   favorite: str | None = None, kind: str | None = None) -> str | None:
     """The reply when it adds nothing the fact sheet or the question lacks, otherwise None."""
     from .condense import (
         _strict,  # imported here: condense imports decisions, which imports this module
@@ -222,7 +251,10 @@ def validate_reply(reply: str, query: str, language: str, teams: TeamDirectory,
         return None
     if any(word in lowered for word in LEAK_WORDS) or _echoes(lowered, RULES.lower()):
         return None
-    if any(claim in lowered for claim in PERSONAL_CLAIMS):
+    if any(claim in lowered for claim in PERSONAL_CLAIMS) or any(p.search(lowered) for p in CLAIM_PATTERNS):
+        return None
+    anchor = ANCHORS.get(kind)
+    if anchor and not anchor.search(text):
         return None
     if not set(NUMBER.findall(text)) <= set(NUMBER.findall(FACTS)) | set(NUMBER.findall(query)):
         return None

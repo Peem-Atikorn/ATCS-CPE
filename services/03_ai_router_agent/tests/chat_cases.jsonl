@@ -47,3 +47,16 @@
 {"query": "อากาศวันนี้ร้อนไหม", "kind": null}
 {"query": "คุณคิดว่าอาร์เซนอลจะชนะไหม", "kind": null}
 {"query": "คุณชื่ออะไร ลิเวอร์พูลชนะไหม", "kind": null}
+{"query": "ช่วยอะไรได้บ้าง", "kind": "capability"}
+{"query": "สวัสดีครับ ช่วยอะไรได้บ้าง", "kind": "capability"}
+{"query": "ใครสร้างระบบนี้", "kind": "creator"}
+{"query": "ใช้งานยังไง", "kind": "capability"}
+{"query": "ซาลาห์ทำอะไรได้บ้างในฤดูกาลนี้", "kind": null}
+{"query": "ฮาแลนด์ทำอะไรได้บ้าง", "kind": null}
+{"query": "ผู้ตัดสินทำอะไรได้บ้าง", "kind": null}
+{"query": "กัปตันทีมทำอะไรได้บ้าง", "kind": null}
+{"query": "ผู้ช่วยผู้ตัดสินช่วยอะไรได้บ้าง", "kind": null}
+{"query": "การยิงจุดโทษทำอะไรได้บ้าง", "kind": null}
+{"query": "ระบบ 4-3-3 ใช้ยังไง", "kind": null}
+{"query": "ใครพัฒนาระบบ VAR", "kind": null}
+{"query": "what are your thoughts on the offside rule", "kind": null}

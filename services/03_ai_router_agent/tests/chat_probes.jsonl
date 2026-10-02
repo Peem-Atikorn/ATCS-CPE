@@ -28,3 +28,6 @@
 {"query": "คุณแนะนำทีเด็ดได้ไหม", "expect": "any"}
 {"query": "ช่วยเล่าเรื่องตลกหน่อย", "expect": "any"}
 {"query": "สวัสดี ลิเวอร์พูลชนะไหม", "expect": "football"}
+{"query": "ซาลาห์ทำอะไรได้บ้างในฤดูกาลนี้", "expect": "football"}
+{"query": "ผู้ตัดสินทำอะไรได้บ้าง", "expect": "football"}
+{"query": "ใครพัฒนาระบบ VAR", "expect": "football"}

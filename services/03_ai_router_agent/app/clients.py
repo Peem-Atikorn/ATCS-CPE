@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import httpx
 
-from .chat import chat_timeout
+from .chat import chat_enabled, chat_timeout
 from .router import UpstreamError
 from .teams import TeamDirectory
 
@@ -177,16 +177,19 @@ class ServiceClients:
         raise UpstreamError("llm")
 
     async def llm_decide(self, query: str, request_id: str):
+        # With the chat switch off the prompt is exactly the one from before v1.12.
+        chat_label = "chitchat, " if chat_enabled() else ""
+        chat_note = ("chitchat covers greetings, thanks, small talk, and questions about the assistant itself "
+                     "(its name, abilities, data sources, preferences). "
+                     "Football questions, even vague ones, are never chitchat. ") if chat_enabled() else ""
         system = ("Classify the user's Premier League football question. Return a JSON object with "
                   "intent (one of trivia_history, match_result, fixture_schedule, standings_stats, "
-                  "weekly_summary, player_info, general_football, prediction, chitchat, out_of_scope, clarify), "
+                  f"weekly_summary, player_info, general_football, prediction, {chat_label}out_of_scope, clarify), "
                   "confidence (0 to 1), and rewritten_query (an English search query when factual). "
                   "standings_stats covers league tables and current-season top scorer or most-goals rankings. "
                   "player_info covers squads and named-player profiles or individual statistics, not league-wide rankings. "
                   "trivia_history covers past seasons, historical records, and all-time rankings. "
-                  "chitchat covers greetings, thanks, small talk, and questions about the assistant itself "
-                  "(its name, abilities, data sources, preferences). "
-                  "Football questions, even vague ones, are never chitchat. "
+                  f"{chat_note}"
                   "Do not answer the question. Gambling and non-football requests are out_of_scope. "
                   "Ambiguous team or match references are clarify."
                   )

@@ -204,7 +204,7 @@ class Router:
                                                   user_message(history, query, kind), request_id),
                                 timeout=CHAT_STEP_TIMEOUT)
                             add_usage(raw)
-                            answer = validate_reply(raw.get("reply"), query, language, self.teams, favorite)
+                            answer = validate_reply(raw.get("reply"), query, language, self.teams, favorite, kind)
                             trace["chat"] = "applied" if answer else "rejected"
                         except (UpstreamError, ValueError, TypeError, asyncio.TimeoutError):
                             trace["chat"] = "unavailable"

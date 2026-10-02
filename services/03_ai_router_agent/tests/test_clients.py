@@ -289,3 +289,10 @@ class ChatClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("chitchat", system)
         self.assertIn("Football questions, even vague ones, are never chitchat", system)
         self.assertEqual(seen["temperature"], 0)
+
+    async def test_the_classifier_prompt_has_no_chitchat_when_the_switch_is_off(self):
+        seen = {}
+        reply = '{"intent": "general_football", "confidence": 0.9}'
+        with patch.dict("os.environ", {**GROQ_ONLY, "ROUTER_CHAT_ENABLED": "false"}),              patch("openai.AsyncOpenAI", fake_openai(reply, seen)):
+            await ServiceClients(None).llm_decide("วันนี้เหนื่อยจัง", "req")
+        self.assertNotIn("chitchat", seen["messages"][0]["content"])
