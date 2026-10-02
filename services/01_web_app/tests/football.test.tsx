@@ -23,6 +23,21 @@ it("treats an unpublished/missing report as an empty state", async () => {
   ).toBeInTheDocument();
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
+it("treats a season without standings as an empty state", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (path: string) =>
+      path === "/api/football/status"
+        ? json({ current_season: "2026", current_matchweek: 6, quota: {} })
+        : json({ code: "NOT_FOUND", detail: "missing" }, 404),
+    ),
+  );
+  render(<FootballPage params={{ view: "standings" }} />);
+  expect(
+    await screen.findByText("ยังไม่มีตารางคะแนนของฤดูกาลนี้"),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
 it("uses API supported fixture query filters", async () => {
   const fetcher = vi.fn(async (path: string) =>
     path === "/api/football/status"

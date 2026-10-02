@@ -138,10 +138,11 @@ function FootballView({
         ไม่พบหน้านี้ <Link href="/">กลับหน้าแรก</Link>
       </Empty>
     );
-  const emptyReport =
+  // 404 here means nothing is stored for that season yet, not a broken page.
+  const emptyResult =
     resource.error instanceof ApiError &&
     resource.error.status === 404 &&
-    view === "reports";
+    (view === "reports" || view === "standings");
   return (
     <div className={`football-page football-${view}`}>
       <div className="football-heading">
@@ -298,8 +299,12 @@ function FootballView({
       )}
       {resource.loading ? (
         <Loading />
-      ) : emptyReport ? (
-        <Empty>ยังไม่มีรายงานที่เผยแพร่ในช่วงที่เลือก</Empty>
+      ) : emptyResult ? (
+        <Empty>
+          {view === "reports"
+            ? "ยังไม่มีรายงานที่เผยแพร่ในช่วงที่เลือก"
+            : "ยังไม่มีตารางคะแนนของฤดูกาลนี้"}
+        </Empty>
       ) : resource.error ? (
         <ErrorBox
           error={resource.error}
