@@ -58,6 +58,60 @@ INTERNATIONAL_WORDS = (*(thai for thai, _ in COMPETITION_TERMS), "ทีมช�
                        "champions league", "copa america", "olympic", "national team", "confederations")
 SEASON_WORDS = ("แชมป์", "ท็อปโฟร์", "ท็อป 4", "ท็อป4", "top 4", "top four", "ตกชั้น", "relegat",
                 "อันดับ", "title", "finish")
+# v1.11: 07's Premier League archive (past seasons and head-to-head) lives in its own category.
+HISTORICAL = "historical"
+HEAD_TO_HEAD_WORDS = ("เคยชนะ", "เคยเจอ", "ชนะกี่นัด", "สถิติพบกัน", "สถิติเจอกัน", "ประวัติการพบกัน",
+                      "head to head", "head-to-head", "h2h")
+# "เจอกันกี่ครั้ง" counts meetings; "เจอกันกี่โมง" / "ชนะกันกี่ลูก" are about one match.
+HEAD_TO_HEAD_COUNT = re.compile(r"(?:เจอกัน|ชนะกัน|พบกัน)\s*กี่\s*(?:นัด|ครั้ง|หน)")
+# The archive ends last season: questions about this season or one match stay with live data.
+CURRENT_WORDS = ("เมื่อวาน", "วันนี้", "คืนนี้", "พรุ่งนี้", "นัดล่าสุด", "นัดก่อน", "นัดหน้า", "นัดต่อไป",
+                 "ฤดูกาลนี้", "ซีซั่นนี้", "ปีนี้", "กี่โมง", "กี่ทุ่ม", "this season", "yesterday", "today",
+                 "last match", "next match")
+# Without a known club, a season question must name the league to be about the Premier League.
+PL_WORDS = ("พรีเมียร์ลีก", "premier league", "ลีกอังกฤษ", "epl", "พรีเมียร์ชิพ")
+# Former Premier League clubs the team directory does not know (no team_id in 07's archive),
+# with the English name the archive documents use.
+ARCHIVE_CLUBS = {
+    "แบล็คเบิร์น": "Blackburn Rovers", "blackburn": "Blackburn Rovers",
+    "โบลตัน": "Bolton Wanderers", "bolton": "Bolton Wanderers",
+    "เลสเตอร์": "Leicester City", "leicester": "Leicester City",
+    "เวสต์แฮม": "West Ham United", "west ham": "West Ham United",
+    "วูล์ฟส์": "Wolverhampton Wanderers", "wolves": "Wolverhampton Wanderers",
+    "เบิร์นลีย์": "Burnley", "burnley": "Burnley",
+    "เซาธ์แฮมป์ตัน": "Southampton", "southampton": "Southampton",
+    "มิดเดิลสโบรช์": "Middlesbrough", "middlesbrough": "Middlesbrough",
+    "วัตฟอร์ด": "Watford", "watford": "Watford",
+    "นอริช": "Norwich City", "norwich": "Norwich City",
+    "สโต๊ค": "Stoke City", "stoke": "Stoke City",
+    "สวอนซี": "Swansea City", "swansea": "Swansea City",
+    "วีแกน": "Wigan Athletic", "wigan": "Wigan Athletic",
+    "พอร์ทสมัธ": "Portsmouth", "portsmouth": "Portsmouth",
+    "เรดดิ้ง": "Reading", "reading": "Reading",
+    "ดาร์บี้": "Derby County", "derby": "Derby County",
+    "เบอร์มิงแฮม": "Birmingham City", "birmingham": "Birmingham City",
+    "แบล็คพูล": "Blackpool", "blackpool": "Blackpool",
+    "แบรดฟอร์ด": "Bradford City", "bradford": "Bradford City",
+    "คาร์ดิฟฟ์": "Cardiff City", "cardiff": "Cardiff City",
+    "ชาร์ลตัน": "Charlton Athletic", "charlton": "Charlton Athletic",
+    "ฮัดเดอร์สฟิลด์": "Huddersfield Town", "huddersfield": "Huddersfield Town",
+    "ลูตัน": "Luton Town", "luton": "Luton Town",
+    "โอลด์แฮม": "Oldham Athletic", "oldham": "Oldham Athletic",
+    "คิวพีอาร์": "Queens Park Rangers", "qpr": "Queens Park Rangers",
+    "เชฟฟิลด์": "Sheffield", "sheffield": "Sheffield",
+    "สวินดอน": "Swindon Town", "swindon": "Swindon Town",
+    "เวสต์บรอม": "West Bromwich Albion", "west brom": "West Bromwich Albion",
+    "วิมเบิลดัน": "Wimbledon", "wimbledon": "Wimbledon",
+    "บาร์นสลีย์": "Barnsley", "barnsley": "Barnsley",
+}
+ARCHIVE_CLUB_WORDS = tuple(ARCHIVE_CLUBS)
+HISTORY_SEASON_WORDS = ("แชมป์", "อันดับ", "ตาราง", "ตกชั้น", "แต้ม", "คะแนน", "ผลงาน", "ชนะกี่", "แพ้กี่",
+                        "เสมอกี่", "ยิงได้กี่", "ดาวซัลโว", "champion", "title", "table", "relegat", "finish",
+                        "points", "who won", "winner")
+# Cups are not in the league archive: a league champion must not answer a cup question.
+CUP_WORDS = ("เอฟเอคัพ", "fa cup", "ลีกคัพ", "league cup", "คาราบาว", "carabao", "คอมมูนิตี้ชิลด์",
+             "community shield", "บัลลงดอร์", "ballon", "คัพ", " cup", "ถ้วย", "efl", "ซีเกมส์", "sea games",
+             "เอเชียน", "asian", "ไทยลีก", "thai league", "ดิวิชั่น", "division")
 
 
 def normalize_thai(text: str) -> str:
@@ -93,12 +147,18 @@ class Decision:
     team_ids: list[int] = field(default_factory=list)
 
 
+def _category_filter(intent: str) -> dict:
+    if intent == "trivia_history":
+        return {"category": ["trivia", HISTORICAL]}
+    category = INTENT_MAP[intent][1]
+    return {"category": [category]} if category else {}
+
+
 def classify_intent(label: str, score: float) -> Decision | None:
     if label not in INTENT_MAP or score < 0.75:
         return None
-    route, category = INTENT_MAP[label]
-    filters = {"category": [category]} if category else {}
-    return Decision(route, label, "classifier", score, f"classifier: {label}", filters)
+    return Decision(INTENT_MAP[label][0], label, "classifier", score, f"classifier: {label}",
+                    _category_filter(label))
 
 
 def from_intent(label: str, confidence: float, layer: str = "llm") -> Decision | None:
@@ -149,18 +209,15 @@ def _top_scorer_question(text: str) -> bool:
     )
 
 
-def historical_scorer_season(query: str, current_season: str | None) -> tuple[str, bool] | None:
+def _season_in(text: str, current_season: str | None) -> tuple[str, bool] | None:
     """Read explicit season years; a bare year means its starting season."""
-    text = query.lower()
-    if not _top_scorer_question(text) or _has(text, ("ตลอดกาล", "ประวัติศาสตร์")) or re.search(
-        r"\b(?:all[- ]time|ever|in history)\b", text
-    ):
-        return None
     full = re.search(r"(?<!\d)((?:19|20)\d{2})\s*[/\-]\s*((?:19|20)\d{2}|\d{2})(?!\d)", text)
     short = re.search(r"(?<!\d)(\d{2})\s*[/\-]\s*(\d{2})(?!\d)", text) if not full else None
     if full or short:
         match = full or short
         start = int(match.group(1)) if full else 2000 + int(match.group(1))
+        if short and int(match.group(1)) >= 50:  # "98/99" is 1998/99; "27/28" stays 2027/28
+            start -= 100
         end = int(match.group(2))
         if end != start + 1 and end != (start + 1) % 100:
             return None
@@ -178,6 +235,44 @@ def historical_scorer_season(query: str, current_season: str | None) -> tuple[st
     if str(start) == str(current_season):
         return None
     return str(start), assumed
+
+
+def historical_scorer_season(query: str, current_season: str | None) -> tuple[str, bool] | None:
+    """Read explicit season years; a bare year means its starting season."""
+    text = query.lower()
+    if not _top_scorer_question(text) or _has(text, ("ตลอดกาล", "ประวัติศาสตร์")) or re.search(
+        r"\b(?:all[- ]time|ever|in history)\b", text
+    ):
+        return None
+    return _season_in(text, current_season)
+
+
+def _head_to_head(text: str) -> bool:
+    return _has(text, HEAD_TO_HEAD_WORDS) or bool(HEAD_TO_HEAD_COUNT.search(text))
+
+
+def _season_label(start: int) -> str:
+    return f"{start}/{str(start + 1)[2:]}"
+
+
+def history_filters(query: str, team_count: int, current_season: str | None) -> dict | None:
+    """Questions the 07 Premier League archive answers (CONTRACT v1.11)."""
+    text = query.lower()
+    if _has(text, (*OTHER_COMPETITIONS, *INTERNATIONAL_WORDS, *CUP_WORDS)):
+        return None
+    if team_count == 2 and _head_to_head(text) and not _has(text, CURRENT_WORDS):
+        return {"category": [HISTORICAL]}
+    if not str(current_season or "").isdigit() or not _has(text, HISTORY_SEASON_WORDS):
+        return None
+    if team_count == 0 and not _has(text, (*PL_WORDS, *ARCHIVE_CLUB_WORDS)):
+        return None
+    season = _season_in(text, current_season)
+    # Before 1992/93 the archive has nothing; trivia may still know (old First Division).
+    if season is None or not 1992 <= int(season[0]) < int(current_season):
+        return None
+    start, assumed = season
+    # A bare year may mean the season that starts or ends in it: search both, do not filter.
+    return {"category": [HISTORICAL]} if assumed else {"category": [HISTORICAL], "season": start}
 
 
 def league_wide_scorer_query(query: str, teams: TeamDirectory) -> bool:
@@ -278,6 +373,20 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
         return " ".join(part for part in (*parts, query.strip()) if part)
 
     teams = " ".join(names)
+    if filters.get("category") == [HISTORICAL]:
+        start = filters.get("season")
+        # Archive documents name clubs in English; add the ones the team directory cannot.
+        lowered = query.lower()
+        former = [name for word, name in ARCHIVE_CLUBS.items() if word in lowered and name not in teams]
+        teams = " ".join(dict.fromkeys([*names, *former]))
+        if start is not None:
+            return keep_question(teams, "Premier League", _season_label(int(start)), "final table standings")
+        year = None if _head_to_head(query.lower()) else re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", query)
+        if year is None:
+            return keep_question(teams, "Premier League head-to-head record")
+        end = int(year.group(1))
+        return keep_question(teams, "Premier League", _season_label(end - 1), _season_label(end),
+                             "final table standings")
     season = filters.get("season", "")
     matchweek = f"matchweek {filters['matchweek']}" if "matchweek" in filters else ""
     dates = " ".join(str(filters[key]) for key in ("date_from", "date_to") if key in filters)
@@ -371,9 +480,15 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
                 intent = _intent(item.get("content", ""), context.get("season"))
                 if intent is not None:
                     break
+    if intent not in ("out_of_scope", "prediction"):
+        past = history_filters(query, len(found), context.get("season"))
+        if past is not None:
+            decision = Decision("football_rag", "trivia_history", "rules", 0.9,
+                                "คำถามสถิติย้อนหลังพรีเมียร์ลีก", past)
+            return enrich(decision, query, context, history, teams, favorite_team_id)
     if intent is None:
         return None
-    route, category = INTENT_MAP[intent]
+    route = INTENT_MAP[intent][0]
     decision = Decision(route, intent, "guard" if route == "decline" else "rules", 1.0 if route == "decline" else 0.9,
-                        f"ตรวจพบ intent {intent}", {"category": [category]} if category else {})
+                        f"ตรวจพบ intent {intent}", _category_filter(intent))
     return enrich(decision, query, context, history, teams, favorite_team_id)

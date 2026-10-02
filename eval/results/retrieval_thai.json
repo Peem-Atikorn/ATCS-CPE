@@ -1,8 +1,9 @@
 {
-  "generated_at": "2026-10-01T16:27:46.902+07:00",
+  "generated_at": "2026-10-02T01:21:20.621+07:00",
   "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
   "golden_file": "eval/golden_thai.jsonl",
   "questions": {
+    "historical_th": 20,
     "match_th": 20,
     "multi_doc": 10,
     "out_of_kb_th": 20,
@@ -25,13 +26,79 @@
   },
   "results": [
     {
+      "kind": "historical_th",
+      "variant": "raw",
+      "mode": "bm25",
+      "n": 20,
+      "hit@1": 0.5,
+      "hit@5": 0.6,
+      "mrr": 0.557177033492823,
+      "router_miss": 0,
+      "rules_undecided": 0
+    },
+    {
+      "kind": "historical_th",
+      "variant": "raw",
+      "mode": "hybrid",
+      "n": 20,
+      "hit@1": 0.2,
+      "hit@5": 0.6,
+      "mrr": 0.40644841269841264,
+      "router_miss": 0,
+      "rules_undecided": 0
+    },
+    {
+      "kind": "historical_th",
+      "variant": "raw",
+      "mode": "vector",
+      "n": 20,
+      "hit@1": 0.05,
+      "hit@5": 0.3,
+      "mrr": 0.12333333333333334,
+      "router_miss": 0,
+      "rules_undecided": 0
+    },
+    {
+      "kind": "historical_th",
+      "variant": "routed",
+      "mode": "bm25",
+      "n": 20,
+      "hit@1": 0.85,
+      "hit@5": 0.95,
+      "mrr": 0.8808333333333334,
+      "router_miss": 0,
+      "rules_undecided": 0
+    },
+    {
+      "kind": "historical_th",
+      "variant": "routed",
+      "mode": "hybrid",
+      "n": 20,
+      "hit@1": 0.9,
+      "hit@5": 0.95,
+      "mrr": 0.9175000000000001,
+      "router_miss": 0,
+      "rules_undecided": 0
+    },
+    {
+      "kind": "historical_th",
+      "variant": "routed",
+      "mode": "vector",
+      "n": 20,
+      "hit@1": 0.9,
+      "hit@5": 0.95,
+      "mrr": 0.925,
+      "router_miss": 0,
+      "rules_undecided": 0
+    },
+    {
       "kind": "match_th",
       "variant": "raw",
       "mode": "bm25",
       "n": 20,
-      "hit@1": 0.65,
-      "hit@5": 0.8,
-      "mrr": 0.7125,
+      "hit@1": 0.4,
+      "hit@5": 0.5,
+      "mrr": 0.4416666666666667,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -40,9 +107,9 @@
       "variant": "raw",
       "mode": "hybrid",
       "n": 20,
-      "hit@1": 0.1,
-      "hit@5": 0.75,
-      "mrr": 0.4114583333333333,
+      "hit@1": 0.0,
+      "hit@5": 0.4,
+      "mrr": 0.22083333333333335,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -53,7 +120,7 @@
       "n": 20,
       "hit@1": 0.0,
       "hit@5": 0.05,
-      "mrr": 0.01748663101604278,
+      "mrr": 0.014545454545454545,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -96,8 +163,8 @@
       "mode": "bm25",
       "n": 10,
       "hit@1": 0.0,
-      "hit@5": 0.6,
-      "mrr": 0.27,
+      "hit@5": 0.5,
+      "mrr": 0.225,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -107,8 +174,8 @@
       "mode": "hybrid",
       "n": 10,
       "hit@1": 0.0,
-      "hit@5": 0.5,
-      "mrr": 0.13102564102564102,
+      "hit@5": 0.4,
+      "mrr": 0.11083333333333334,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -141,7 +208,7 @@
       "n": 10,
       "hit@1": 0.0,
       "hit@5": 0.4,
-      "mrr": 0.15958333333333333,
+      "mrr": 0.1638888888888889,
       "router_miss": 1,
       "rules_undecided": 3
     },
@@ -161,9 +228,9 @@
       "variant": "raw",
       "mode": "bm25",
       "n": 39,
-      "hit@1": 0.15384615384615385,
-      "hit@5": 0.28205128205128205,
-      "mrr": 0.22134717134717136,
+      "hit@1": 0.1282051282051282,
+      "hit@5": 0.23076923076923078,
+      "mrr": 0.1673570019723866,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -174,7 +241,7 @@
       "n": 39,
       "hit@1": 0.38461538461538464,
       "hit@5": 0.7692307692307693,
-      "mrr": 0.554985754985755,
+      "mrr": 0.5417378917378917,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -195,8 +262,8 @@
       "mode": "bm25",
       "n": 39,
       "hit@1": 0.15384615384615385,
-      "hit@5": 0.358974358974359,
-      "mrr": 0.2351851851851852,
+      "hit@5": 0.3333333333333333,
+      "mrr": 0.22592592592592595,
       "router_miss": 0,
       "rules_undecided": 13
     },
@@ -207,7 +274,7 @@
       "n": 39,
       "hit@1": 0.3333333333333333,
       "hit@5": 0.7435897435897436,
-      "mrr": 0.5090455840455841,
+      "mrr": 0.506908831908832,
       "router_miss": 0,
       "rules_undecided": 13
     },
@@ -399,7 +466,7 @@
       "rewrite": 1,
       "router_filter": 3,
       "router_route": 1,
-      "vocabulary": 3
+      "vocabulary": 4
     },
     "undecided": {
       "multi_doc_partial": 1,
@@ -407,6 +474,32 @@
     }
   },
   "misses": [
+    {
+      "id": "th-hist-007",
+      "kind": "historical_th",
+      "label": "vocabulary",
+      "undecided": false,
+      "query_th": "ฤดูกาล 2003/04 ทีมไหนได้แชมป์แบบไม่แพ้ใคร",
+      "routed_query": "2003 ฤดูกาล 2003/04 ทีมไหนได้แชมป์แบบไม่แพ้ใคร",
+      "filters": {
+        "category": [
+          "trivia",
+          "historical"
+        ]
+      },
+      "routed_away": null,
+      "expected": [
+        "hist-season-2003",
+        "hist-team-2003-arsenal"
+      ],
+      "top5": [
+        "trivia-0386",
+        "hist-team-2002-arsenal",
+        "trivia-1212",
+        "hist-team-2002-chelsea",
+        "trivia-1452"
+      ]
+    },
     {
       "id": "th-multi_doc-001",
       "kind": "multi_doc",
@@ -457,7 +550,8 @@
       "routed_query": "คนนอกยุโรปคนแรกที่ได้รองเท้าทองคำพรีเมียร์ลีกคือใคร แล้วทีมแรกที่ได้แชมป์โดยไม่ได้มาจากแมนเชสเตอร์หรือลอนดอนคือทีมไหน",
       "filters": {
         "category": [
-          "trivia"
+          "trivia",
+          "historical"
         ]
       },
       "routed_away": null,
@@ -482,7 +576,8 @@
       "routed_query": "ใครคือคนที่ทำ 100 ลูกแรกในพรีเมียร์ลีก แล้วใครทำประตูเร็วที่สุดในลีก?",
       "filters": {
         "category": [
-          "trivia"
+          "trivia",
+          "historical"
         ]
       },
       "routed_away": null,
@@ -528,7 +623,8 @@
       "routed_query": "Liverpool Premier League title กองหน้าอังกฤษที่เคยจับคู่ฟาวเลอร์กับรัชที่หงส์แดงช่วงปี 95-97 คือใคร แล้วก่อนเปลี่ยนเป็นพรีเมียร์ลีก ดิวิชั่น 1 เดิมมีกี่ทีมที่เคยได้แชมป์",
       "filters": {
         "category": [
-          "trivia"
+          "trivia",
+          "historical"
         ]
       },
       "routed_away": null,
@@ -538,10 +634,10 @@
       ],
       "top5": [
         "trivia-0034",
-        "trivia-0304",
-        "trivia-0223",
-        "trivia-1193",
-        "trivia-0083"
+        "hist-team-1996-liverpool",
+        "trivia-0294",
+        "trivia-0989",
+        "trivia-0497"
       ]
     },
     {
@@ -553,7 +649,8 @@
       "routed_query": "FIFA World Cup ประเทศไหนเข้าร่วมบอลโลกหลายครั้งที่สุดแล้วก็ยังไม่เคยแชมป์?",
       "filters": {
         "category": [
-          "trivia"
+          "trivia",
+          "historical"
         ]
       },
       "routed_away": null,
@@ -621,10 +718,10 @@
       ],
       "top5": [
         "trivia-0870",
-        "trivia-1735",
+        "hist-team-1993-tottenham",
         "trivia-1019",
-        "match-2026-mw05-73-64",
-        "trivia-1109"
+        "trivia-1109",
+        "trivia-1447"
       ]
     },
     {
@@ -636,7 +733,8 @@
       "routed_query": "UEFA European Championship Euro Champions League Cup ทีมอิตาลีที่ชนะแชมป์ยุโรปในปี 69 คือทีมไหน?",
       "filters": {
         "category": [
-          "trivia"
+          "trivia",
+          "historical"
         ]
       },
       "routed_away": null,
@@ -742,7 +840,8 @@
       "routed_query": "นอกจากเปญาโรลกับนาซิอองนาล ทีมแรกที่ได้แชมป์ลีกอุรุกวัยคือทีมไหน",
       "filters": {
         "category": [
-          "trivia"
+          "trivia",
+          "historical"
         ]
       },
       "routed_away": null,

@@ -2,7 +2,7 @@ import asyncio
 import time
 
 from .condense import condense_enabled, needs_condense, rules_resolved, validate
-from .decisions import (MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
+from .decisions import (HISTORICAL, MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
                         historical_scorer_season, league_wide_scorer_query, normalize_thai,
                         prediction_kind)
 from .prediction_text import (NEEDS_TEAM_TEXT, TEAM_NOT_FOUND_TEXT, UNAVAILABLE_TEXT,
@@ -196,7 +196,10 @@ class Router:
                                "query_original": query, "top_k": 5, "filters": filters, "mode": "hybrid"}
                     english_task = None
                     english = None
-                    if multi_query_enabled() and needs_translation(routing_query):
+                    # Archive searches already carry an English season rewrite; a free translation
+                    # pulls look-alike team-season chunks over the answer (CONTRACT v1.11).
+                    if (multi_query_enabled() and needs_translation(routing_query)
+                            and filters.get("category") != [HISTORICAL]):
                         english_task = asyncio.create_task(english_query(routing_query))
                     for attempt in range(2):
                         try:
@@ -260,6 +263,10 @@ class Router:
                             return finish("ตอนนี้ระบบไม่ว่าง ลองใหม่อีกครั้งในอีกสักครู่", decision.route,
                                           decision.confidence, decision.reasoning)
                     trace["fallback"] = "retrieval_down" if retrieval_down else "retrieval_empty"
+                    if decision.filters.get("category") == [HISTORICAL]:
+                        # Archive statistics: a general answer would invent the numbers.
+                        return finish("ยังไม่มีข้อมูลสถิติย้อนหลังนี้ในระบบ", decision.route,
+                                      decision.confidence, decision.reasoning)
                     if decision.intent != "trivia_history":
                         latest = context.get("last_ingest_at")
                         suffix = f" ข้อมูลล่าสุด ณ {latest}" if latest else ""

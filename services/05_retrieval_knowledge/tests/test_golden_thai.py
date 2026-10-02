@@ -8,8 +8,9 @@ from pathlib import Path
 
 from app.kb.trivia import load_trivia_documents
 from app.schemas.search import SearchFiltersIn
-from scripts.build_golden_thai import OUT_OF_KB_TH, SIZES
+from scripts.build_golden_thai import HISTORICAL_TH, OUT_OF_KB_TH, SIZES
 from scripts.eval_retrieval import EVAL_DIR, load_live_documents
+from scripts.eval_thai import load_historical_documents
 
 GOLDEN = Path(__file__).parents[3] / "eval" / "golden_thai.jsonl"
 TRIVIA_FILE = Path(__file__).parents[1] / "data" / "football_trivia_qa.txt"
@@ -24,6 +25,7 @@ def test_ids_are_unique_and_kinds_are_sized() -> None:
     assert len({item["id"] for item in golden}) == len(golden)
     counts = Counter(item["kind"] for item in golden)
     assert counts["out_of_kb_th"] == len(OUT_OF_KB_TH)
+    assert counts["historical_th"] == len(HISTORICAL_TH)
     for kind, size in SIZES.items():
         assert size - 2 <= counts[kind] <= size, kind
 
@@ -31,6 +33,7 @@ def test_ids_are_unique_and_kinds_are_sized() -> None:
 def test_expected_documents_exist() -> None:
     known = {d.doc_id for d in load_trivia_documents(str(TRIVIA_FILE))[0]}
     known |= {d.doc_id for d in load_live_documents(EVAL_DIR)}
+    known |= {d.doc_id for d in load_historical_documents(EVAL_DIR)}
     for item in items():
         assert set(item["expected_doc_ids"]) <= known, item["id"]
 

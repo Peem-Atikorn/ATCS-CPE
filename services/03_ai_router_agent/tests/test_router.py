@@ -194,6 +194,25 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(searches[0][1]["filters"]["matchweek"], 4)
         self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
 
+    async def test_empty_archive_search_says_no_data_instead_of_guessing(self):
+        result = await self.run_query("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05")
+        self.assertEqual(result["route"], "football_rag")
+        self.assertEqual(result["answer"], "ยังไม่มีข้อมูลสถิติย้อนหลังนี้ในระบบ")
+        self.assertEqual(result["trace"]["fallback"], "retrieval_empty")
+        self.assertNotIn("general", [call[0] for call in self.clients.calls])
+        search = next(call for call in self.clients.calls if call[0] == "search")
+        self.assertEqual(search[1]["filters"], {"category": ["historical"], "season": "2004"})
+
+    async def test_archive_answer_is_grounded_on_archive_documents(self):
+        self.clients.chunks = [{"text": "Champions: Chelsea FC, 95 points.", "source": {
+            "ref": 1, "doc_id": "hist-season-2004", "title": "Premier League 2004/05 final table",
+            "category": "historical", "origin": "fjelstul", "season": "2004", "matchweek": None,
+            "team_ids": [61], "fetched_at": None, "url": "https://github.com/jfjelstul/englishfootball"}}]
+        result = await self.run_query("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05")
+        self.assertEqual(result["engines_used"], ["retrieval", "generation"])
+        self.assertEqual(result["sources"][0]["doc_id"], "hist-season-2004")
+        self.assertEqual(result["trace"]["intent"], "trivia_history")
+
     async def test_empty_trivia_falls_back_to_general(self):
         result = await self.run_query("ใครได้บัลลงดอร์ปี 2008")
         self.assertEqual(result["route"], "general_ai")
@@ -478,6 +497,14 @@ def match_chunk(chunk_id, team_ids=(57,)):
 class MultiQueryRouterTests(unittest.IsolatedAsyncioTestCase):
     QUERY = "เมื่อวานปืนใหญ่ชนะไหม"
     ENGLISH = "Did Arsenal win yesterday?"
+
+    async def test_archive_questions_keep_the_routers_english_search_only(self):
+        # The archive rewrite already names the season in English; a free translation pulled
+        # look-alike team-season chunks over the champions line (live probe 2004/05).
+        self.clients.english = "Premier League champion 2004/05"
+        await self.ask("ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05")
+        self.assertNotIn("translate", self.names())
+        self.assertEqual(len(self.searches()), 1)
 
     def setUp(self):
         patcher = patch.dict("os.environ", {"ROUTER_MULTI_QUERY_ENABLED": "true",

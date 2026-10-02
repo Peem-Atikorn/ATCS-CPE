@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import gzip
 import json
 import tempfile
 from collections import Counter
@@ -28,6 +29,7 @@ from pydantic import ValidationError
 from app.core.clock import bangkok_now, version_stamp
 from app.core.config import get_settings
 from app.core.logging import configure_logging
+from app.kb.documents import Document
 from app.kb.store import KnowledgeStore
 from app.kb.trivia import load_trivia_documents
 from app.schemas.search import SearchFiltersIn
@@ -47,6 +49,7 @@ from scripts.eval_retrieval import (
 )
 
 GOLDEN_FILE = EVAL_DIR / "golden_thai.jsonl"
+HISTORICAL_FIXTURE = "historical_docs.json.gz"
 TOP = 5  # generation reads the first five chunks
 RETRY_DROPS = ("matchweek", "date_from", "date_to")
 
@@ -54,7 +57,7 @@ RETRY_DROPS = ("matchweek", "date_from", "date_to")
 @dataclass(frozen=True, slots=True)
 class ThaiQuery:
     id: str
-    kind: str  # trivia_th | match_th | multi_doc | out_of_kb_th
+    kind: str  # trivia_th | match_th | multi_doc | out_of_kb_th | historical_th
     variant: str  # raw | routed | raw_filtered
     query: str
     query_original: str | None
@@ -74,6 +77,15 @@ class ThaiOutcome:
     returned: int  # documents returned
     found: int  # expected documents in the first TOP
     top: tuple[str, ...]  # first TOP documents
+
+
+def load_historical_documents(eval_dir: Path) -> list[Document]:
+    """07's Premier League archive (CONTRACT v1.11), exported once and stored compressed."""
+    raw = gzip.decompress((eval_dir / "fixtures" / HISTORICAL_FIXTURE).read_bytes())
+    return [
+        Document(**{**d, "team_ids": tuple(d["team_ids"])})
+        for d in json.loads(raw.decode("utf-8"))["documents"]
+    ]
 
 
 def load_thai_queries(path: Path = GOLDEN_FILE) -> list[ThaiQuery]:
@@ -297,7 +309,12 @@ async def _run(args: argparse.Namespace, store: KnowledgeStore) -> dict[str, Any
     settings = get_settings()
     embedder = SentenceTransformerEmbedder(settings.embedding_model)
     trivia, _ = load_trivia_documents(settings.trivia_file)
-    index = await prepare_index(store, embedder, [*trivia, *load_live_documents(args.eval_dir)])
+    documents = [
+        *trivia,
+        *load_live_documents(args.eval_dir),
+        *load_historical_documents(args.eval_dir),
+    ]
+    index = await prepare_index(store, embedder, documents)
     snapshot = index.snapshot
     assert snapshot is not None
     searcher = Searcher(
