@@ -155,8 +155,9 @@ def chat_kind(text: str, team_count: int) -> str | None:
         return "favorite"
     if team_count:
         return None
-    for kind, pattern in (("creator", _CREATOR), ("identity", _IDENTITY), ("capability", _CAPABILITY),
-                          ("source", _SOURCE)):
+    # "แหล่งข้อมูลของคุณคืออะไร" also fits identity ("คุณคืออะไร"): the specific kinds go first.
+    for kind, pattern in (("creator", _CREATOR), ("source", _SOURCE), ("identity", _IDENTITY),
+                          ("capability", _CAPABILITY)):
         if pattern.search(text):
             return kind
     for kind, pattern in (("greeting", _GREETING), ("thanks", _THANKS), ("farewell", _FAREWELL)):
