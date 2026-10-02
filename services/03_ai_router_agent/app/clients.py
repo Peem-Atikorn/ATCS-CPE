@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import httpx
 
+from .chat import chat_timeout
 from .router import UpstreamError
 from .teams import TeamDirectory
 
@@ -16,6 +17,8 @@ LLM_PROVIDERS = [
 ]
 # Two providers must both fit inside the router's 4s condense budget (router.CONDENSE_TIMEOUT).
 CONDENSE_PROVIDER_TIMEOUT = 2
+# A chat reply is worded with a little variety; the router caps the whole step (chat.STEP_TIMEOUT).
+CHAT_TEMPERATURE = 0.4
 # Rewriting one sentence does not need the classification model; unset falls back to GROQ_MODEL/GEMINI_MODEL.
 CONDENSE_MODEL_ENVS = ("GROQ_CONDENSE_MODEL", "GEMINI_CONDENSE_MODEL")
 CONDENSE_HISTORY_MESSAGES = 6
@@ -134,7 +137,8 @@ class ServiceClients:
         return await self._post(self.generation_url, "/generate", payload, request_id, 25, "generation")
 
     async def _chat_json(self, system: str, user: str, request_id: str, timeout: float | None = None,
-                         required: str | None = None, model_envs: tuple[str, ...] | None = None) -> dict:
+                         required: str | None = None, model_envs: tuple[str, ...] | None = None,
+                         temperature: float = 0) -> dict:
         """Ask each provider in turn; a reply without a string `required` field counts as a failure."""
         from openai import AsyncOpenAI
 
@@ -152,7 +156,7 @@ class ServiceClients:
                                      timeout=timeout, max_retries=0)
                 async with asyncio.timeout(timeout):
                     response = await client.chat.completions.create(
-                        model=model, temperature=0,
+                        model=model, temperature=temperature,
                         messages=[{"role": "system", "content": system},
                                   {"role": "user", "content": user}],
                         response_format={"type": "json_object"},
@@ -175,11 +179,14 @@ class ServiceClients:
     async def llm_decide(self, query: str, request_id: str):
         system = ("Classify the user's Premier League football question. Return a JSON object with "
                   "intent (one of trivia_history, match_result, fixture_schedule, standings_stats, "
-                  "weekly_summary, player_info, general_football, prediction, out_of_scope, clarify), "
+                  "weekly_summary, player_info, general_football, prediction, chitchat, out_of_scope, clarify), "
                   "confidence (0 to 1), and rewritten_query (an English search query when factual). "
                   "standings_stats covers league tables and current-season top scorer or most-goals rankings. "
                   "player_info covers squads and named-player profiles or individual statistics, not league-wide rankings. "
                   "trivia_history covers past seasons, historical records, and all-time rankings. "
+                  "chitchat covers greetings, thanks, small talk, and questions about the assistant itself "
+                  "(its name, abilities, data sources, preferences). "
+                  "Football questions, even vague ones, are never chitchat. "
                   "Do not answer the question. Gambling and non-football requests are out_of_scope. "
                   "Ambiguous team or match references are clarify."
                   )
@@ -199,3 +206,7 @@ class ServiceClients:
         return await self._chat_json(TRANSLATE_SYSTEM, text, request_id,
                                      timeout=CONDENSE_PROVIDER_TIMEOUT, required="query",
                                      model_envs=CONDENSE_MODEL_ENVS)
+
+    async def chat(self, system: str, user: str, request_id: str):
+        return await self._chat_json(system, user, request_id, timeout=chat_timeout(), required="reply",
+                                     model_envs=CONDENSE_MODEL_ENVS, temperature=CHAT_TEMPERATURE)

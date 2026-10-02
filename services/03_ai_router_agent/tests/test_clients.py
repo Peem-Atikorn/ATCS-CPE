@@ -259,3 +259,33 @@ class TranslateClientTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict("os.environ", GROQ_ONLY), patch("openai.AsyncOpenAI", fake_openai('{"q": "x"}', {})):
             with self.assertRaises(UpstreamError):
                 await ServiceClients(None).translate("ใครยิง", "req")
+
+
+class ChatClientTests(unittest.IsolatedAsyncioTestCase):
+    async def test_chat_asks_for_a_reply_with_a_little_temperature_and_the_small_model(self):
+        seen = {}
+        env = {**GROQ_ONLY, "GROQ_MODEL": "big-model", "GROQ_CONDENSE_MODEL": "small-model"}
+        with patch.dict("os.environ", env), \
+             patch("openai.AsyncOpenAI", fake_openai('{"reply": "สวัสดีครับ"}', seen)):
+            result = await ServiceClients(None).chat("system text", "user text", "req")
+        self.assertEqual(result["reply"], "สวัสดีครับ")
+        self.assertEqual(result["token_usage"], {"input": 11, "output": 4})
+        self.assertEqual(seen["model"], "small-model")
+        self.assertEqual(seen["temperature"], 0.4)
+        self.assertEqual(seen["messages"][0]["content"], "system text")
+        self.assertEqual(seen["messages"][1]["content"], "user text")
+
+    async def test_chat_reply_without_a_reply_field_is_an_upstream_error(self):
+        with patch.dict("os.environ", GROQ_ONLY), patch("openai.AsyncOpenAI", fake_openai('{"answer": "x"}', {})):
+            with self.assertRaises(UpstreamError):
+                await ServiceClients(None).chat("s", "u", "req")
+
+    async def test_classifier_prompt_offers_chitchat_and_keeps_football_out_of_it(self):
+        seen = {}
+        reply = '{"intent": "chitchat", "confidence": 0.9}'
+        with patch.dict("os.environ", GROQ_ONLY), patch("openai.AsyncOpenAI", fake_openai(reply, seen)):
+            await ServiceClients(None).llm_decide("วันนี้เหนื่อยจัง", "req")
+        system = seen["messages"][0]["content"]
+        self.assertIn("chitchat", system)
+        self.assertIn("Football questions, even vague ones, are never chitchat", system)
+        self.assertEqual(seen["temperature"], 0)
