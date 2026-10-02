@@ -114,6 +114,38 @@ it("does not delete a document after confirmation is cancelled", async () => {
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
+it("offers the historical archive category for reindexing", async () => {
+  const fetcher = vi.fn(async (input: RequestInfo | URL) =>
+    String(input).endsWith("/reindex")
+      ? new Response(JSON.stringify({ job_id: "historical-job" }), {
+          status: 202,
+        })
+      : new Response(
+          JSON.stringify({
+            documents: 1,
+            chunks: 1,
+            by_category: { historical: 1 },
+            index_version: "archive",
+          }),
+        ),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  render(<KnowledgeBase />);
+  await screen.findByText("Index version: archive");
+  const select = screen.getByRole("combobox", { name: "ประเภท" });
+  await userEvent.selectOptions(select, "historical");
+  await userEvent.click(
+    screen.getByRole("button", { name: "เริ่มสร้างดัชนี" }),
+  );
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/admin/kb/reindex",
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ category: "historical" }),
+    }),
+  );
+});
+
 it("shows player and posts only the selected category to the existing reindex API", async () => {
   const fetcher = vi.fn(async (input: RequestInfo | URL) =>
     String(input).endsWith("/reindex")

@@ -10,7 +10,9 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 from app.search.hybrid import Mode
 from app.search.snapshot import SearchFilters
 
-Category = Literal["trivia", "match_report", "standings", "fixtures", "weekly_report", "player"]
+Category = Literal[
+    "trivia", "match_report", "standings", "fixtures", "weekly_report", "player", "historical"
+]
 
 
 def _reject_nul(value: str) -> str:

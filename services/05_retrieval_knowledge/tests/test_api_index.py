@@ -399,3 +399,65 @@ async def test_player_document_can_be_replaced_and_deleted(client: httpx.AsyncCl
     replaced = await upsert(client, smaller)
     assert replaced.json()["chunks"] == 2  # preamble + Martin only: no stale Saka chunk
     assert (await client.delete("/index/players-2026-team-57")).json() == {"deleted": True}
+
+
+HISTORICAL_DOC: dict[str, Any] = {
+    "doc_id": "hist-team-2015-leicester-city",
+    "title": "Leicester City FC — Premier League 2015/16",
+    "text": (
+        "Final position: 1. P38 W23 D12 L3 GF68 GA36 GD+32 Pts81.\n"
+        "## Sources and license\nSources: openfootball/england (CC0 1.0)."
+    ),
+    "category": "historical",
+    "origin": "openfootball",
+    "topic": "team_season",
+    "season": "2015",
+    "matchweek": None,
+    "team_ids": [],
+    "date": None,
+    "fetched_at": None,
+    "url": "https://github.com/openfootball/england",
+}
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {},
+        {"doc_id": "hist-season-2004", "topic": "season_table", "origin": "fjelstul"},
+        {
+            "doc_id": "hist-h2h-manchester-united-nottm-forest",
+            "topic": "head_to_head",
+            "season": None,
+        },
+    ],
+)
+async def test_historical_documents_are_accepted_and_filterable(
+    client: httpx.AsyncClient, changes: dict[str, Any]
+) -> None:
+    document = {**HISTORICAL_DOC, **changes}
+    response = await upsert(client, document)
+    assert response.status_code == 200, response.text
+    assert (await client.get("/index/stats")).json()["by_category"]["historical"] == 1
+    found = await client.post(
+        "/search",
+        json={"query": "Leicester 2015/16 points", "filters": {"category": ["historical"]}},
+    )
+    assert {c["source"]["doc_id"] for c in found.json()["chunks"]} == {document["doc_id"]}
+
+
+@pytest.mark.parametrize(
+    "doc_id",
+    [
+        "hist-season-04",
+        "hist-team-2004-Arsenal",
+        "hist-team-2004",
+        "hist-h2h-arsenal_chelsea",
+        "trivia-0001",
+    ],
+)
+async def test_historical_doc_ids_keep_their_locked_format(
+    client: httpx.AsyncClient, doc_id: str
+) -> None:
+    response = await upsert(client, {**HISTORICAL_DOC, "doc_id": doc_id})
+    assert response.status_code == 422

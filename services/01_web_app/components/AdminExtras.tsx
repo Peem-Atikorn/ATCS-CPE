@@ -278,6 +278,7 @@ export function KnowledgeBase() {
                 "fixtures",
                 "weekly_report",
                 "player",
+                "historical",
               ].map((value) => (
                 <option key={value}>{value}</option>
               ))}
