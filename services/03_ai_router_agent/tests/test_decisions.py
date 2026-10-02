@@ -1,13 +1,15 @@
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from app.decisions import (classify_intent, decide, from_intent, historical_scorer_season,
+from app.decisions import (INTENT_MAP, classify_intent, decide, from_intent, historical_scorer_season,
                            history_filters, prediction_kind)
 from app.teams import TeamDirectory
 
 
 CASES = Path(__file__).with_name("routing_cases.jsonl")
+CHAT_CASES = Path(__file__).with_name("chat_cases.jsonl")
 TEAMS = TeamDirectory.from_file(Path(__file__).parents[1] / "data" / "team_aliases.json")
 CONTEXT = {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00+07:00"}
 
@@ -504,3 +506,43 @@ class HistoricalDecisionTests(unittest.TestCase):
         for query, name in cases:
             with self.subTest(query=query):
                 self.assertIn(name, decide(query, CONTEXT, [], TEAMS).rewritten_query)
+
+
+class ChatDecisionTests(unittest.TestCase):
+    def test_chat_cases(self):
+        cases = [json.loads(line) for line in CHAT_CASES.read_text(encoding="utf-8").splitlines() if line]
+        self.assertGreaterEqual(len(cases), 40)
+        for case in cases:
+            with self.subTest(query=case["query"]):
+                result = decide(case["query"], CONTEXT, [], TEAMS)
+                if case["kind"]:
+                    self.assertIsNotNone(result)
+                    self.assertEqual((result.route, result.intent, result.layer, result.kind),
+                                     ("chat", "chitchat", "rules", case["kind"]))
+                    self.assertEqual(result.reasoning, f"คุยทั่วไป: {case['kind']}")
+                    self.assertEqual(result.filters, {})
+                else:
+                    self.assertTrue(result is None or result.route != "chat")
+
+    def test_gambling_and_off_topic_stay_declined(self):
+        for query in ("คุณช่วยเรื่องพนันได้ไหม", "แนะนำทีเด็ดหน่อยคุณ", "อากาศวันนี้ร้อนไหม"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).route, "decline")
+
+    def test_mixed_questions_keep_their_football_route(self):
+        self.assertEqual(decide("สวัสดี ลิเวอร์พูลชนะไหม", CONTEXT, [], TEAMS).route, "football_rag")
+        self.assertEqual(decide("ขอบคุณครับ ผลนัดล่าสุดล่ะ", CONTEXT, [], TEAMS).route, "football_rag")
+
+    def test_chitchat_label_maps_to_chat_and_the_switch_restores_decline(self):
+        self.assertEqual(INTENT_MAP["chitchat"], ("chat", None))
+        self.assertEqual(classify_intent("chitchat", 0.9).route, "chat")
+        self.assertEqual(classify_intent("chitchat", 0.9).filters, {})
+        self.assertEqual(from_intent("chitchat", 0.6).route, "chat")
+        with patch.dict("os.environ", {"ROUTER_CHAT_ENABLED": "false"}):
+            self.assertIsNone(decide("สวัสดีครับ", CONTEXT, [], TEAMS))
+            self.assertEqual(classify_intent("chitchat", 0.9).route, "decline")
+            self.assertEqual(from_intent("chitchat", 0.6).intent, "out_of_scope")
+
+    def test_misspelled_football_words_do_not_make_chat(self):
+        result = decide("ผีเเดงเคยได้แชมร์กี่ปี", CONTEXT, [], TEAMS)
+        self.assertNotEqual(result.route, "chat")

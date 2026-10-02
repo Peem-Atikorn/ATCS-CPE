@@ -1,6 +1,8 @@
 import asyncio
 import time
 
+from .chat import STEP_TIMEOUT as CHAT_STEP_TIMEOUT
+from .chat import favorite_name, system_prompt, template, user_message, validate_reply
 from .condense import condense_enabled, needs_condense, rules_resolved, validate
 from .decisions import (HISTORICAL, MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
                         historical_scorer_season, league_wide_scorer_query, normalize_thai,
@@ -37,7 +39,7 @@ class Router:
         context = request.get("context", {})
         trace = {"decided_at_layer": "guard", "intent": None, "rewritten_query": None,
                  "standalone_query": None, "condense": None,
-                 "search_query_en": None, "multi_query": None,
+                 "search_query_en": None, "multi_query": None, "chat": None,
                  "filters": {}, "fallback": None, "steps": []}
         engines = []
         usage = {"input": 0, "output": 0}
@@ -76,8 +78,9 @@ class Router:
             async with asyncio.timeout(40):
                 routing_query = query
                 original = decide(query, context, history, self.teams, user.get("favorite_team_id"))
-                # Declines and clarifying guards stand as asked; a rewrite must never talk past them.
-                guarded = original is not None and (original.route == "decline" or original.layer == "guard")
+                # Declines, chat replies and clarifying guards stand as asked; a rewrite must never talk past them.
+                guarded = original is not None and (
+                    original.route in ("decline", "chat") or original.layer == "guard")
                 # Spend the LLM budget only when the rules have not already found the intent and its team.
                 if (not guarded and not rules_resolved(original) and condense_enabled()
                         and needs_condense(query, history, self.teams, context.get("season"))):
@@ -187,6 +190,27 @@ class Router:
                               if user.get("language", "th") == "th" else
                               "I can help with Premier League football questions, but not this request.")
                     return finish(answer, decision.route, decision.confidence, decision.reasoning)
+
+                if decision.route == "chat":
+                    kind = decision.kind or "other"
+                    language = user.get("language", "th")
+                    favorite = favorite_name(self.teams, user.get("favorite_team_id"))
+                    answer = None
+                    if kind != "internals":  # instructions are never put in front of the LLM again
+                        chat_at = time.monotonic()
+                        try:
+                            raw = await asyncio.wait_for(
+                                self.clients.chat(system_prompt(language, favorite),
+                                                  user_message(history, query, kind), request_id),
+                                timeout=CHAT_STEP_TIMEOUT)
+                            add_usage(raw)
+                            answer = validate_reply(raw.get("reply"), query, language, self.teams, favorite, kind)
+                            trace["chat"] = "applied" if answer else "rejected"
+                        except (UpstreamError, ValueError, TypeError, asyncio.TimeoutError):
+                            trace["chat"] = "unavailable"
+                        step("router.chat", chat_at)
+                    return finish(answer or template(kind, language), "chat", decision.confidence,
+                                  decision.reasoning)
 
                 if decision.route == "football_rag":
                     chunks = []

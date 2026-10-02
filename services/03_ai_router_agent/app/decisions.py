@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
+from .chat import chat_enabled, chat_kind
 from .teams import TeamDirectory
 
 
@@ -15,6 +16,7 @@ INTENT_MAP = {
     "prediction": ("local_ai", None),
     "out_of_scope": ("decline", None),
     "player_info": ("football_rag", "player"),
+    "chitchat": ("chat", None),
 }
 
 # CONTRACT v1.5: the 04 classifier does not know player_info, so these rules are its main entry.
@@ -145,6 +147,7 @@ class Decision:
     filters: dict = field(default_factory=dict)
     rewritten_query: str | None = None
     team_ids: list[int] = field(default_factory=list)
+    kind: str | None = None  # route `chat` only: the kind of chit-chat (also in `reasoning`)
 
 
 def _category_filter(intent: str) -> dict:
@@ -155,6 +158,8 @@ def _category_filter(intent: str) -> dict:
 
 
 def classify_intent(label: str, score: float) -> Decision | None:
+    if label == "chitchat" and not chat_enabled():
+        label = "out_of_scope"
     if label not in INTENT_MAP or score < 0.75:
         return None
     return Decision(INTENT_MAP[label][0], label, "classifier", score, f"classifier: {label}",
@@ -474,6 +479,10 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
     if len(found) > 2:
         return Decision("clarify", None, "guard", 1.0, "พบหลายทีมในคำถาม")
     intent = _intent(query, context.get("season"))
+    if intent is None and chat_enabled():
+        kind = chat_kind(normalize_thai(text), len(found))
+        if kind:
+            return Decision("chat", "chitchat", "rules", 0.9, f"คุยทั่วไป: {kind}", kind=kind)
     if intent is None and history and re.search(r"(แล้ว|นัดก่อน|นัดนั้น)", text):
         for item in reversed(history[-10:]):
             if item.get("role") == "user":
