@@ -24,12 +24,16 @@ it("treats an unpublished/missing report as an empty state", async () => {
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 it("treats a season without standings as an empty state", async () => {
+  // The standings page also asks for finished fixtures (team form) once the season is known: answer
+  // that one like the real API does, or its error box races with the assertion below.
   vi.stubGlobal(
     "fetch",
     vi.fn(async (path: string) =>
       path === "/api/football/status"
         ? json({ current_season: "2026", current_matchweek: 6, quota: {} })
-        : json({ code: "NOT_FOUND", detail: "missing" }, 404),
+        : path.startsWith("/api/football/fixtures")
+          ? json({ matches: [] })
+          : json({ code: "NOT_FOUND", detail: "missing" }, 404),
     ),
   );
   render(<FootballPage params={{ view: "standings" }} />);
