@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.11
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.12
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -84,6 +84,7 @@
   "condense": "applied",                       // v1.8 · null | "applied" | "unchanged" | "rejected" | "unavailable" · ไม่นับเป็น fallback
   "search_query_en": "Did Arsenal win yesterday?",   // v1.9 · null ถ้าไม่ได้ค้นด้วยคำค้นอังกฤษ
   "multi_query": "applied",                    // v1.9 · null | "applied" | "rejected" | "unavailable" · ไม่นับเป็น fallback
+  "chat": null,                                // v1.12 · null | "applied" | "rejected" | "unavailable" · ไม่นับเป็น fallback · มีค่าเฉพาะ route `chat`
   "filters": { "category": ["match_report"], "team_ids": [57] },
   "fallback": null,                            // null หรือค่าหนึ่งในตาราง "ค่าของ trace.fallback" ด้านล่าง (v1.10)
   "steps": [
@@ -99,13 +100,13 @@
 
 **enum ที่ล็อกแล้ว**
 
-- `route`: `football_rag` | `general_ai` | `local_ai` | `clarify` | `decline`
+- `route`: `football_rag` | `general_ai` | `local_ai` | `clarify` | `decline` | `chat` (v1.12)
 - `category` (ของเอกสาร): `trivia` | `match_report` | `standings` | `fixtures` | `weekly_report` | `player` | `historical` (v1.11)
 - `origin`: `kb` | `football-data.org` | `api-football` | `generated` (เอกสารที่ LLM เขียน เช่น weekly report) | `openfootball` | `fjelstul` (v1.11 คลังย้อนหลังของ 07)
 - `topic` ของ `historical` (v1.11): `season_table` | `team_season` | `head_to_head`
 
 **ป้ายภาษาไทยบนหน้าเว็บ** (ห้ามโชว์ enum ดิบ):
-`football_rag` → "ตอบจากคลังข้อมูลฟุตบอล" · `general_ai` → "ความรู้ทั่วไป" · `local_ai` → "โมเดลทำนาย" · `clarify` → "ขอข้อมูลเพิ่ม" · `decline` → "นอกขอบเขต"
+`football_rag` → "ตอบจากคลังข้อมูลฟุตบอล" · `general_ai` → "ความรู้ทั่วไป" · `local_ai` → "โมเดลทำนาย" · `clarify` → "ขอข้อมูลเพิ่ม" · `decline` → "นอกขอบเขต" · `chat` → "คุยกับผู้ช่วย" (v1.12)
 
 **ค่าของ `trace.fallback`** (v1.10 รวบรวมค่าที่ router ใช้อยู่จริง · ค่าเดียวต่อคำตอบ · หน้า admin นับเป็น `fallback_count`)
 
@@ -125,7 +126,7 @@
 | `historical_scorer_invalid` | ข้อมูลดาวซัลโวย้อนหลังที่ได้ไม่ตรงฤดูกาลที่ถาม |
 | `router_timeout` | เกินงบ 40s ของ router (ต่างจาก error `ROUTER_TIMEOUT` ที่ api ตอบเมื่อ router เกิน 45s) |
 
-`trace.condense` (v1.8) และ `trace.multi_query` (v1.9) เป็นสถานะของขั้นช่วยค้นหา ไม่ใช่ fallback และไม่นับใน `fallback_count`
+`trace.condense` (v1.8), `trace.multi_query` (v1.9) และ `trace.chat` (v1.12) เป็นสถานะของขั้นช่วย ไม่ใช่ fallback และไม่นับใน `fallback_count`
 
 ---
 
@@ -303,6 +304,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 - ถ้าตัวสำรองล่มหมด ให้ตอบ 200 พร้อม `answer` = "ตอนนี้ระบบไม่ว่าง ลองใหม่อีกครั้งในอีกสักครู่" และ `trace.fallback` ระบุสาเหตุ
 - (v1.8) เมื่อมี `history` และคำถามดูเป็นคำถามต่อเนื่อง router อาจเรียก LLM เพื่อเขียนคำถามใหม่ให้สมบูรณ์ในตัว (`trace.standalone_query`) · ใช้เลือก route และค้นหาเท่านั้น · `POST /generate` และ `POST /general` ได้ `query` เดิมของผู้ใช้เสมอ · ผลที่เพิ่มทีม ตัวเลข หรือช่วงเวลาซึ่งไม่อยู่ในคำถาม/history หรือตัดทีมที่ผู้ใช้ถามทิ้ง ถูกทิ้ง · คำถามที่ guard ตัดสินเป็น decline/clarify หรือที่ rules ได้ intent ผูกทีมพร้อมทีมแล้ว ไม่ถูก condense · ขั้น condense ใช้เวลารวม ≤ 4s (provider ละ ≤ 2s) นับรวมในงบ 40s · ใช้โมเดลเล็กจาก env `GROQ_CONDENSE_MODEL` / `GEMINI_CONDENSE_MODEL` (ว่าง = ใช้ `GROQ_MODEL` / `GEMINI_MODEL`) · rewrite ต้องเป็นภาษาเดียวกับคำถาม · ปิดได้ด้วย env `ROUTER_CONDENSE_ENABLED=false`
 - (v1.9) เส้น `football_rag` ที่คำถามมีภาษาไทย router อาจให้ LLM (โมเดล condense) เขียนคำค้นภาษาอังกฤษแล้วเรียก `POST /search` ครั้งที่สองด้วย payload เดิมที่เปลี่ยนแค่ `query` · รวมผลสองชุดด้วย RRF (k = 60) ตาม `chunk_id` แล้วส่ง 5 อันดับแรกให้ `/generate` ซึ่งได้ `query` เดิมของผู้ใช้เสมอ · คำค้นที่ทีมไม่ตรงกับคำถาม (เพิ่มหรือตัดทีม) หรือมีตัวเลขซึ่งไม่อยู่ในคำถามถูกทิ้ง · LLM ล่ม/ช้า (≤ 4s รวมในงบ 40s) → ใช้ผลค้นครั้งแรก · ปิดได้ด้วย env `ROUTER_MULTI_QUERY_ENABLED=false` · §4 ไม่เปลี่ยน
+- (v1.12) ข้อความทักทาย ขอบคุณ ลา และคำถามเรื่องตัวผู้ช่วยเอง (ชื่อ ความสามารถ แหล่งข้อมูล ทีมโปรด ผู้สร้าง) ไป route `chat`: router ให้ LLM (โมเดลเล็ก) เรียบเรียงคำตอบจากแผ่นข้อมูลของระบบ แล้วตรวจก่อนส่ง · ไม่ผ่านการตรวจหรือ LLM ล่ม → ข้อความสำเร็จรูป · route `chat` ไม่เรียก 05/06 จึง `sources: []` และ `engines_used: []` · ข้อความที่มีเนื้อหาฟุตบอลปนยังไปเส้นฟุตบอลตามเดิม · guard (พนัน นอกขอบเขต) มาก่อนเสมอ
 
 ## 3. router → engines
 
@@ -372,9 +374,10 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
 | `general_football` | `general_ai` | – | อธิบายกฎล้ำหน้า |
 | `prediction` | `local_ai` | – | ลิเวอร์พูลกับซิตี้ใครน่าจะชนะ |
 | `out_of_scope` | `decline` | – | เรื่องที่ไม่เกี่ยวกับฟุตบอล · ขอทีเด็ด/ราคาพนัน · คำขอที่ทำร้ายผู้อื่น |
+| `chitchat` | `chat` | – | (v1.12) ทักทาย ขอบคุณ ลา ถามชื่อ/ความสามารถ/แหล่งข้อมูล/ทีมโปรด/ผู้สร้างของผู้ช่วย · ตอบจากแผ่นข้อมูลของระบบ |
 
 - ใช้ตารางนี้เมื่อ `score ≥ 0.75` เท่านั้น ต่ำกว่านั้นให้ตกไปชั้น LLM
-- ชั้น LLM ตอบ intent ได้แค่ 9 ค่านี้ หรือ `clarify` (เมื่อชื่อทีม/ช่วงเวลากำกวมจนเลือกไม่ได้)
+- ชั้น LLM ตอบ intent ได้แค่ 10 ค่านี้ (v1.12 เพิ่ม `chitchat`) หรือ `clarify` (เมื่อชื่อทีม/ช่วงเวลากำกวมจนเลือกไม่ได้)
 - **ช่วงเวลาในคำถาม** ("เมื่อวาน", "สัปดาห์นี้", "นัดที่แล้ว") router แปลงเป็น `matchweek` หรือ `date_from/date_to` จาก `context` ก่อนเรียก 05
 
 ### ลำดับถอยของเส้น `football_rag` (ห้ามจบด้วย "ไม่มีข้อมูล" เฉย ๆ)
@@ -640,6 +643,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 - ลำดับ: หลัก → error / 429 / timeout → สำรอง 1 ครั้ง → ล่มทั้งคู่ส่ง error `LLM_UNAVAILABLE` (503) ให้ผู้เรียก
 - ทุก response ที่มาจาก LLM ต้องบอก `model` ที่ใช้จริง และ `token_usage`
 - โมเดลเล็กสำหรับงานเขียนคำค้นของ router (condense v1.8, คำค้นอังกฤษ v1.9): env `GROQ_CONDENSE_MODEL` / `GEMINI_CONDENSE_MODEL` (ว่าง = ใช้ `GROQ_MODEL` / `GEMINI_MODEL`) · timeout provider ละ 2s · คำขอที่ไม่มี field ที่ต้องการถือว่าล้มและลอง provider ถัดไป
+- (v1.12) `ROUTER_CHAT_ENABLED` (ค่าเริ่มต้น `true`; `false` = ปิด route `chat` กลับเป็นพฤติกรรมเดิม) · `ROUTER_CHAT_TIMEOUT` (วินาทีต่อ provider ค่าเริ่มต้น 6) · ใช้โมเดลเล็กเดียวกับ condense
 - env ของ API ฟุตบอล (07 เท่านั้น): `FOOTBALL_DATA_API_KEY`, `API_FOOTBALL_KEY`, `API_FOOTBALL_DAILY_LIMIT=90`
 - `HISTORICAL_INDEX_ENABLED` (07, ค่าเริ่มต้น `false`, v1.11): อนุญาตให้ `ingest_history.py --index` ส่งคลังย้อนหลังเข้า 05
 
@@ -660,4 +664,5 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.8 | 1 ต.ค. 2026 (มีผลแล้ว · PR #38) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `standalone_query` และ `condense` · §2 router อาจ condense คำถามต่อเนื่องด้วย LLM ก่อนเลือก route/ค้นหา โดย generation ได้ query เดิม · env ใหม่ `ROUTER_CONDENSE_ENABLED`, `GROQ_CONDENSE_MODEL`, `GEMINI_CONDENSE_MODEL` · `fallback` ไม่มีค่าใหม่ · api (02) ส่งต่อได้เลยเพราะ `Trace` เป็น `extra="allow"` |
 | v1.9 | 1 ต.ค. 2026 (มีผลแล้ว · PR #42) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — Trace เพิ่ม `search_query_en` และ `multi_query` · §2 router ค้นคำถามไทยซ้ำด้วยคำค้นอังกฤษจาก LLM แล้วรวมผลด้วย RRF · env ใหม่ `ROUTER_MULTI_QUERY_ENABLED` · `fallback` ไม่มีค่าใหม่ · §4 `/search` ไม่เปลี่ยน |
 | v1.10 | 1 ต.ค. 2026 | **เอกสารเท่านั้น ไม่เปลี่ยนพฤติกรรม** — Trace รวบรวมค่า `fallback` ที่ router ใช้อยู่จริงทั้งหมด (เพิ่ม `classifier_down`, `llm_unavailable`, `general_down`, `generation_down`, `historical_scorer_unavailable`, `historical_scorer_invalid`, `router_timeout` พร้อมความหมาย) · §8 ระบุ env โมเดลเล็กของ router · สถานะ v1.4–v1.9 เป็นมีผลแล้ว · หัวไฟล์เป็น v1.10 |
-| v1.11 | 1 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR ของ 05 และ 03 merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `historical` + `origin` `openfootball`/`fjelstul` + `topic` ของคลังย้อนหลัง · §6 รูปแบบ doc_id `hist-*` · §3 `trivia_history` ค้น `["trivia", "historical"]` และค้น `["historical"]` + `season` เมื่อถามฤดูกาลในอดีตหรือสถิติพบกัน · ค้นคลังย้อนหลังไม่เจอห้ามถอยไป `general_ai` · env `HISTORICAL_INDEX_ENABLED` |
+| v1.11 | 1 ต.ค. 2026 (มีผลแล้ว · PR #45, #47) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `category` ใหม่ `historical` + `origin` `openfootball`/`fjelstul` + `topic` ของคลังย้อนหลัง · §6 รูปแบบ doc_id `hist-*` · §3 `trivia_history` ค้น `["trivia", "historical"]` และค้น `["historical"]` + `season` เมื่อถามฤดูกาลในอดีตหรือสถิติพบกัน · ค้นคลังย้อนหลังไม่เจอห้ามถอยไป `general_ai` · env `HISTORICAL_INDEX_ENABLED` |
+| v1.12 | 2 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR ของ 03 merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `route` ใหม่ `chat` + intent `chitchat` · Trace เพิ่ม `chat` · §2 router ตอบเรื่องตัวผู้ช่วยจากแผ่นข้อมูลของระบบ (LLM เรียบเรียง + ตรวจก่อนส่ง + ข้อความสำเร็จรูปสำรอง) · §8 env `ROUTER_CHAT_ENABLED`, `ROUTER_CHAT_TIMEOUT` · สถานะ v1.11 เป็นมีผลแล้ว |
