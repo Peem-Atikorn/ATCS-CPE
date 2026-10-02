@@ -5,6 +5,7 @@ services:
       context: .
       args:
         NEXT_PUBLIC_DEMO_MODE: "true"
+        NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${NEXT_PUBLIC_GOOGLE_CLIENT_ID:-}
     ports:
       - "127.0.0.1:${WEB_PORT:-3000}:3000"
     environment:

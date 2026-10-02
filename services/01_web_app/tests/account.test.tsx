@@ -30,6 +30,10 @@ async function setup() {
     async (path: string, init?: RequestInit): Promise<Response> => {
       if (path === "/api/auth/me") return json({ user: user("A") });
       if (path === "/api/auth/login") return json({ user: user("B") });
+      if (path === "/api/auth/google/challenge")
+        return json({ csrf_token: "csrf-123", nonce: "nonce-123" });
+      if (path === "/api/auth/google")
+        return json({ user: { ...user("C"), favorite_team_id: null } });
       if (path === "/api/sessions") return json({ sessions: [] });
       if (path === "/api/auth/logout") return json({ ok: true });
       if (path === "/api/me/preferences")
@@ -79,6 +83,31 @@ it("clears every account's conversation and sends a fresh session after logout/l
   const calls = fetcher.mock.calls.filter(([path]) => path === "/api/chat");
   expect(JSON.parse(String(calls[1][1]?.body)).session_id).toBeNull();
   expect(screen.queryByText("private question A")).not.toBeInTheDocument();
+});
+it("accepts a Google account through the existing session and clears the previous account", async () => {
+  const fetcher = await setup();
+  await act(async () => {
+    await app.sendQuestion("private question A");
+  });
+  const challenge = await app.googleChallenge();
+  await act(async () => {
+    await app.loginWithGoogle("google-token", challenge.csrf_token);
+  });
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/auth/google",
+    expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({
+        credential: "google-token",
+        csrf_token: "csrf-123",
+      }),
+    }),
+  );
+  expect(app.user?.id).toBe("C");
+  expect(app.user?.favorite_team_id).toBeNull();
+  expect(app.entries).toEqual([]);
+  expect(app.sessionId).toBeNull();
+  expect(navigation.replace).toHaveBeenLastCalledWith("/");
 });
 it("expires the account on 401 and ignores a late answer after switching identity", async () => {
   const fetcher = await setup();

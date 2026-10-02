@@ -36,14 +36,17 @@ async function proxy(
       signal: AbortSignal.timeout(60_000),
     });
     const responseHeaders = new Headers();
-    for (const name of [
-      "content-type",
-      "set-cookie",
-      "retry-after",
-      "x-request-id",
-    ]) {
+    for (const name of ["content-type", "retry-after", "x-request-id"]) {
       const value = upstream.headers.get(name);
       if (value) responseHeaders.set(name, value);
+    }
+    const cookies = upstream.headers.getSetCookie();
+    if (cookies.length) {
+      for (const cookie of cookies)
+        responseHeaders.append("set-cookie", cookie);
+    } else {
+      const cookie = upstream.headers.get("set-cookie");
+      if (cookie) responseHeaders.append("set-cookie", cookie);
     }
     responseHeaders.set("cache-control", "no-store");
     if (!responseHeaders.has("x-request-id"))

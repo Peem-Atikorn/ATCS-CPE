@@ -48,3 +48,23 @@ it("ignores a late response from an earlier account", async () => {
   resolve(new Response('{"messages":["secret"]}'));
   await expect(request).rejects.toMatchObject({ name: "AbortError" });
 });
+it("does not treat an unauthenticated public-page session check as an expired session", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(
+      async () => new Response('{"detail":"unauthenticated"}', { status: 401 }),
+    ),
+  );
+  const dispatch = vi.spyOn(window, "dispatchEvent");
+  await expect(api("/auth/me")).rejects.toMatchObject({ status: 401 });
+  await expect(api("/auth/google/challenge")).rejects.toMatchObject({
+    status: 401,
+  });
+  expect(dispatch).not.toHaveBeenCalledWith(
+    expect.objectContaining({ type: "pitchside:expired" }),
+  );
+  await expect(api("/history/old")).rejects.toMatchObject({ status: 401 });
+  expect(dispatch).toHaveBeenCalledWith(
+    expect.objectContaining({ type: "pitchside:expired" }),
+  );
+});
