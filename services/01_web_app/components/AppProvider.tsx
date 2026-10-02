@@ -148,20 +148,6 @@ function useAppState() {
     acceptUser(data.user);
     router.replace("/");
   }
-  async function googleChallenge() {
-    return api<{ csrf_token: string; nonce?: string }>(
-      "/auth/google/challenge",
-    );
-  }
-  async function loginWithGoogle(credential: string, csrfToken: string) {
-    if (logoutTask.current) await logoutTask.current;
-    const data = await api<{ user: User }>(
-      "/auth/google",
-      body({ credential, csrf_token: csrfToken }),
-    );
-    acceptUser(data.user);
-    router.replace("/");
-  }
   function logout(): Promise<void> {
     if (logoutTask.current) return logoutTask.current;
     clearAccount();
@@ -348,8 +334,6 @@ function useAppState() {
     loggingOut,
     changeTeam,
     login,
-    googleChallenge,
-    loginWithGoogle,
     logout,
     entries,
     sessions,

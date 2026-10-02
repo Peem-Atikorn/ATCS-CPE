@@ -2,14 +2,6 @@
 
 Next.js 14 + TypeScript สำหรับผู้ช่วยฟุตบอลพรีเมียร์ลีก ธีมและมาสคอส 5 ทีม อ่านข้อมูลผ่าน API Backend ของทีม 02 เท่านั้น
 
-## สมัครและเข้าสู่ระบบด้วย Google
-
-หน้า `/register` และปุ่ม Google ใน `/login` ใช้ Google Identity Services เมื่อมี `NEXT_PUBLIC_GOOGLE_CLIENT_ID` ตอน build เว็บ หากยังไม่ตั้งค่า หน้าเว็บจะแจ้งว่า Google ยังไม่เปิดใช้งานโดยไม่กระทบการเข้าแบบ username/password เดิม
-
-เว็บเรียก `GET /api/auth/google/challenge` เพื่อรับ `{ csrf_token, nonce? }` และ cookie ป้องกัน CSRF จาก backend จากนั้นส่ง Google ID token ไป `POST /api/auth/google` ในรูป `{ credential, csrf_token }` โดยคาดหวัง `{ user: UserOut }` และ session cookie ตาม `/auth/login` API ทั้งสองยังต้องให้ทีม 02 เพิ่มก่อนจึงจะสมัครได้จริง ทีมโปรดของบัญชีใหม่ต้องเริ่มเป็น `null` และเลือกเองภายหลัง
-
-สำหรับ Docker ของ 01 ส่ง build arg `NEXT_PUBLIC_GOOGLE_CLIENT_ID` (ดู `.env.example`); Compose กลางและ Google Cloud ต้องตั้ง origin กับ Client ID ให้ตรงกัน รายการงาน backend/ส่วนกลางอยู่ที่ `D:\RMUTT\Advanced Ai\Work requirement`
-
 ## ฟีเจอร์ล่าสุด — 1 ตุลาคม 2026
 
 ### Prediction / Season Lab / บริบทแชท (Contract v1.8)

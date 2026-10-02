@@ -53,13 +53,3 @@ it("disables login and announces logout while the logout request is pending", ()
     screen.getByRole("button", { name: /กำลังออกจากระบบ/ }),
   ).toBeDisabled();
 });
-it("allows guests to open the registration page", () => {
-  state.path = "/register";
-  state.user = null;
-  render(
-    <AppShell>
-      <p>Registration content</p>
-    </AppShell>,
-  );
-  expect(screen.getByText("Registration content")).toBeInTheDocument();
-});

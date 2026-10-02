@@ -35,15 +35,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (startedEpoch !== epoch)
     throw new DOMException("บัญชีเปลี่ยนแล้ว", "AbortError");
   if (!response.ok) {
-    if (
-      response.status === 401 &&
-      ![
-        "/auth/login",
-        "/auth/me",
-        "/auth/google",
-        "/auth/google/challenge",
-      ].includes(path)
-    )
+    if (response.status === 401 && path !== "/auth/login")
       window.dispatchEvent(new Event("pitchside:expired"));
     throw new ApiError(
       response.status,

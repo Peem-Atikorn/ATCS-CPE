@@ -27,7 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     router = useRouter();
   const [historyOpen, setHistoryOpen] = useState(false);
   const browsing = app.browsingTeam ?? app.team;
-  const loginPage = path === "/login" || path === "/register",
+  const loginPage = path === "/login",
     adminPage = path.startsWith("/admin");
   useEffect(() => {
     if (app.checked && !app.user && !loginPage && !app.authError)

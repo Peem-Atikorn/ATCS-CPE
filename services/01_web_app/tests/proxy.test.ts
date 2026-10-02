@@ -61,29 +61,6 @@ describe("web API proxy", () => {
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
     expect(await response.json()).toEqual({ ok: true });
   });
-  it("forwards both session and challenge cookies from Google login", async () => {
-    const headers = new Headers({ "content-type": "application/json" });
-    headers.append("set-cookie", "access_token=session; HttpOnly; Path=/");
-    headers.append("set-cookie", "google_csrf=; Max-Age=0; HttpOnly; Path=/");
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(new Response('{"user":{"id":"new"}}', { headers })),
-    );
-    const response = await POST(
-      new NextRequest("http://localhost/api/auth/google", {
-        method: "POST",
-        body: "{}",
-      }),
-      { params: { path: ["auth", "google"] } },
-    );
-    expect(response.headers.getSetCookie()).toHaveLength(2);
-    expect(response.headers.getSetCookie()[0]).toContain(
-      "access_token=session",
-    );
-    expect(response.headers.getSetCookie()[1]).toContain("google_csrf=");
-  });
   it("returns complete Problem JSON when API is down", async () => {
     vi.stubGlobal(
       "fetch",
