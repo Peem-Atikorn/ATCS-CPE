@@ -30,13 +30,15 @@ export type Route =
   | "general_ai"
   | "local_ai"
   | "clarify"
-  | "decline";
+  | "decline"
+  | "chat";
 export const routeLabels: Record<Route, string> = {
   football_rag: "ตอบจากคลังข้อมูลฟุตบอล",
   general_ai: "ความรู้ทั่วไป",
   local_ai: "โมเดลทำนาย",
   clarify: "ขอข้อมูลเพิ่ม",
   decline: "นอกขอบเขต",
+  chat: "คุยกับผู้ช่วย",
 };
 export type ChatEntry = {
   id: string;
