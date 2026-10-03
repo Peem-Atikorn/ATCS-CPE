@@ -283,6 +283,18 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.general_payload()["query"],
                          "do you know the red devils\n(Teams named in the question: red devils = Manchester United FC)")
 
+    async def test_grounded_generation_sees_the_club_behind_a_nickname(self):
+        # The generation LLM read หงส์แดง as Man United while the chunks and team_ids were Liverpool.
+        self.clients.chunks = [{"text": "Liverpool FC rank 6", "source": {
+            "doc_id": "standings-2026", "title": "Standings", "category": "standings",
+            "origin": "football-data.org", "ref": 1}}]
+        result = await self.run_query("หงส์แดงอยู่อันดับที่เท่าไหร่")
+        self.assertEqual(result["route"], "football_rag")
+        generate = next(call[1] for call in self.clients.calls if call[0] == "generate")
+        self.assertEqual(generate["query"],
+                         "หงส์แดงอยู่อันดับที่เท่าไหร่\n(ชื่อทีมในคำถาม: หงส์แดง = Liverpool FC)")
+        self.assertEqual(generate["scope_team_ids"], [64])
+
     async def test_llm_classifier_sees_the_club_behind_a_nickname(self):
         self.clients.classifier = {"data": {"label": "general_football", "score": 0.4}}
         await self.run_query("ผึ้งแดงคือทีมไหน")
@@ -616,7 +628,7 @@ class MultiQueryRouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second["filters"], first["filters"])
         self.assertEqual(self.contexts(), ["a", "b"])
         [generate] = [call[1] for call in self.clients.calls if call[0] == "generate"]
-        self.assertEqual(generate["query"], self.QUERY)
+        self.assertEqual(generate["query"].splitlines()[0], self.QUERY)  # not the English query
         self.assertEqual(result["trace"]["multi_query"], "applied")
         self.assertEqual(result["trace"]["search_query_en"], self.ENGLISH)
         steps = [step["name"] for step in result["trace"]["steps"]]

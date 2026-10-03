@@ -27,8 +27,9 @@ class UpstreamError(Exception):
 def with_team_note(query: str, teams: TeamDirectory, language: str) -> str:
     """The question for an LLM step, naming the club behind each nickname.
 
-    The LLMs have no team directory: /general mixed up ผีแดง (Man United) with หงส์แดง (Liverpool) and
-    the classifier called ผึ้งแดง (Brentford) out of scope. Short Thai aliases such as ผี stay unnamed.
+    The LLMs have no team directory: /general mixed up ผีแดง (Man United) with หงส์แดง (Liverpool),
+    grounded generation answered หงส์แดง with Man United's row of the table, and the classifier called
+    ผึ้งแดง (Brentford) out of scope. Short Thai aliases such as ผี stay unnamed.
     """
     named = _strict(teams).nicknames(query)
     if not named:
@@ -295,8 +296,10 @@ class Router:
                                     for index, chunk in enumerate(chunks[:5], 1)]
                         try:
                             generated_at = time.monotonic()
+                            language = user.get("language", "th")
                             result = await self.clients.generate({"request_id": request_id, "mode": "grounded",
-                                "query": query, "language": user.get("language", "th"), "contexts": contexts,
+                                "query": with_team_note(query, self.teams, language), "language": language,
+                                "contexts": contexts,
                                 "scope_team_ids": decision.team_ids,
                                 "draft": None, "history": history}, request_id)
                             step("generation.grounded", generated_at)
