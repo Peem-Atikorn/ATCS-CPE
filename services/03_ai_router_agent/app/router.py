@@ -24,6 +24,19 @@ class UpstreamError(Exception):
         self.status = status
 
 
+def general_query(query: str, teams: TeamDirectory, language: str) -> str:
+    """The question for engines /general, naming the club behind each nickname.
+
+    The general LLM has no team directory and mixed up ผีแดง (Man United) with หงส์แดง (Liverpool).
+    """
+    named = teams.nicknames(query)
+    if not named:
+        return query
+    label = "ชื่อทีมในคำถาม" if language == "th" else "Teams named in the question"
+    pairs = ", ".join(f"{written} = {team.name}" for written, team in named)
+    return f"{query}\n({label}: {pairs})"
+
+
 class Router:
     def __init__(self, clients, teams: TeamDirectory):
         self.clients = clients
@@ -330,8 +343,10 @@ class Router:
                 else:
                     try:
                         general_at = time.monotonic()
-                        result = await self.clients.general({"request_id": request_id, "query": query,
-                            "history": history, "language": user.get("language", "th")}, request_id)
+                        language = user.get("language", "th")
+                        result = await self.clients.general({"request_id": request_id,
+                            "query": general_query(query, self.teams, language),
+                            "history": history, "language": language}, request_id)
                         step("engines.general", general_at)
                         engines.append("general_ai")
                         add_usage(result)

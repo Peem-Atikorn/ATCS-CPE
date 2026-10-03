@@ -252,6 +252,37 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["trace"]["decided_at_layer"], "classifier")
         self.assertEqual([x[0] for x in self.clients.calls], ["classify", "general", "generate"])
 
+    def general_payload(self):
+        return next(call[1] for call in self.clients.calls if call[0] == "general")
+
+    async def test_general_names_the_club_behind_a_thai_nickname(self):
+        result = await self.run_query("รู้จักทีมผีแดงมั้ย")
+        self.assertEqual(result["route"], "general_ai")
+        self.assertEqual(self.general_payload()["query"],
+                         "รู้จักทีมผีแดงมั้ย\n(ชื่อทีมในคำถาม: ผีแดง = Manchester United FC)")
+        generate = next(call[1] for call in self.clients.calls if call[0] == "generate")
+        self.assertEqual(generate["query"], "รู้จักทีมผีแดงมั้ย")
+        self.assertEqual(result["answer"], "กฎฟุตบอล")
+
+    async def test_general_names_every_nicknamed_club(self):
+        await self.run_query("หงส์แดงกับผีแดงทำไมถึงเป็นคู่ปรับกัน")
+        self.assertTrue(self.general_payload()["query"].endswith(
+            "(ชื่อทีมในคำถาม: หงส์แดง = Liverpool FC, ผีแดง = Manchester United FC)"))
+
+    async def test_general_query_stays_as_asked_without_a_nickname(self):
+        for query in ("ฟุตบอลเล่นกี่คน", "รู้จัก Arsenal มั้ย"):
+            with self.subTest(query=query):
+                self.clients.calls.clear()
+                await self.run_query(query)
+                self.assertEqual(self.general_payload()["query"], query)
+
+    async def test_general_nickname_note_in_english(self):
+        result = await self.router.route({**self.request, "query": "do you know the red devils",
+                                          "user": {**self.request["user"], "language": "en"}})
+        self.assertEqual(result["route"], "general_ai")
+        self.assertEqual(self.general_payload()["query"],
+                         "do you know the red devils\n(Teams named in the question: red devils = Manchester United FC)")
+
     async def test_low_classifier_uses_llm(self):
         self.clients.classifier = {"data": {"label": "general_football", "score": 0.4}}
         result = await self.run_query("ฟุตบอลเล่นกี่คน")
