@@ -20,7 +20,7 @@ import { useApp } from "./AppProvider";
 import { PersonalSettings } from "./PersonalSettings";
 import { MascotDock } from "./MascotDock";
 import { ErrorBox, Loading } from "./Ui";
-import { teams } from "../lib/teams";
+import { browseClubs } from "../lib/teams";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const app = useApp(),
     path = usePathname(),
@@ -215,7 +215,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   role="group"
                   aria-label="เลือกดูข้อมูลทีม"
                 >
-                  {teams.map((team) => (
+                  {browseClubs.map((team) => (
                     <button
                       key={team.key}
                       aria-pressed={team.key === browsing.key}

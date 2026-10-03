@@ -9,7 +9,7 @@ import {
   Report,
   Standing,
 } from "../../../lib/types";
-import { teams } from "../../../lib/teams";
+import { browseClubs } from "../../../lib/teams";
 import { ErrorBox, Empty, Loading, PageTitle } from "../../../components/Ui";
 import { Markdown } from "../../../components/Answer";
 import { ApiError } from "../../../lib/api";
@@ -220,7 +220,7 @@ function FootballView({
                 onChange={(event) => setTeam(event.target.value)}
               >
                 <option value="">ทุกทีม</option>
-                {teams.map((item) => (
+                {browseClubs.map((item) => (
                   <option key={item.key} value={item.teamId}>
                     {item.name}
                   </option>
