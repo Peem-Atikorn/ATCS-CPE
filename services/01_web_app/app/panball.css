@@ -134,9 +134,12 @@
   background: transparent;
   border: 0;
   flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 .panball-shell .club-switcher button {
-  flex: 1;
+  flex: 1 0 auto;
   min-height: 54px;
   gap: 9px;
   padding: 8px 11px;

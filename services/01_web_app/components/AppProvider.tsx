@@ -18,7 +18,7 @@ import {
   isCancelled,
 } from "../lib/api";
 import { ChatEntry, ChatResult, Session, User } from "../lib/types";
-import { TeamKey, teamFromId, teams } from "../lib/teams";
+import { TeamKey, browseClubs, teamFromId, teams } from "../lib/teams";
 
 function useAppState() {
   const router = useRouter();
@@ -26,7 +26,7 @@ function useAppState() {
   const [checked, setChecked] = useState(false);
   const [authError, setAuthError] = useState<Error>();
   const [teamKey, setTeamKey] = useState<TeamKey>(teams[0].key);
-  const [browsingKey, setBrowsingKey] = useState<TeamKey>(teams[0].key);
+  const [browsingKey, setBrowsingKey] = useState<string>(teams[0].key);
   const [loggingOut, setLoggingOut] = useState(false);
   const logoutTask = useRef<Promise<void> | null>(null);
   const [teamError, setTeamError] = useState<Error>();
@@ -49,7 +49,7 @@ function useAppState() {
   const conversation = useRef(0);
   const team = teams.find((item) => item.key === teamKey) ?? teams[0];
   const browsingTeam =
-    teams.find((item) => item.key === browsingKey) ?? teams[0];
+    browseClubs.find((item) => item.key === browsingKey) ?? browseClubs[0];
 
   const clearAccount = useCallback(() => {
     invalidateAccount();
