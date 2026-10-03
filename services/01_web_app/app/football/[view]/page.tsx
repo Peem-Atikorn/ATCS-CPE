@@ -64,9 +64,10 @@ function FootballView({
       ? ""
       : (initial.get("team_id") ?? String(browsingId));
   initial.delete("team_id");
+  // Only the current season is stored, so the page never selects another one.
+  initial.delete("season");
   if (view === "fixtures" && initialTeam) initial.set("team_id", initialTeam);
-  const [season, setSeason] = useState(initial.get("season") ?? ""),
-    [week, setWeek] = useState(initial.get("matchweek") ?? ""),
+  const [week, setWeek] = useState(initial.get("matchweek") ?? ""),
     [team, setTeam] = useState(initialTeam),
     [status, setStatus] = useState(initial.get("status") ?? "");
   const [query, setQuery] = useState(
@@ -173,32 +174,20 @@ function FootballView({
         error={live.error}
         retry={() => setRevision((value) => value + 1)}
       />
-      <form
-        className="filter-bar panel"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const search = new URLSearchParams();
-          if (season) search.set("season", season);
-          if (view !== "standings" && week) search.set("matchweek", week);
-          if (view === "fixtures") {
-            if (team) search.set("team_id", team);
-            if (status) search.set("status", status);
-          }
-          setQuery(search.size ? "?" + search.toString() : "");
-        }}
-      >
-        <label>
-          ฤดูกาล
-          <input
-            placeholder={live.data?.current_season ?? "ปีเริ่มฤดูกาล"}
-            value={season}
-            pattern="[0-9]{4}"
-            inputMode="numeric"
-            maxLength={4}
-            onChange={(event) => setSeason(event.target.value)}
-          />
-        </label>
-        {view !== "standings" && (
+      {view !== "standings" && (
+        <form
+          className="filter-bar panel"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const search = new URLSearchParams();
+            if (week) search.set("matchweek", week);
+            if (view === "fixtures") {
+              if (team) search.set("team_id", team);
+              if (status) search.set("status", status);
+            }
+            setQuery(search.size ? "?" + search.toString() : "");
+          }}
+        >
           <label>
             นัด
             <input
@@ -210,41 +199,41 @@ function FootballView({
               onChange={(event) => setWeek(event.target.value)}
             />
           </label>
-        )}
-        {view === "fixtures" && (
-          <>
-            <label>
-              ทีม
-              <select
-                value={team}
-                onChange={(event) => setTeam(event.target.value)}
-              >
-                <option value="">ทุกทีม</option>
-                {browseClubs.map((item) => (
-                  <option key={item.key} value={item.teamId}>
-                    {item.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              สถานะ
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                <option value="">ทุกสถานะ</option>
-                {Object.entries(statusLabels).map(([key, label]) => (
-                  <option key={key} value={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </>
-        )}
-        <button className="primary">แสดงข้อมูล</button>
-      </form>
+          {view === "fixtures" && (
+            <>
+              <label>
+                ทีม
+                <select
+                  value={team}
+                  onChange={(event) => setTeam(event.target.value)}
+                >
+                  <option value="">ทุกทีม</option>
+                  {browseClubs.map((item) => (
+                    <option key={item.key} value={item.teamId}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                สถานะ
+                <select
+                  value={status}
+                  onChange={(event) => setStatus(event.target.value)}
+                >
+                  <option value="">ทุกสถานะ</option>
+                  {Object.entries(statusLabels).map(([key, label]) => (
+                    <option key={key} value={key}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )}
+          <button className="primary">แสดงข้อมูล</button>
+        </form>
+      )}
       {view === "fixtures" && (
         <div className="round-nav">
           <button
