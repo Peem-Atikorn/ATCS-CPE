@@ -3,7 +3,7 @@ import time
 
 from .chat import STEP_TIMEOUT as CHAT_STEP_TIMEOUT
 from .chat import favorite_name, system_prompt, template, user_message, validate_reply
-from .condense import condense_enabled, needs_condense, rules_resolved, validate
+from .condense import _strict, condense_enabled, needs_condense, rules_resolved, validate
 from .decisions import (HISTORICAL, MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
                         historical_scorer_season, league_wide_scorer_query, normalize_thai,
                         prediction_kind)
@@ -24,12 +24,13 @@ class UpstreamError(Exception):
         self.status = status
 
 
-def general_query(query: str, teams: TeamDirectory, language: str) -> str:
-    """The question for engines /general, naming the club behind each nickname.
+def with_team_note(query: str, teams: TeamDirectory, language: str) -> str:
+    """The question for an LLM step, naming the club behind each nickname.
 
-    The general LLM has no team directory and mixed up ผีแดง (Man United) with หงส์แดง (Liverpool).
+    The LLMs have no team directory: /general mixed up ผีแดง (Man United) with หงส์แดง (Liverpool) and
+    the classifier called ผึ้งแดง (Brentford) out of scope. Short Thai aliases such as ผี stay unnamed.
     """
-    named = teams.nicknames(query)
+    named = _strict(teams).nicknames(query)
     if not named:
         return query
     label = "ชื่อทีมในคำถาม" if language == "th" else "Teams named in the question"
@@ -171,7 +172,8 @@ class Router:
                 if decision is None:
                     try:
                         llm_at = time.monotonic()
-                        raw = await asyncio.wait_for(self.clients.llm_decide(routing_query, request_id), timeout=8)
+                        noted = with_team_note(routing_query, self.teams, user.get("language", "th"))
+                        raw = await asyncio.wait_for(self.clients.llm_decide(noted, request_id), timeout=8)
                         step("router.llm", llm_at)
                         add_usage(raw)
                         decision = from_intent(raw.get("intent", ""), float(raw.get("confidence") or 0.5))
@@ -186,6 +188,13 @@ class Router:
                                                         f"{rewritten} {routing_query}".strip())
                     except (UpstreamError, ValueError, TypeError, asyncio.TimeoutError):
                         trace["fallback"] = "llm_unavailable"
+                if (decision is not None and decision.route == "decline" and decision.layer != "guard"
+                        and _strict(self.teams).find(routing_query)):
+                    # The rules already decline gambling and other topics; a model calling a question about
+                    # a clearly named club out of scope did not know the club.
+                    decision = enrich(from_intent("general_football", decision.confidence, decision.layer),
+                                      routing_query, context, history, self.teams, user.get("favorite_team_id"))
+                    decision.reasoning += " (ถามถึงทีมพรีเมียร์ลีก)"
                 if decision is None:
                     decision = from_intent("clarify", 0.5, "guard")
                     decision.reasoning = "ยังระบุเจตนาของคำถามไม่ได้"
@@ -345,7 +354,7 @@ class Router:
                         general_at = time.monotonic()
                         language = user.get("language", "th")
                         result = await self.clients.general({"request_id": request_id,
-                            "query": general_query(query, self.teams, language),
+                            "query": with_team_note(query, self.teams, language),
                             "history": history, "language": language}, request_id)
                         step("engines.general", general_at)
                         engines.append("general_ai")

@@ -283,6 +283,38 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.general_payload()["query"],
                          "do you know the red devils\n(Teams named in the question: red devils = Manchester United FC)")
 
+    async def test_llm_classifier_sees_the_club_behind_a_nickname(self):
+        self.clients.classifier = {"data": {"label": "general_football", "score": 0.4}}
+        await self.run_query("ผึ้งแดงคือทีมไหน")
+        llm = next(call[1] for call in self.clients.calls if call[0] == "llm")
+        self.assertEqual(llm, "ผึ้งแดงคือทีมไหน\n(ชื่อทีมในคำถาม: ผึ้งแดง = Brentford FC)")
+
+    async def test_a_named_club_is_never_out_of_scope_for_the_model_layers(self):
+        self.clients.classifier = {"data": {"label": "general_football", "score": 0.4}}
+        self.clients.llm_intent = "out_of_scope"
+        result = await self.run_query("ไก่เดือยทองเล่นสนามไหน")
+        self.assertEqual(result["route"], "general_ai")
+        self.assertEqual(result["trace"]["intent"], "general_football")
+        self.clients.calls.clear()
+        self.clients.classifier = {"data": {"label": "out_of_scope", "score": 0.9}}
+        result = await self.run_query("ผีแดงกับเรือใบอยู่เมืองเดียวกันไหม")
+        self.assertEqual(result["route"], "general_ai")
+
+    async def test_out_of_scope_stands_without_a_clearly_named_club(self):
+        self.clients.classifier = {"data": {"label": "general_football", "score": 0.4}}
+        self.clients.llm_intent = "out_of_scope"
+        for query in ("วันนี้กินอะไรดี", "หนังผีเรื่องไหนน่ากลัว"):
+            with self.subTest(query=query):
+                self.clients.calls.clear()
+                result = await self.run_query(query)
+                self.assertEqual(result["route"], "decline")
+                llm = next(call[1] for call in self.clients.calls if call[0] == "llm")
+                self.assertEqual(llm, query)
+
+    async def test_gambling_about_a_nicknamed_club_is_still_declined(self):
+        result = await self.run_query("ราคาบอลผีแดงคืนนี้")
+        self.assertEqual(result["route"], "decline")
+
     async def test_low_classifier_uses_llm(self):
         self.clients.classifier = {"data": {"label": "general_football", "score": 0.4}}
         result = await self.run_query("ฟุตบอลเล่นกี่คน")
