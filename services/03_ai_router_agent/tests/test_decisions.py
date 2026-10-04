@@ -101,6 +101,22 @@ class DecisionTests(unittest.TestCase):
         self.assertIn("champions final table", decision.rewritten_query)
         self.assertNotIn("final table standings", decision.rewritten_query)
 
+    def test_range_questions_search_the_archive_without_a_season(self):
+        decision = decide("ตั้งแต่ปี 2010 แมนซิตี้ได้แชมป์พรีเมียร์ลีกกี่สมัย", CONTEXT, [], TEAMS)
+        self.assertEqual((decision.intent, decision.filters), ("trivia_history", {"category": ["historical"]}))
+        self.assertTrue(decision.rewritten_query.startswith("Man City Premier League titles seasons"))
+        self.assertEqual(decide("How many titles have Man City won since 2010?", CONTEXT, [], TEAMS).filters,
+                         {"category": ["historical"]})
+
+    def test_english_title_and_relegation_questions_use_rules(self):
+        for query in ("How many Premier League titles have Manchester United won?",
+                      "Which club has won the most Premier League titles?",
+                      "How many times have Newcastle been relegated?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((decision.layer, decision.intent), ("rules", "trivia_history"))
+                self.assertEqual(decision.rewritten_query, query)
+
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters.get("season"), "2015")

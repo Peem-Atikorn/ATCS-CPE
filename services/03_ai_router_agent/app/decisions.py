@@ -389,7 +389,10 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
         return "general_football"
     if _has(text, ("สรุป", "ไฮไลต์", "weekly summary")) and _has(text, ("สัปดาห์", "นัด", "week", "พรีเมียร์ลีก")):
         return "weekly_summary"
-    if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history")):
+    # English title and relegation questions decided here, not by an LLM that rewrites them differently each time.
+    if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history", "titles", "won the premier league",
+                   "premier league champions", "relegated", "relegation", "runner-up", "runners-up",
+                   "most titles")):
         return "trivia_history"
     if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule",
                    "นัดต่อไป", "นัดถัดไป", "เจอใครต่อ", "เจอกับใครต่อ")) or NEXT_MATCH_EN.search(text):
@@ -593,6 +596,12 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
         thai, english = team_clarify()
         return Decision("clarify", None, "guard", 0.9, "ไม่ระบุทีม",
                         clarify_text=thai, clarify_text_en=english)
+    # "ตั้งแต่ปี 2010" is a range: a season filter kept only one season (and dropped the club records).
+    if _range_question(text) and _has(text, HISTORY_SEASON_WORDS) and not _has(text, OTHER_TITLE_WORDS):
+        decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "คำถามช่วงเวลา",
+                                   {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
+        decision.rewritten_query = _record_rewrite(query, [team.short_name for team in found], "titles")
+        return decision
     intent = _intent(query, context.get("season"))
     if intent is None and chat_enabled():
         kind = chat_kind(normalize_thai(text), len(found))
