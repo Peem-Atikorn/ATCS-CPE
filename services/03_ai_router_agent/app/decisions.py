@@ -125,6 +125,15 @@ NOW_WORDS = (*CURRENT_WORDS, "ตอนนี้", "ล่าสุด", " now",
 NOW_END = re.compile(r"แล้ว(?:ครับ|คะ|ค่ะ|นะ)?\s*\??\s*$")
 YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 SEASON_SPAN = re.compile(r"(?<!\d)\d{2,4}\s*/\s*\d{2,4}(?!\d)")
+# Title questions the rules ask back about (user choice: always ask, never guess).
+TITLE_WORDS_EN = re.compile(r"\b(?:champions?|titles?|won the|winners?)\b")
+RANGE_TH = ("ตั้งแต่", "หลังปี", "ก่อนปี", "ระหว่างปี", "ถึงปี")
+RANGE_EN = re.compile(r"\b(?:since|between|after|before)\b")
+COUNT_TH = ("กี่สมัย", "กี่ครั้ง")
+COUNT_EN = re.compile(r"\bhow many\b")
+LEAGUE_WIDE_TH = ("ทีมไหน", "สโมสรไหน", "มากที่สุด", "กี่ทีม", "ใคร")
+LEAGUE_WIDE_EN = re.compile(r"\b(?:which|who|most)\b")
+OTHER_TITLE_WORDS = (*INTERNATIONAL_WORDS, *OTHER_COMPETITIONS, *CUP_WORDS)
 
 
 def normalize_thai(text: str) -> str:
@@ -425,14 +434,15 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
         lowered = query.lower()
         former = [name for word, name in ARCHIVE_CLUBS.items() if word in lowered and name not in teams]
         teams = " ".join(dict.fromkeys([*names, *former]))
+        # The season document opens with "Champions: …"; "standings" alone pulled table chunks instead.
+        table = "champions final table" if _title_question(lowered) else "final table standings"
         if start is not None:
-            return keep_question(teams, "Premier League", _season_label(int(start)), "final table standings")
+            return keep_question(teams, "Premier League", _season_label(int(start)), table)
         year = None if _head_to_head(query.lower()) else re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", query)
         if year is None:
             return keep_question(teams, "Premier League head-to-head record")
         end = int(year.group(1))
-        return keep_question(teams, "Premier League", _season_label(end - 1), _season_label(end),
-                             "final table standings")
+        return keep_question(teams, "Premier League", _season_label(end - 1), _season_label(end), table)
     season = filters.get("season", "")
     matchweek = f"matchweek {filters['matchweek']}" if "matchweek" in filters else ""
     dates = " ".join(str(filters[key]) for key in ("date_from", "date_to") if key in filters)
@@ -513,6 +523,35 @@ def all_time_table_question(text: str) -> bool:
                 or SEASON_SPAN.search(text) or MATCHWEEK_PATTERN.search(text))
 
 
+def _title_question(text: str) -> bool:
+    return _has(text, ("แชมป์",)) or bool(TITLE_WORDS_EN.search(text))
+
+
+def _range_question(text: str) -> bool:
+    return (_has(text, RANGE_TH) or bool(RANGE_EN.search(text))) and bool(YEAR.search(text))
+
+
+def ambiguous_title_year(text: str, found: list) -> int | None:
+    """A title question naming one calendar year and no club: the year spans two seasons."""
+    if found or not _title_question(text) or _has(text, (*OTHER_TITLE_WORDS, *ARCHIVE_CLUB_WORDS)):
+        return None
+    if season_prediction(text) or _range_question(text) or SEASON_SPAN.search(text):
+        return None
+    years = YEAR.findall(text)
+    return int(years[0]) if len(years) == 1 else None
+
+
+def title_count_without_team(text: str, found: list, history: list[dict], teams: TeamDirectory) -> bool:
+    if found or not _title_question(text) or not (_has(text, COUNT_TH) or COUNT_EN.search(text)):
+        return False
+    if season_prediction(text) or _has(text, (*LEAGUE_WIDE_TH, *OTHER_TITLE_WORDS, *ARCHIVE_CLUB_WORDS)):
+        return False
+    if LEAGUE_WIDE_EN.search(text):
+        return False
+    return not any(teams.find(str(item.get("content") or ""))
+                   for item in history[-10:] if item.get("role") == "user")
+
+
 def _record_rewrite(query: str, names: list[str], topic: str) -> str:
     """Search text for the archive's club and league records; English questions stay as asked."""
     if not re.search(r"[ก-๙]", query):
@@ -545,6 +584,15 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
                                    {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
         decision.rewritten_query = _record_rewrite(query, [team.short_name for team in found], "table")
         return decision
+    year = ambiguous_title_year(text, found)
+    if year is not None:
+        thai, english = title_year_clarify(year, _has(text, PL_WORDS))
+        return Decision("clarify", None, "guard", 0.9, "แชมป์ปีเดียวกำกวม",
+                        clarify_text=thai, clarify_text_en=english)
+    if title_count_without_team(text, found, history, teams):
+        thai, english = team_clarify()
+        return Decision("clarify", None, "guard", 0.9, "ไม่ระบุทีม",
+                        clarify_text=thai, clarify_text_en=english)
     intent = _intent(query, context.get("season"))
     if intent is None and chat_enabled():
         kind = chat_kind(normalize_thai(text), len(found))
