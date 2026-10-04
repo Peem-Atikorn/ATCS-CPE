@@ -215,11 +215,11 @@ class DecisionTests(unittest.TestCase):
 
     def test_routing_cases(self):
         cases = [json.loads(line) for line in CASES.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(cases), 44)
+        self.assertEqual(len(cases), 58)
         self.assertEqual({route: sum(case["route"] == route for case in cases)
                           for route in {case["route"] for case in cases}},
-                         {"football_rag": 9, "general_ai": 8, "local_ai": 11,
-                          "clarify": 8, "decline": 8})
+                         {"football_rag": 20, "general_ai": 8, "local_ai": 11,
+                          "clarify": 11, "decline": 8})
         for case in cases:
             with self.subTest(query=case["query"]):
                 result = decide(case["query"], CONTEXT, [], TEAMS)
