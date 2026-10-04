@@ -92,7 +92,7 @@ class Router:
         try:
             async with asyncio.timeout(40):
                 # A short answer to our own question back joins the question it answers (no LLM).
-                clarified = resolve_clarify_reply(query, history)
+                clarified = resolve_clarify_reply(query, history, self.teams)
                 routing_query = clarified or query
                 original = decide(routing_query, context, history, self.teams, user.get("favorite_team_id"))
                 # Declines, chat replies and clarifying guards stand as asked; a rewrite must never talk past them.
