@@ -148,6 +148,36 @@ class Decision:
     rewritten_query: str | None = None
     team_ids: list[int] = field(default_factory=list)
     kind: str | None = None  # route `chat` only: the kind of chit-chat (also in `reasoning`)
+    clarify_text: str | None = None  # route `clarify`: the question back, in Thai
+    clarify_text_en: str | None = None
+
+
+TEAM_CLARIFY = ('หมายถึงแชมป์ของทีมไหนครับ เช่น "แมนยูได้แชมป์พรีเมียร์ลีกกี่สมัย"',
+                'Which club do you mean? For example: "How many Premier League titles have Manchester United won?"')
+# Our own questions back, recognised in history so a short reply can join the question it answers.
+CLARIFY_PREFIXES = ("หมายถึงแชมป์พรีเมียร์ลีกฤดูกาล", "หมายถึงแชมป์ลีกสูงสุดอังกฤษฤดูกาล",
+                    "หมายถึงแชมป์รายการไหนครับ", "หมายถึงแชมป์ของทีมไหนครับ",
+                    "Do you mean the Premier League ", "Do you mean the English top-flight ",
+                    "Which competition do you mean?", "Which club do you mean?")
+COMPETITION_CLARIFY_PREFIXES = ("หมายถึงแชมป์รายการไหนครับ", "Which competition do you mean?")
+
+
+def team_clarify() -> tuple[str, str]:
+    return TEAM_CLARIFY
+
+
+def title_year_clarify(year: int, league_named: bool) -> tuple[str, str]:
+    """A calendar year spans two seasons; the Premier League began in 1992/93."""
+    ended, began = f"{year - 1}/{year % 100:02d}", f"{year}/{(year + 1) % 100:02d}"
+    league, league_en = (("พรีเมียร์ลีก", "Premier League") if year > 1992
+                         else ("ลีกสูงสุดอังกฤษ", "English top-flight"))
+    if league_named:
+        return (f"หมายถึงแชมป์{league}ฤดูกาล {ended} (จบปี {year}) หรือ {began} (เริ่มปี {year}) ครับ",
+                f"Do you mean the {league_en} {ended} season (ended in {year}) or {began} (began in {year})?")
+    return (f"หมายถึงแชมป์รายการไหนครับ ถ้าเป็น{league} ปี {year} ตรงกับฤดูกาล {ended} (จบปี {year}) "
+            f"หรือ {began} (เริ่มปี {year})",
+            f"Which competition do you mean? For the {league_en}, {year} covers {ended} (ended in {year}) "
+            f"and {began} (began in {year}).")
 
 
 def _category_filter(intent: str) -> dict:

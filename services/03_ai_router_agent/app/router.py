@@ -204,9 +204,13 @@ class Router:
                              rewritten_query=decision.rewritten_query, filters=decision.filters)
 
                 if decision.route == "clarify":
-                    answer = ("หมายถึงทีมใดหรือแมตช์ไหนครับ ช่วยระบุชื่อทีมเต็มหรือช่วงเวลาอีกนิด"
-                              if user.get("language", "th") == "th" else
-                              "Which team or match do you mean? Please specify the full team name or date.")
+                    # A rule that knows what is missing asks for exactly that.
+                    if user.get("language", "th") == "th":
+                        answer = decision.clarify_text or (
+                            "หมายถึงทีมใดหรือแมตช์ไหนครับ ช่วยระบุชื่อทีมเต็มหรือช่วงเวลาอีกนิด")
+                    else:
+                        answer = decision.clarify_text_en or (
+                            "Which team or match do you mean? Please specify the full team name or date.")
                     return finish(answer, decision.route, decision.confidence, decision.reasoning)
                 if decision.route == "decline":
                     answer = ("ผมช่วยตอบคำถามเกี่ยวกับฟุตบอลพรีเมียร์ลีกได้ แต่ไม่สามารถช่วยเรื่องนี้ได้"

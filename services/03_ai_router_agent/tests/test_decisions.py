@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.decisions import (INTENT_MAP, classify_intent, decide, from_intent, historical_scorer_season,
-                           history_filters, prediction_kind)
+                           history_filters, prediction_kind, team_clarify, title_year_clarify)
 from app.teams import TeamDirectory
 
 
@@ -15,6 +15,26 @@ CONTEXT = {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00
 
 
 class DecisionTests(unittest.TestCase):
+    def test_title_year_clarify_texts(self):
+        self.assertEqual(title_year_clarify(2025, True), (
+            "หมายถึงแชมป์พรีเมียร์ลีกฤดูกาล 2024/25 (จบปี 2025) หรือ 2025/26 (เริ่มปี 2025) ครับ",
+            "Do you mean the Premier League 2024/25 season (ended in 2025) or 2025/26 (began in 2025)?"))
+        self.assertEqual(title_year_clarify(2025, False), (
+            "หมายถึงแชมป์รายการไหนครับ ถ้าเป็นพรีเมียร์ลีก ปี 2025 ตรงกับฤดูกาล 2024/25 (จบปี 2025) "
+            "หรือ 2025/26 (เริ่มปี 2025)",
+            "Which competition do you mean? For the Premier League, 2025 covers 2024/25 (ended in 2025) "
+            "and 2025/26 (began in 2025)."))
+        thai, english = title_year_clarify(1990, False)
+        self.assertIn("ถ้าเป็นลีกสูงสุดอังกฤษ ปี 1990 ตรงกับฤดูกาล 1989/90 (จบปี 1990) หรือ 1990/91", thai)
+        self.assertNotIn("พรีเมียร์ลีก", thai)
+        self.assertIn("For the English top-flight, 1990 covers 1989/90", english)
+        self.assertIn("1999/00 (จบปี 2000) หรือ 2000/01 (เริ่มปี 2000)", title_year_clarify(2000, True)[0])
+
+    def test_team_clarify_text(self):
+        self.assertEqual(team_clarify(), (
+            'หมายถึงแชมป์ของทีมไหนครับ เช่น "แมนยูได้แชมป์พรีเมียร์ลีกกี่สมัย"',
+            'Which club do you mean? For example: "How many Premier League titles have Manchester United won?"'))
+
     def test_season_questions_are_prediction_intent(self):
         for query in ("ใครจะได้แชมป์พรีเมียร์ลีกปีนี้", "อาร์เซนอลมีโอกาสติดท็อป 4 กี่เปอร์เซ็นต์",
                       "ใครเสี่ยงตกชั้นมากที่สุด", "ทีมไหนจะตกชั้น", "Who will be relegated this season?",

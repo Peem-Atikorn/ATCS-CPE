@@ -242,6 +242,18 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([x[0] for x in self.clients.calls], ["search", "generate"])
         self.assertEqual(result["sources"][0]["doc_id"], "trivia-0001")
 
+    async def test_clarify_uses_the_decision_text(self):
+        from app.decisions import Decision
+        decision = Decision("clarify", None, "guard", 0.9, "ปีกำกวม",
+                            clarify_text="ถามกลับไทย", clarify_text_en="Ask back")
+        with patch("app.router.decide", return_value=decision):
+            thai = await self.run_query("แชมป์ปี 2025 คือทีมไหน")
+            english = await self.router.route({**self.request, "query": "Who won in 2025?",
+                                               "user": {**self.request["user"], "language": "en"}})
+        self.assertEqual((thai["route"], thai["answer"]), ("clarify", "ถามกลับไทย"))
+        self.assertEqual(english["answer"], "Ask back")
+        self.assertEqual(self.clients.calls, [])
+
     async def test_ambiguous_team_does_not_call_upstream(self):
         result = await self.run_query("ยูไนเต็ดนัดล่าสุดชนะไหม")
         self.assertEqual(result["route"], "clarify")
