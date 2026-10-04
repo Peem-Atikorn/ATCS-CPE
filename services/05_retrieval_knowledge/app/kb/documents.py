@@ -28,8 +28,10 @@ DOC_ID_PATTERNS: dict[str, re.Pattern[str]] = {
     "weekly_report": re.compile(r"weekly-\d{4}-mw\d{2}"),
     "player": re.compile(r"players-\d{4}-team-\d+"),
     # v1.11: 07's Premier League archive; club slugs are lowercase words joined by hyphens.
+    # v1.13: club records and the league honours document.
     "historical": re.compile(
-        r"hist-(?:season-\d{4}|team-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*|h2h-[a-z0-9]+(?:-[a-z0-9]+)*)"
+        r"hist-(?:season-\d{4}|team-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*|h2h-[a-z0-9]+(?:-[a-z0-9]+)*"
+        r"|club-[a-z0-9]+(?:-[a-z0-9]+)*|records)"
     ),
 }
 

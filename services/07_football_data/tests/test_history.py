@@ -9,10 +9,14 @@ from sqlalchemy import func, select
 from app.db import HistoricalMatch, HistoricalStanding, make_database
 from app.history import (
     calculate_table,
+    historical_document,
     make_documents,
     normalize,
     parse_season,
+    relegated,
     resolve,
+    season_label,
+    table_stats,
     verify_table,
 )
 from scripts.ingest_history import ROOT, build_dataset, persist
@@ -137,7 +141,21 @@ def test_all_pinned_seasons_and_all_team_aliases():
     assert sum(map(len, seasons.values())) == 13166
     assert len(clubs) == 51
     assert sum(map(len, tables.values())) == 686
-    assert len(docs) == 1661
+    assert len(docs) == 1713
+    topics = {t: sum(d["topic"] == t for d in docs) for t in ("club_record", "league_records")}
+    assert topics == {"club_record": 51, "league_records": 1}
+    records = next(d for d in docs if d["doc_id"] == "hist-records")["text"]
+    # Cross-checked against Wikidata (P1346 winners of Q9448 seasons) on 2026-10-04.
+    assert (
+        "Manchester United FC 13 · Manchester City FC 8 · Chelsea FC 5 · Arsenal FC 4 · "
+        "Liverpool FC 2 · Blackburn Rovers FC 1 · Leicester City FC 1.\n"
+    ) in records
+    assert "7 different clubs have won the Premier League.\n" in records
+    united = next(d for d in docs if d["doc_id"] == "hist-club-manchester-united")["text"]
+    assert "Premier League titles: 13 (" in united
+    assert "Seasons in the Premier League: 34 of 34. Relegations: 0.\n" in united
+    spurs = next(d for d in docs if d["doc_id"] == "hist-club-tottenham")["text"]
+    assert "Premier League titles: 0 (never won the Premier League).\n" in spurs
     from app.history import season_scorers
 
     assert [p["goals"] for p in season_scorers(seasons["2025"])[:3]] == [27, 22, 17]
@@ -239,3 +257,56 @@ def test_current_premier_league_clubs_keep_their_team_id_in_the_archive():
     clubs = json.loads(path.read_text("utf-8"))
     current = {"west-ham": 563, "wolves": 76, "burnley": 328, "arsenal": 57, "sunderland": 71}
     assert {slug: clubs[slug]["team_id"] for slug in current} == current
+
+
+def test_season_label_handles_the_century_rollover():
+    assert season_label("2004") == "2004/05"
+    assert season_label("1999") == "1999/00"
+
+
+def test_relegated_sorts_rows_and_drops_four_in_1994():
+    rows = [{"club_slug": f"c{p}", "position": p} for p in (3, 1, 6, 2, 5, 4)]
+    assert [r["position"] for r in relegated("1994", rows)] == [3, 4, 5, 6]
+    assert [r["position"] for r in relegated("1995", rows)] == [4, 5, 6]
+
+
+def test_table_stats_shows_an_adjustment_only_when_there_is_one():
+    row = {
+        "played": 38,
+        "wins": 10,
+        "draws": 5,
+        "losses": 23,
+        "goals_for": 30,
+        "goals_against": 60,
+        "goal_difference": -30,
+        "points": 26,
+    }
+    assert table_stats(row) == "P38 W10 D5 L23 GF30 GA60 GD-30 Pts26"
+    assert table_stats({**row, "point_adjustment": 0}) == "P38 W10 D5 L23 GF30 GA60 GD-30 Pts26"
+    assert table_stats({**row, "point_adjustment": -9}).endswith("Pts26; point adjustment -9")
+
+
+def test_historical_document_adds_credit_and_known_team_ids():
+    clubs = {
+        "arsenal": {"name": "Arsenal FC", "team_id": 57},
+        "wimbledon": {"name": "Wimbledon FC", "team_id": None},
+    }
+    doc = historical_document(
+        clubs,
+        "hist-x",
+        "T",
+        "body",
+        "season_table",
+        "2003",
+        ["wimbledon", "arsenal"],
+        "openfootball",
+        "https://example.com",
+    )
+    assert doc["team_ids"] == [57]
+    assert doc["text"].startswith("body\n## Sources and license\n")
+    assert (doc["category"], doc["matchweek"], doc["date"], doc["fetched_at"]) == (
+        "historical",
+        None,
+        None,
+        None,
+    )
