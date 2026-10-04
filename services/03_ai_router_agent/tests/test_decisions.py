@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.decisions import (INTENT_MAP, classify_intent, decide, from_intent, historical_scorer_season,
-                           history_filters, prediction_kind, team_clarify, title_year_clarify)
+                           history_filters, prediction_kind, resolve_clarify_reply, team_clarify,
+                           title_year_clarify)
 from app.teams import TeamDirectory
 
 
@@ -116,6 +117,31 @@ class DecisionTests(unittest.TestCase):
                 decision = decide(query, CONTEXT, [], TEAMS)
                 self.assertEqual((decision.layer, decision.intent), ("rules", "trivia_history"))
                 self.assertEqual(decision.rewritten_query, query)
+
+    @staticmethod
+    def clarify_history(question, answer):
+        return [{"role": "user", "content": question}, {"role": "assistant", "content": answer}]
+
+    def test_a_short_reply_after_a_clarify_is_merged(self):
+        year_any = self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0])
+        merged = resolve_clarify_reply("2024/25", year_any)
+        self.assertEqual(merged, "แชมป์ปี 2025 คือทีมไหน 2024/25 พรีเมียร์ลีก")
+        self.assertEqual(decide(merged, CONTEXT, year_any, TEAMS).filters,
+                         {"category": ["historical"], "season": "2024"})
+        team = self.clarify_history("ได้แชมป์กี่สมัย", team_clarify()[0])
+        self.assertEqual(resolve_clarify_reply("แมนยู", team), "ได้แชมป์กี่สมัย แมนยู")
+        self.assertEqual(decide("ได้แชมป์กี่สมัย แมนยู", CONTEXT, team, TEAMS).team_ids, [66])
+        named = resolve_clarify_reply("พรีเมียร์ลีก", year_any)
+        self.assertEqual(decide(named, CONTEXT, year_any, TEAMS).clarify_text, title_year_clarify(2025, True)[0])
+
+    def test_a_new_question_after_a_clarify_is_not_merged(self):
+        year_any = self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0])
+        for reply in ("ใครได้แชมป์บอลโลกปี 2022", "แมนยูได้แชมป์กี่สมัย", "x" * 41, ""):
+            with self.subTest(reply=reply):
+                self.assertIsNone(resolve_clarify_reply(reply, year_any))
+        other = self.clarify_history("ยูไนเต็ดชนะไหม", "หมายถึงทีมใดหรือแมตช์ไหนครับ")
+        self.assertIsNone(resolve_clarify_reply("2024/25", other))
+        self.assertIsNone(resolve_clarify_reply("2024/25", []))
 
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)

@@ -254,6 +254,22 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(english["answer"], "Ask back")
         self.assertEqual(self.clients.calls, [])
 
+    async def test_a_reply_after_a_clarify_is_routed_without_condense(self):
+        from app.decisions import title_year_clarify
+        history = [{"role": "user", "content": "แชมป์ปี 2025 คือทีมไหน"},
+                   {"role": "assistant", "content": title_year_clarify(2025, False)[0]}]
+        self.clients.chunks = [{"text": "Liverpool FC champions",
+                                "source": {"doc_id": "hist-season-2024", "title": "t",
+                                           "category": "historical", "origin": "fjelstul"}}]
+        result = await self.router.route({**self.request, "query": "2024/25", "history": history})
+        self.assertEqual(result["trace"]["standalone_query"], "แชมป์ปี 2025 คือทีมไหน 2024/25 พรีเมียร์ลีก")
+        self.assertIsNone(result["trace"].get("condense"))
+        search = next(call for call in self.clients.calls if call[0] == "search")[1]
+        self.assertEqual(search["filters"], {"category": ["historical"], "season": "2024"})
+        generate = next(call for call in self.clients.calls if call[0] == "generate")[1]
+        self.assertEqual(generate["history"], history)
+        self.assertFalse(any(call[0] == "condense" for call in self.clients.calls))
+
     async def test_ambiguous_team_does_not_call_upstream(self):
         result = await self.run_query("ยูไนเต็ดนัดล่าสุดชนะไหม")
         self.assertEqual(result["route"], "clarify")

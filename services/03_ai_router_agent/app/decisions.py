@@ -555,6 +555,30 @@ def title_count_without_team(text: str, found: list, history: list[dict], teams:
                    for item in history[-10:] if item.get("role") == "user")
 
 
+REPLY_QUESTION_WORDS = ("ใคร", "กี่", "ไหม", "อะไร", "เท่าไหร่", "?", "who", "how", "which", "what")
+
+
+def resolve_clarify_reply(query: str, history: list[dict]) -> str | None:
+    """Join a short answer to our question back with the question that needed it (no LLM)."""
+    reply = query.strip()
+    if not reply or len(reply) > 40 or len(history) < 2:
+        return None
+    asked, question = history[-1], history[-2]
+    if asked.get("role") != "assistant" or question.get("role") != "user":
+        return None
+    asked_text = str(asked.get("content") or "")
+    if not asked_text.startswith(CLARIFY_PREFIXES):
+        return None
+    lowered = reply.lower()
+    if _title_question(lowered) or _has(lowered, REPLY_QUESTION_WORDS):
+        return None
+    merged = f"{str(question.get('content') or '').strip()} {reply}"
+    # "Which competition?" offered the Premier League seasons; a bare season answer means it.
+    if asked_text.startswith(COMPETITION_CLARIFY_PREFIXES) and not _has(lowered, (*OTHER_TITLE_WORDS, *PL_WORDS)):
+        merged += " พรีเมียร์ลีก"
+    return merged
+
+
 def _record_rewrite(query: str, names: list[str], topic: str) -> str:
     """Search text for the archive's club and league records; English questions stay as asked."""
     if not re.search(r"[ก-๙]", query):
