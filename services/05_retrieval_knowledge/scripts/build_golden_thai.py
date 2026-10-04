@@ -181,6 +181,19 @@ HISTORICAL_TH = (
         "club_record",
     ),
     ("ทีมไหนเก็บแต้มรวมในพรีเมียร์ลีกมากที่สุดตลอดกาล", ("hist-records",), "league_records"),
+    # v1.14: English top-flight titles in all eras (First Division before 1992).
+    (
+        "ลิเวอร์พูลได้แชมป์ลีกสูงสุดของอังกฤษทั้งหมดกี่สมัยรวมยุคก่อนพรีเมียร์ลีก",
+        ("hist-club-liverpool", "hist-records"),
+        "club_record",
+    ),
+    ("ใครเป็นแชมป์ดิวิชั่น 1 อังกฤษฤดูกาล 1989/90", ("hist-records",), "league_records"),
+    ("ทีมไหนได้แชมป์ลีกสูงสุดอังกฤษมากที่สุดทุกยุค", ("hist-records",), "league_records"),
+    (
+        "เชลซีเคยได้แชมป์ลีกสูงสุดก่อนยุคพรีเมียร์ลีกไหม",
+        ("hist-club-chelsea", "hist-records"),
+        "club_record",
+    ),
 )
 ROUTER_SNIPPET = """
 import json, sys
