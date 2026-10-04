@@ -114,6 +114,17 @@ HISTORY_SEASON_WORDS = ("แชมป์", "อันดับ", "ตารา�
 CUP_WORDS = ("เอฟเอคัพ", "fa cup", "ลีกคัพ", "league cup", "คาราบาว", "carabao", "คอมมูนิตี้ชิลด์",
              "community shield", "บัลลงดอร์", "ballon", "คัพ", " cup", "ถ้วย", "efl", "ซีเกมส์", "sea games",
              "เอเชียน", "asian", "ไทยลีก", "thai league", "ดิวิชั่น", "division")
+# All-time questions about finishes and points belong to the archive's club records, not this
+# season's table (live chat test 2026-10-04: "แต้มรวมทั้งหมด" was answered with this season's 12).
+TABLE_WORDS_TH = ("อันดับ", "แต้ม")
+TABLE_WORDS_EN = re.compile(r"\b(?:points|finish(?:ed)?|position)\b")
+# "รวม" alone is left out: "อาร์เซนอลมีแต้มรวมเท่าไหร่" usually asks about this season's table.
+ALL_TIME_TH = ("ดีที่สุด", "แย่ที่สุด", "สูงสุด", "ต่ำสุด", "เคย", "ทั้งหมด", "รวมทุก", "ตลอดกาล", "ทุกฤดูกาล")
+ALL_TIME_EN = re.compile(r"\b(?:all[- ]time|ever|best|worst|highest|lowest|total)\b")
+NOW_WORDS = (*CURRENT_WORDS, "ตอนนี้", "ล่าสุด", " now", "currently")
+NOW_END = re.compile(r"แล้ว(?:ครับ|คะ|ค่ะ|นะ)?\s*\??\s*$")
+YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+SEASON_SPAN = re.compile(r"(?<!\d)\d{2,4}\s*/\s*\d{2,4}(?!\d)")
 
 
 def normalize_thai(text: str) -> str:
@@ -493,6 +504,27 @@ def enrich(decision: Decision, query: str, context: dict, history: list[dict], t
     return decision
 
 
+def all_time_table_question(text: str) -> bool:
+    if not (_has(text, TABLE_WORDS_TH) or TABLE_WORDS_EN.search(text)):
+        return False
+    if not (_has(text, ALL_TIME_TH) or ALL_TIME_EN.search(text)):
+        return False
+    return not (_has(text, NOW_WORDS) or NOW_END.search(text) or YEAR.search(text)
+                or SEASON_SPAN.search(text) or MATCHWEEK_PATTERN.search(text))
+
+
+def _record_rewrite(query: str, names: list[str], topic: str) -> str:
+    """Search text for the archive's club and league records; English questions stay as asked."""
+    if not re.search(r"[ก-๙]", query):
+        return query
+    if topic == "titles":
+        terms = "Premier League titles seasons"
+    else:
+        terms = ("Premier League record best finish worst finish total points" if names
+                 else "Premier League all-time records most points")
+    return " ".join(part for part in (*names, terms, query.strip()) if part)
+
+
 def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
            favorite_team_id: int | None = None) -> Decision | None:
     text = query.lower().strip()
@@ -508,6 +540,11 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
         return Decision("clarify", None, "guard", 1.0, "ขาดทีมที่อ้างถึง")
     if len(found) > 2:
         return Decision("clarify", None, "guard", 1.0, "พบหลายทีมในคำถาม")
+    if all_time_table_question(text):
+        decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "คำถามสถิติทั้งยุค",
+                                   {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
+        decision.rewritten_query = _record_rewrite(query, [team.short_name for team in found], "table")
+        return decision
     intent = _intent(query, context.get("season"))
     if intent is None and chat_enabled():
         kind = chat_kind(normalize_thai(text), len(found))

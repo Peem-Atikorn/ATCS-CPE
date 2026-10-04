@@ -35,6 +35,37 @@ class DecisionTests(unittest.TestCase):
             'หมายถึงแชมป์ของทีมไหนครับ เช่น "แมนยูได้แชมป์พรีเมียร์ลีกกี่สมัย"',
             'Which club do you mean? For example: "How many Premier League titles have Manchester United won?"'))
 
+    # Live chat test 2026-10-04: all-time finishes and points were answered from this season's table.
+    def test_all_time_table_questions_use_the_archive(self):
+        cases = {
+            "แมนยูจบอันดับแย่ที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่": "Man United Premier League record best finish",
+            "นิวคาสเซิลจบอันดับดีที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่": "Newcastle Premier League record best finish",
+            "อาร์เซนอลเก็บแต้มรวมในพรีเมียร์ลีกทั้งหมดกี่แต้ม": "Arsenal Premier League record best finish",
+            "ลิเวอร์พูลเคยจบอันดับแย่ที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่": "Liverpool Premier League record",
+            "ทีมไหนเก็บแต้มรวมในพรีเมียร์ลีกมากที่สุดตลอดกาล": "Premier League all-time records most points",
+            "What is Arsenal's best ever Premier League finish?": "What is Arsenal's best ever",
+        }
+        for query, rewrite in cases.items():
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((decision.route, decision.intent), ("football_rag", "trivia_history"))
+                self.assertEqual(decision.filters, {"category": ["historical"]})
+                self.assertTrue(decision.rewritten_query.startswith(rewrite), decision.rewritten_query)
+
+    def test_current_table_questions_stay_standings(self):
+        for query in ("อาร์เซนอลอยู่อันดับเท่าไหร่", "อาร์เซนอลได้กี่แต้มแล้ว", "ตอนนี้ใครเป็นจ่าฝูง",
+                      "อันดับ 1 ตอนนี้คือใคร", "ตารางคะแนนนัดที่ 5",
+                      "อาร์เซนอลเคยอยู่อันดับ 1 ฤดูกาลนี้ไหม", "How many points do Arsenal have this season?"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).intent, "standings_stats")
+        # "แต้มรวม" alone usually means this season's table; the rules leave it to the classifier.
+        decision = decide("อาร์เซนอลมีแต้มรวมเท่าไหร่", CONTEXT, [], TEAMS)
+        self.assertNotEqual(decision.filters if decision else None, {"category": ["historical"]})
+
+    def test_season_specific_table_questions_keep_their_season(self):
+        decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.filters.get("season"), "2015")
+
     def test_season_questions_are_prediction_intent(self):
         for query in ("ใครจะได้แชมป์พรีเมียร์ลีกปีนี้", "อาร์เซนอลมีโอกาสติดท็อป 4 กี่เปอร์เซ็นต์",
                       "ใครเสี่ยงตกชั้นมากที่สุด", "ทีมไหนจะตกชั้น", "Who will be relegated this season?",
