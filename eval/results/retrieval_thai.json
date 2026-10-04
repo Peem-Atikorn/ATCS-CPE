@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-04T17:37:49.442+07:00",
+  "generated_at": "2026-10-04T20:31:59.481+07:00",
   "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
   "golden_file": "eval/golden_thai.jsonl",
   "questions": {
@@ -30,9 +30,9 @@
       "variant": "raw",
       "mode": "bm25",
       "n": 28,
-      "hit@1": 0.32142857142857145,
+      "hit@1": 0.35714285714285715,
       "hit@5": 0.6428571428571429,
-      "mrr": 0.4761904761904762,
+      "mrr": 0.49404761904761907,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -43,7 +43,7 @@
       "n": 28,
       "hit@1": 0.10714285714285714,
       "hit@5": 0.5714285714285714,
-      "mrr": 0.32080627705627707,
+      "mrr": 0.32318722943722944,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -54,7 +54,7 @@
       "n": 28,
       "hit@1": 0.0,
       "hit@5": 0.10714285714285714,
-      "mrr": 0.057904411764705885,
+      "mrr": 0.051952030812324926,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -74,9 +74,9 @@
       "variant": "routed",
       "mode": "hybrid",
       "n": 28,
-      "hit@1": 0.6785714285714286,
+      "hit@1": 0.7142857142857143,
       "hit@5": 0.9285714285714286,
-      "mrr": 0.7914377289377289,
+      "mrr": 0.8182234432234432,
       "router_miss": 0,
       "rules_undecided": 2
     },
@@ -85,9 +85,9 @@
       "variant": "routed",
       "mode": "vector",
       "n": 28,
-      "hit@1": 0.6428571428571429,
+      "hit@1": 0.6071428571428571,
       "hit@5": 0.7857142857142857,
-      "mrr": 0.7023809523809524,
+      "mrr": 0.6797619047619048,
       "router_miss": 0,
       "rules_undecided": 2
     },
@@ -96,9 +96,9 @@
       "variant": "raw",
       "mode": "bm25",
       "n": 20,
-      "hit@1": 0.35,
+      "hit@1": 0.4,
       "hit@5": 0.5,
-      "mrr": 0.4125,
+      "mrr": 0.4375,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -109,7 +109,7 @@
       "n": 20,
       "hit@1": 0.0,
       "hit@5": 0.4,
-      "mrr": 0.20708333333333334,
+      "mrr": 0.21958333333333332,
       "router_miss": 0,
       "rules_undecided": 0
     },
@@ -129,9 +129,9 @@
       "variant": "routed",
       "mode": "bm25",
       "n": 20,
-      "hit@1": 0.95,
+      "hit@1": 1.0,
       "hit@5": 1.0,
-      "mrr": 0.975,
+      "mrr": 1.0,
       "router_miss": 0,
       "rules_undecided": 6
     },
@@ -142,7 +142,7 @@
       "n": 20,
       "hit@1": 0.7,
       "hit@5": 1.0,
-      "mrr": 0.8375,
+      "mrr": 0.85,
       "router_miss": 0,
       "rules_undecided": 6
     },
@@ -272,9 +272,9 @@
       "variant": "routed",
       "mode": "hybrid",
       "n": 39,
-      "hit@1": 0.358974358974359,
+      "hit@1": 0.3333333333333333,
       "hit@5": 0.717948717948718,
-      "mrr": 0.5033968880122727,
+      "mrr": 0.49057637519175984,
       "router_miss": 0,
       "rules_undecided": 13
     },
@@ -658,8 +658,8 @@
         "trivia-1775"
       ],
       "top5": [
-        "hist-club-liverpool",
         "hist-records",
+        "hist-club-liverpool",
         "trivia-0034",
         "trivia-0294",
         "trivia-0989"
