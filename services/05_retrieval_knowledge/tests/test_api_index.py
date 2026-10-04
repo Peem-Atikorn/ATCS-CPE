@@ -430,6 +430,8 @@ HISTORICAL_DOC: dict[str, Any] = {
             "topic": "head_to_head",
             "season": None,
         },
+        {"doc_id": "hist-club-leicester-city", "topic": "club_record", "season": None},
+        {"doc_id": "hist-records", "topic": "league_records", "season": None},
     ],
 )
 async def test_historical_documents_are_accepted_and_filterable(
@@ -453,6 +455,9 @@ async def test_historical_documents_are_accepted_and_filterable(
         "hist-team-2004-Arsenal",
         "hist-team-2004",
         "hist-h2h-arsenal_chelsea",
+        "hist-club-",
+        "hist-records-2025",
+        "hist-club-Leicester",
         "trivia-0001",
     ],
 )
