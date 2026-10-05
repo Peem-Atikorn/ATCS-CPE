@@ -430,6 +430,36 @@ class DecisionTests(unittest.TestCase):
         self.assertFalse(resolve_clarify_reply("2024/25", deep, TEAMS).startswith("แชมป์ปี 2025"))
 
     # Minors left in PR #64 (2026-10-05).
+    # Final review 2026-10-05 (clarify replies).
+    def test_a_new_question_in_the_chain_starts_a_new_chain(self):
+        year = title_year_clarify(2025, False)[0]
+        history = [{"role": "user", "content": "แชมป์ปี 2025 คือทีมไหน"}, {"role": "assistant", "content": year},
+                   {"role": "user", "content": "ได้แชมป์กี่สมัย"}, {"role": "assistant", "content": team_clarify()[0]}]
+        self.assertEqual(resolve_clarify_reply("อาร์เซนอล", history, TEAMS), "ได้แชมป์กี่สมัย อาร์เซนอล")
+        history = [{"role": "user", "content": "ได้แชมป์กี่สมัย"}, {"role": "assistant", "content": team_clarify()[0]},
+                   {"role": "user", "content": "แชมป์ปี 2016 คือทีมไหน"},
+                   {"role": "assistant", "content": title_year_clarify(2016, False)[0]}]
+        self.assertEqual(resolve_clarify_reply("อันแรก", history, TEAMS), "แชมป์ปี 2016 คือทีมไหน 2015/16 พรีเมียร์ลีก")
+
+    def test_ordinary_follow_up_words_keep_the_all_time_route(self):
+        newcastle = [{"role": "user", "content": "นิวคาสเซิลได้แชมป์พรีเมียร์ลีกกี่สมัย"}, {"role": "assistant", "content": "0"}]
+        for query in ("จบอันดับดีที่สุดคืออันดับอะไร", "แล้วจบอันดับดีที่สุดปีไหน", "แล้วจบอันดับดีที่สุดอันดับไหน",
+                      "แล้วจบอันดับดีที่สุดเท่าไหร่หรอ", "แล้วทีมนี้จบอันดับดีที่สุดเท่าไหร่",
+                      "แล้วเขาจบอันดับดีที่สุดเท่าไหร่", "what's their best finish?", "and their best finish so far?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, newcastle, TEAMS)
+                self.assertEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+
+    def test_a_competition_reply_with_the_asked_year_is_merged(self):
+        asked = self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0])
+        for reply in ("FA Cup 2025", "เอฟเอคัพปี 2025", "พรีเมียร์ลีกปี 2025"):
+            with self.subTest(reply=reply):
+                self.assertEqual(resolve_clarify_reply(reply, asked, TEAMS), f"แชมป์ปี 2025 คือทีมไหน {reply}")
+
+    def test_championships_are_titles_not_the_second_tier(self):
+        decision = decide("Which club has won the most league championships since 1992?", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.filters if decision else None, {"category": ["historical"]})
+
     def test_pr64_minors(self):
         arsenal = [{"role": "user", "content": "อาร์เซนอลได้แชมป์กี่สมัย"}, {"role": "assistant", "content": "4 สมัย"}]
         decision = decide("แล้วบุรีรัมย์จบอันดับดีที่สุดเท่าไหร่", CONTEXT, arsenal, TEAMS)

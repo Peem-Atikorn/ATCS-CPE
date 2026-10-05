@@ -36,7 +36,8 @@ PL_ABBR = re.compile(r"(?<![a-z])pl(?![a-z])")  # also "แชมป์plปี 
 PERSON_TITLE = re.compile(
     r"แชมป์[^?]*กับ|สมัย[^?]*กับ|อยู่กับ[^?]*แชมป์|\b(?:titles?|trophies|won|win)\b[^?]*\b(?:with|at)\b")
 # Leagues below the Premier League: their relegations are not the Premier League record.
-OTHER_LEAGUE_WORDS = ("championship", "แชมเปียนชิพ", "league one", "league two", "ลีกวัน", "ลีกทู")
+OTHER_LEAGUE_WORDS = ("แชมเปียนชิพ", "league one", "league two", "ลีกวัน", "ลีกทู")
+OTHER_LEAGUE_EN = re.compile(r"\bchampionship\b")  # singular: "championships" are titles
 WOMEN_TEAM = re.compile(r"หญิง|\bwomen\b")
 # A two-club comparison also reads "แชมป์…กับ" in Thai (no spaces); it stays a club record question.
 COMPARISON_WORDS = ("ระหว่าง", "เทียบกับ", "compared with", "compared to")
@@ -619,7 +620,7 @@ def _range_question(text: str) -> bool:
 def _range_topic(text: str, current_season: str | None) -> str | None:
     """Titles or table records over a span of past seasons; None leaves the question to the other rules."""
     if (not _range_question(text) or _has(text, (*OTHER_TITLE_WORDS, *SCORER_WORDS, *OTHER_LEAGUE_WORDS))
-            or _has(text, NOW_WORDS)):
+            or OTHER_LEAGUE_EN.search(text) or _has(text, NOW_WORDS)):
         return None
     if current_season and min(int(year) for year in YEAR.findall(text)) >= int(current_season):
         return None  # the archive ends last season
@@ -633,14 +634,14 @@ def _range_topic(text: str, current_season: str | None) -> str | None:
 SUBJECT_FILLER_TH = tuple(sorted((
     "แล้ว", "จบอันดับ", "จบ", "อันดับ", "ดีที่สุด", "แย่ที่สุด", "สูงสุด", "ต่ำสุด", "เท่าไหร่", "เท่าไร", "ที่", "ใน",
     "พรีเมียร์ลีก", "ลีก", "เคย", "ได้", "กี่", "ครับ", "คะ", "ค่ะ", "นะ", "ล่ะ", "ของ", "ทีม", "แต้ม", "รวม", "ทั้งหมด",
-    "ไหม", "มั้ย", "อยู่"), key=len, reverse=True))
-SUBJECT_FILLER_EN = re.compile(r"\b(?:what|was|is|their|its|the|best|worst|highest|lowest|ever|finish(?:ed)?|"
-                               r"position|in|premier|league|and|then|how|about|points|total|all[- ]time)\b")
+    "ไหม", "มั้ย", "อยู่", "คือ", "อะไร", "ไหน", "ปี", "หรอ", "เหรอ", "นี้", "พวกเขา", "เขา"), key=len, reverse=True))
+SUBJECT_FILLER_EN = re.compile(r"\b(?:what|was|is|their|they|its|the|best|worst|highest|lowest|ever|finish(?:ed)?|"
+                               r"position|in|premier|league|and|then|how|about|points|total|all[- ]time|so|far)\b")
 
 
 def _names_another_subject(text: str) -> bool:
     """Words left after the finish-question filler name a subject of their own (another club)."""
-    rest = SUBJECT_FILLER_EN.sub(" ", YEAR.sub(" ", text))
+    rest = SUBJECT_FILLER_EN.sub(" ", YEAR.sub(" ", text.replace("'s", " ")))
     for word in SUBJECT_FILLER_TH:
         rest = rest.replace(word, " ")
     return bool(re.search(r"[a-zก-๙]", rest))
@@ -737,7 +738,9 @@ def _clarify_chain(history: list[dict]) -> tuple[str, list[tuple[str, str]], str
     if not asked_text.startswith(CLARIFY_PREFIXES):
         return None
     index, earlier = len(history) - 2, []
+    # A user turn that is itself a question starts its own chain: the walk stops there.
     while (index >= 2 and len(earlier) < 2 and history[index].get("role") == "user"
+           and not _is_a_question(str(history[index].get("content") or ""))
            and history[index - 1].get("role") == "assistant"
            and str(history[index - 1].get("content") or "").startswith(CLARIFY_PREFIXES)):
         earlier.insert(0, (str(history[index].get("content") or "").strip(),
@@ -746,6 +749,13 @@ def _clarify_chain(history: list[dict]) -> tuple[str, list[tuple[str, str]], str
     if history[index].get("role") != "user":
         return None
     return str(history[index].get("content") or "").strip(), earlier, asked_text
+
+
+def _is_a_question(text: str) -> bool:
+    """The gate a reply must pass, inverted: too long, a title question or question words."""
+    lowered = REPLY_TAIL.sub("", text.strip()).lower()
+    return (len(lowered) > 40 or _title_question(lowered)
+            or _has(lowered, (*REPLY_QUESTION_WORDS, *REPLY_TOPIC_WORDS)))
 
 
 def _league_suffix(asked_text: str) -> str:
@@ -767,7 +777,9 @@ def resolve_clarify_reply(query: str, history: list[dict], teams: TeamDirectory 
         return None
     team_question = asked_text.startswith(("หมายถึงแชมป์ของทีมไหนครับ", "Which club do you mean?"))
     choice = None if team_question else _season_choice(lowered, asked_text)
-    if choice is None and not team_question and (YEAR.search(lowered) or SEASON_SPAN.search(lowered)):
+    names_competition = _has(lowered, (*OTHER_TITLE_WORDS, *PL_WORDS))
+    if (choice is None and not team_question and not names_competition
+            and (YEAR.search(lowered) or SEASON_SPAN.search(lowered))):
         return None  # "จบปี 2023" or "หลังปี 2010" names a year but picks neither offered season
     if choice is None and not _answers_the_question_back(lowered, asked_text, teams):
         return None
