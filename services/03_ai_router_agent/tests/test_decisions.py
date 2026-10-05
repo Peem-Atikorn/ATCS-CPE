@@ -429,6 +429,30 @@ class DecisionTests(unittest.TestCase):
         deep.append({"role": "assistant", "content": first})
         self.assertFalse(resolve_clarify_reply("2024/25", deep, TEAMS).startswith("แชมป์ปี 2025"))
 
+    # Minors left in PR #64 (2026-10-05).
+    def test_pr64_minors(self):
+        arsenal = [{"role": "user", "content": "อาร์เซนอลได้แชมป์กี่สมัย"}, {"role": "assistant", "content": "4 สมัย"}]
+        decision = decide("แล้วบุรีรัมย์จบอันดับดีที่สุดเท่าไหร่", CONTEXT, arsenal, TEAMS)
+        self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+        self.assertEqual(decide("แล้วจบอันดับดีที่สุดเท่าไหร่", CONTEXT, arsenal, TEAMS).reasoning, "คำถามสถิติทั้งยุค")
+        decision = decide("อาร์เซนอลได้แชมป์ปี 1942 ไหม", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.filters, {"category": ["historical"]})
+        self.assertIn("Second World War", decision.rewritten_query)
+        self.assertTrue(decision.rewritten_query.startswith("Arsenal FC "))
+        decision = decide("ตั้งแต่ปี 2000 ทีมไหนตกชั้นบ่อยสุดในแชมเปียนชิพ", CONTEXT, [], TEAMS)
+        self.assertNotIn("relegations most relegated", (decision.rewritten_query or "") if decision else "")
+        english = self.clarify_history("Who were the champions in 1990?", title_year_clarify(1990, False)[1])
+        self.assertTrue(resolve_clarify_reply("1989/90", english, TEAMS).endswith(" English top-flight"))
+        self.assertEqual(decide("แชมป์plปี 2016 คือทีมไหน", CONTEXT, [], TEAMS).clarify_text,
+                         title_year_clarify(2016, True)[0])
+        decision = decide("plus size kit Arsenal", CONTEXT, [], TEAMS)
+        self.assertNotEqual(decision.route if decision else None, "clarify")
+        for query in ("ซาลาห์ได้แชมป์ พรีเมียร์ลีก กับลิเวอร์พูลกี่สมัย", "ซาลาห์อยู่กับลิเวอร์พูลได้แชมป์กี่สมัย",
+                      "How many titles did Salah win at Liverpool?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(decision.record_team_ids if decision else [], [])
+
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters.get("season"), "2015")
