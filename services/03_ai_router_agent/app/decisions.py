@@ -657,6 +657,16 @@ def _champions_by_year(text: str, current_season: str | None) -> bool:
     return not (current_season and years and max(years) > int(current_season))
 
 
+def _champions_by_year_prefix(text: str) -> str:
+    """By the year, not the user's wording: 1992 offers 1991/92 (First Division) and 1992/93 (Premier League)."""
+    match = re.search(r"champions by year ((?:19|20)\d{2})", text)
+    year = int(match.group(1)) if match else 9999
+    first_division = "English top-flight First Division champions"
+    if year < 1992:
+        return first_division
+    return f"{first_division} Premier League" if year == 1992 else "Premier League"
+
+
 def _war_title_year(text: str, found: list) -> int | None:
     """A title question for a year without a top-flight season (clubs allowed)."""
     if not _title_question(text) or len(found) > 2 or _has(text, (*OTHER_TITLE_WORDS, *OTHER_LEAGUE_WORDS)):
@@ -712,10 +722,13 @@ def _answers_the_question_back(reply: str, asked_text: str, teams: TeamDirectory
 
 OFFERED_SEASONS = re.compile(r"(?<!\d)(\d{4}/\d{2})(?!\d)")
 REPLY_TAIL = re.compile(r"(?:\s*(?:ครับ|คับ|ค่ะ|คะ|นะ|จ้า|[?!.]))+\s*$")
-# Anchored: "ก่อนจบปี 2025" is not "the season that ended in 2025", "ทั้งสองทีม" is not both seasons.
-ENDED_REPLY = re.compile(r"^(?:(?:ฤดูกาล|ซีซั่น)(?:ที่)?)?(?:จบ(?:ปี)?|ended(?: in)?|ending)\s*((?:19|20)\d{2})$")
-BEGAN_REPLY = re.compile(r"^(?:(?:ฤดูกาล|ซีซั่น)(?:ที่)?)?(?:เริ่ม(?:ปี)?|began(?: in)?|starting|start)\s*((?:19|20)\d{2})$")
-BOTH_REPLY = re.compile(r"^(?:ทั้งสอง|ทั้งคู่)\s*(?:ฤดูกาล|ซีซั่น|ปี)?$|^both(?: seasons?)?$")
+# Fillers around the answer are fine ("ที่จบปี 2025", "both of them"); "before/after the end" and
+# "both teams" are not a choice between the two seasons.
+ENDED_REPLY = re.compile(r"(?:จบ(?:ปี)?|ended(?: in)?|ending)\s*((?:19|20)\d{2})")
+BEGAN_REPLY = re.compile(r"(?:เริ่ม(?:ปี)?|began(?: in)?|starting|start(?:ed)?(?: in)?)\s*((?:19|20)\d{2})")
+NOT_A_SEASON_EDGE = re.compile(r"(?:ก่อน|หลัง|before|after)\s*(?:the\s*)?(?:จบ|เริ่ม|end|start|began)")
+BOTH_REPLY = ("ทั้งสอง", "ทั้งคู่", "both")
+NOT_BOTH_SEASONS = ("ทีม", "team", "club", "สโมสร", "นัด", "match")
 FIRST_REPLY = re.compile(r"^(?:อัน|ตัว|อย่าง)?แรก$|^(?:the )?(?:first|former)$")
 SECOND_REPLY = re.compile(r"^(?:อัน|ตัว)?หลัง$|^อันที่สอง$|^(?:the )?(?:second|latter)$")
 
@@ -730,11 +743,13 @@ def _season_choice(reply: str, asked_text: str) -> str | None:
     span = SEASON_SPAN.search(reply)
     if span:
         return span.group(0).replace(" ", "")
+    if NOT_A_SEASON_EDGE.search(reply):
+        return None
     for pattern, season in ((ENDED_REPLY, ended), (BEGAN_REPLY, began)):
         match = pattern.search(reply)
         if match:
             return season if int(match.group(1)) == year else None
-    if BOTH_REPLY.search(reply):
+    if _has(reply, BOTH_REPLY) and not _has(reply, NOT_BOTH_SEASONS):
         return "both"
     if FIRST_REPLY.search(reply):
         return ended
@@ -883,10 +898,7 @@ def _decide(query: str, context: dict, history: list[dict], teams: TeamDirectory
     if archive_rule and _champions_by_year(text, context.get("season")):
         decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "แชมป์ตามปี",
                                    {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
-        # The archive's "champions by year" sections start in 1992; earlier years are First Division seasons.
-        top_flight = _has(text, ("ลีกสูงสุดอังกฤษ", "english top-flight"))
-        prefix = "English top-flight First Division champions" if top_flight else "Premier League"
-        decision.rewritten_query = f"{prefix} {query.strip()}"
+        decision.rewritten_query = f"{_champions_by_year_prefix(text)} {query.strip()}"
         return decision
     # A club from the history counts only when this question names no other subject ("แล้วบุรีรัมย์…").
     team_known = bool(found) or (not _names_another_subject(text) and any(
