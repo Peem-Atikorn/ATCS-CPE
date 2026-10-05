@@ -4,8 +4,8 @@ import time
 from .chat import STEP_TIMEOUT as CHAT_STEP_TIMEOUT
 from .chat import favorite_name, system_prompt, template, user_message, validate_reply
 from .condense import _strict, condense_enabled, needs_condense, rules_resolved, validate
-from .decisions import (HISTORICAL, MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
-                        historical_scorer_season, league_wide_scorer_query, normalize_thai,
+from .decisions import (HISTORICAL, MATCHWEEK_PATTERN, classify_intent, club_record_team_ids, decide, enrich,
+                        from_intent, historical_scorer_season, league_wide_scorer_query, normalize_thai,
                         prediction_kind, resolve_clarify_reply)
 from .prediction_text import (NEEDS_TEAM_TEXT, TEAM_NOT_FOUND_TEXT, UNAVAILABLE_TEXT,
                               match_prediction_text, simulation_focus, summarize_simulation)
@@ -275,6 +275,9 @@ class Router:
                     return finish(answer or template(kind, language), "chat", decision.confidence,
                                   decision.reasoning)
 
+                if decision.route == "football_rag" and not decision.record_team_ids:
+                    # A classifier decision never passed through decide(): mark its club record question here.
+                    decision.record_team_ids = club_record_team_ids(decision, routing_query)
                 if decision.route == "football_rag":
                     chunks = []
                     retrieval_down = False

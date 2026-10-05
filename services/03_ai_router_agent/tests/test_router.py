@@ -325,6 +325,16 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         await self.run_query("เชลซีกับอาร์เซนอลใครได้แชมป์พรีเมียร์ลีกเยอะกว่า")
         self.assertEqual(self.context_docs(), ["hist-club-chelsea", "hist-club-arsenal"])
 
+    # Live chat test 2026-10-05: the rules leave this one to the classifier, which never marked the clubs.
+    async def test_classified_club_record_questions_search_each_club(self):
+        self.clients.classifier = {"data": {"label": "trivia_history", "score": 0.95}}
+        self.clients.chunks = [archive_chunk("hist-records")]
+        self.clients.record_chunks = {63: [archive_chunk("hist-club-fulham")],
+                                      71: [archive_chunk("hist-club-sunderland")]}
+        result = await self.run_query("ฟูแล่มกับซันเดอร์แลนด์ใครตกชั้นจากพรีเมียร์ลีกบ่อยกว่า")
+        self.assertEqual(result["trace"]["record_search"], [63, 71])
+        self.assertEqual(self.context_docs(), ["hist-club-fulham", "hist-club-sunderland", "hist-records"])
+
     async def test_other_questions_search_once(self):
         self.clients.chunks = [archive_chunk("hist-h2h-arsenal-chelsea")]
         result = await self.run_query("อาร์เซนอลเคยชนะเชลซีกี่ครั้ง")
