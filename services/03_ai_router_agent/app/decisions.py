@@ -24,6 +24,10 @@ PLAYER_WORDS = ("นักเตะ", "ผู้เล่น", "สควอด"
                 "โค้ช", "ผู้จัดการทีม", "กุนซือ", "ตำแหน่งอะไร", "เล่นตำแหน่ง", "อายุเท่า", "สัญชาติ",
                 "squad", "players", "who plays for", "head coach", "manager of", "coach of",
                 "how old is", "nationality")
+# CONTRACT v1.16: head coach documents come from Wikidata; their questions get their own search text.
+COACH_WORDS_TH = ("โค้ช", "ผู้จัดการทีม", "กุนซือ", "เฮดโค้ช", "ผู้ฝึกสอน")
+COACH_WORDS_EN = re.compile(r"\b(?:head coach|coach(?:es|ed)?|manager)\b")
+NOT_COACH_WORDS = ("general manager", "manager of the month", "assistant", "ผู้ช่วย")
 # Goal and table questions stay with the scorer/standings rules or fall through to the LLM.
 NOT_PLAYER_WORDS = ("ยิง", "ทำประตู", "กี่ประตู", "กี่ลูก", "ตาราง", "goals", "scored", "assist",
                     "table")
@@ -435,6 +439,8 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
     if _has(text, ("ตารางคะแนน", "จ่าฝูง", "อันดับ", "กี่แต้ม", "standings", "points", "top of the table",
                    "league table")):
         return "standings_stats"
+    if coach_question(text):
+        return "player_info"
     if (_has(text, PLAYER_WORDS) or re.search(r"\bposition\b.*\bplay", text)) and not _has(
             text, NOT_PLAYER_WORDS):
         return "player_info"
@@ -448,6 +454,13 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
     if _has(text, INTERNATIONAL_WORDS):
         return "trivia_history"
     return None
+
+
+def coach_question(text: str) -> bool:
+    text = text.lower()
+    if _has(text, NOT_COACH_WORDS):
+        return False
+    return _has(text, COACH_WORDS_TH) or bool(COACH_WORDS_EN.search(text))
 
 
 def _competition_names(query: str) -> str:
@@ -545,6 +558,11 @@ def enrich(decision: Decision, query: str, context: dict, history: list[dict], t
             decision.filters["matchweek"] = int(context["current_matchweek"])
         decision.rewritten_query = _rewrite(query, decision.intent,
                                             [team.short_name for team in found], decision.filters)
+        if decision.intent == "player_info" and found and coach_question(query):
+            season = decision.filters.get("season")
+            label = _season_label(int(season)) if season else ""
+            decision.rewritten_query = " ".join(
+                part for part in (*(team.name for team in found), "head coach manager", label, query.strip()) if part)
     return decision
 
 

@@ -282,6 +282,30 @@ class DecisionTests(unittest.TestCase):
                 decision = decide(query, CONTEXT, [], TEAMS)
                 self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
 
+    # Coach questions (CONTRACT v1.16): the head coach document, not the squad list, should lead.
+    def test_coach_questions_search_the_head_coach_document(self):
+        spurs = [{"role": "user", "content": "สเปอร์สได้แชมป์กี่สมัย"}, {"role": "assistant", "content": "ยังไม่เคย"}]
+        cases = [
+            ("ตอนนี้ใครทำหน้าที่เป็นโค้ชของ Man United", [], "Manchester United FC head coach manager 2026/27 "),
+            ("โค้ชลิเวอร์พูลคือใคร", [], "Liverpool FC head coach manager 2026/27 "),
+            ("ใครเป็นผู้จัดการทีมอาร์เซนอล", [], "Arsenal FC head coach manager 2026/27 "),
+            ("กุนซือแมนซิตี้ชื่ออะไร", [], "Manchester City FC head coach manager 2026/27 "),
+            ("แล้วโค้ชล่ะ", spurs, "Tottenham Hotspur FC head coach manager 2026/27 "),
+            ("Who is the Chelsea manager?", [], "Chelsea FC head coach manager 2026/27 "),
+            ("Who coaches Arsenal?", [], "Arsenal FC head coach manager 2026/27 "),
+        ]
+        for query, history, start in cases:
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, history, TEAMS)
+                self.assertEqual(decision.intent, "player_info")
+                self.assertTrue(decision.rewritten_query.startswith(start), decision.rewritten_query)
+        for query in ("Who won Manager of the Month?", "Who is Arsenal's general manager?",
+                      "ใครเป็นโค้ชที่อยู่นานที่สุด", "Who is Arsenal's assistant coach?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                rewrite = decision.rewritten_query if decision else ""
+                self.assertNotIn("head coach manager", rewrite or "")
+
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters.get("season"), "2015")
