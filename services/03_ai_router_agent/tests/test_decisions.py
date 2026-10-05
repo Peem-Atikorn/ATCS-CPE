@@ -316,6 +316,56 @@ class DecisionTests(unittest.TestCase):
                 decision = decide(query, CONTEXT, [], TEAMS)
                 self.assertNotIn("head coach manager", (decision.rewritten_query or "") if decision else "")
 
+    # Review minors 2026-10-05.
+    def test_pl_means_the_premier_league_as_a_whole_word(self):
+        self.assertEqual(decide("Who won the PL in 2016?", CONTEXT, [], TEAMS).clarify_text,
+                         title_year_clarify(2016, True)[0])
+        decision = decide("Who are Arsenal's players?", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.intent, "player_info")
+
+    def test_a_season_reply_before_1992_names_the_top_flight(self):
+        asked = self.clarify_history("แชมป์ปี 1990 คือทีมไหน", title_year_clarify(1990, False)[0])
+        self.assertEqual(resolve_clarify_reply("1989/90", asked, TEAMS), "แชมป์ปี 1990 คือทีมไหน 1989/90 ลีกสูงสุดอังกฤษ")
+
+    def test_person_and_women_title_questions_do_not_search_club_records(self):
+        for query in ("ซาลาห์ได้แชมป์กับลิเวอร์พูลกี่สมัย", "เป๊ปได้แชมป์กับแมนซิตี้กี่สมัย",
+                      "How many titles has Arteta won with Arsenal?", "Arsenal women titles",
+                      "ทีมหญิงอาร์เซนอลได้แชมป์กี่สมัย"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(decision.record_team_ids if decision else [], [])
+        self.assertEqual(decide("เชลซีกับอาร์เซนอลใครได้แชมป์พรีเมียร์ลีกเยอะกว่า", CONTEXT, [], TEAMS).record_team_ids,
+                         [61, 57])
+
+    def test_other_staff_do_not_get_the_head_coach_search(self):
+        for query in ("Who is Arsenal's goalkeeper coach?", "Who is the Arsenal kit manager?",
+                      "โค้ชผู้รักษาประตูของอาร์เซนอลคือใคร"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotIn("head coach manager", (decision.rewritten_query or "") if decision else "")
+
+    def test_an_unknown_club_finish_is_not_a_premier_league_record(self):
+        decision = decide("บุรีรัมย์จบอันดับดีที่สุดเท่าไหร่", CONTEXT, [], TEAMS)
+        self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+        self.assertEqual(decide("อาร์เซนอลจบอันดับแย่ที่สุดอันดับเท่าไหร่", CONTEXT, [], TEAMS).reasoning,
+                         "คำถามสถิติทั้งยุค")
+
+    def test_a_relegation_range_searches_the_relegation_record(self):
+        decision = decide("ตั้งแต่ปี 2000 ทีมไหนตกชั้นบ่อยสุด", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.filters, {"category": ["historical"]})
+        self.assertTrue(decision.rewritten_query.startswith("Premier League relegations most relegated clubs"))
+
+    def test_war_years_are_not_asked_back(self):
+        for query, war in (("ใครได้แชมป์ลีกอังกฤษปี 1942", "Second World War"),
+                           ("แชมป์ปี 1917 คือทีมไหน", "First World War")):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((decision.route, decision.filters), ("football_rag", {"category": ["historical"]}))
+                self.assertIn(war, decision.rewritten_query)
+        for query in ("แชมป์ปี 1939 คือทีมไหน", "แชมป์ปี 1946 คือทีมไหน"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).route, "clarify")
+
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters.get("season"), "2015")
