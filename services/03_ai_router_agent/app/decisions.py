@@ -31,9 +31,13 @@ NOT_COACH_WORDS = ("general manager", "manager of the month", "assistant", "ผ�
                    "goalkeeping coach", "fitness coach", "kit manager", "youth", "academy",
                    "manager of the season", "โค้ชผู้รักษาประตู", "โค้ชฟิตเนส", "โค้ชทีมเยาวชน", "เยาวชน")
 # "pl" is the league only as a whole word ("players", "play" are not).
-PL_ABBR = re.compile(r"\bpl\b")
+PL_ABBR = re.compile(r"(?<![a-z])pl(?![a-z])")  # also "แชมป์plปี 2016"; Python's \b counts Thai as a word
 # A person's titles with a club, or the women's team, are not the club's record summary.
-PERSON_TITLE = re.compile(r"แชมป์\S*กับ|สมัย\S*กับ|\b(?:titles?|trophies|won)\b[^?]*\bwith\b")
+PERSON_TITLE = re.compile(
+    r"แชมป์[^?]*กับ|สมัย[^?]*กับ|อยู่กับ[^?]*แชมป์|\b(?:titles?|trophies|won|win)\b[^?]*\b(?:with|at)\b")
+# Leagues below the Premier League: their relegations are not the Premier League record.
+OTHER_LEAGUE_WORDS = ("แชมเปียนชิพ", "league one", "league two", "ลีกวัน", "ลีกทู")
+OTHER_LEAGUE_EN = re.compile(r"\bchampionship\b")  # singular: "championships" are titles
 WOMEN_TEAM = re.compile(r"หญิง|\bwomen\b")
 # A two-club comparison also reads "แชมป์…กับ" in Thai (no spaces); it stays a club record question.
 COMPARISON_WORDS = ("ระหว่าง", "เทียบกับ", "compared with", "compared to")
@@ -615,7 +619,8 @@ def _range_question(text: str) -> bool:
 
 def _range_topic(text: str, current_season: str | None) -> str | None:
     """Titles or table records over a span of past seasons; None leaves the question to the other rules."""
-    if not _range_question(text) or _has(text, (*OTHER_TITLE_WORDS, *SCORER_WORDS)) or _has(text, NOW_WORDS):
+    if (not _range_question(text) or _has(text, (*OTHER_TITLE_WORDS, *SCORER_WORDS, *OTHER_LEAGUE_WORDS))
+            or OTHER_LEAGUE_EN.search(text) or _has(text, NOW_WORDS)):
         return None
     if current_season and min(int(year) for year in YEAR.findall(text)) >= int(current_season):
         return None  # the archive ends last season
@@ -624,6 +629,30 @@ def _range_topic(text: str, current_season: str | None) -> str | None:
     if _title_question(text):
         return "titles"
     return "table" if _has(text, TABLE_WORDS_TH) or TABLE_WORDS_EN.search(text) else None
+
+
+SUBJECT_FILLER_TH = tuple(sorted((
+    "แล้ว", "จบอันดับ", "จบ", "อันดับ", "ดีที่สุด", "แย่ที่สุด", "สูงสุด", "ต่ำสุด", "เท่าไหร่", "เท่าไร", "ที่", "ใน",
+    "พรีเมียร์ลีก", "ลีก", "เคย", "ได้", "กี่", "ครับ", "คะ", "ค่ะ", "นะ", "ล่ะ", "ของ", "ทีม", "แต้ม", "รวม", "ทั้งหมด",
+    "ไหม", "มั้ย", "อยู่", "คือ", "อะไร", "ไหน", "ปี", "หรอ", "เหรอ", "นี้", "พวกเขา", "เขา"), key=len, reverse=True))
+SUBJECT_FILLER_EN = re.compile(r"\b(?:what|was|is|their|they|its|the|best|worst|highest|lowest|ever|finish(?:ed)?|"
+                               r"position|in|premier|league|and|then|how|about|points|total|all[- ]time|so|far)\b")
+
+
+def _names_another_subject(text: str) -> bool:
+    """Words left after the finish-question filler name a subject of their own (another club)."""
+    rest = SUBJECT_FILLER_EN.sub(" ", YEAR.sub(" ", text.replace("'s", " ")))
+    for word in SUBJECT_FILLER_TH:
+        rest = rest.replace(word, " ")
+    return bool(re.search(r"[a-zก-๙]", rest))
+
+
+def _war_title_year(text: str, found: list) -> int | None:
+    """A title question for a year without a top-flight season (clubs allowed)."""
+    if not _title_question(text) or len(found) > 2 or _has(text, OTHER_TITLE_WORDS):
+        return None
+    years = [int(year) for year in YEAR.findall(text)]
+    return years[0] if len(years) == 1 and years[0] in WAR_YEARS else None
 
 
 def _names_more_than_a_title(text: str) -> bool:
@@ -669,28 +698,104 @@ def _answers_the_question_back(reply: str, asked_text: str, teams: TeamDirectory
     return season
 
 
-def resolve_clarify_reply(query: str, history: list[dict], teams: TeamDirectory | None = None) -> str | None:
-    """Join a short answer to our question back with the question that needed it (no LLM)."""
-    reply = query.strip()
-    if not reply or len(reply) > 40 or len(history) < 2:
+OFFERED_SEASONS = re.compile(r"(?<!\d)(\d{4}/\d{2})(?!\d)")
+REPLY_TAIL = re.compile(r"(?:\s*(?:ครับ|คับ|ค่ะ|คะ|นะ|จ้า|[?!.]))+\s*$")
+ENDED_REPLY = re.compile(r"(?:จบ(?:ปี)?|ended(?: in)?|ending)\s*((?:19|20)\d{2})")
+BEGAN_REPLY = re.compile(r"(?:เริ่ม(?:ปี)?|began(?: in)?|starting|start)\s*((?:19|20)\d{2})")
+BOTH_REPLY = ("ทั้งสอง", "ทั้งคู่", "both")
+FIRST_REPLY = re.compile(r"^(?:อัน|ตัว|อย่าง)?แรก$|^(?:the )?(?:first|former)$")
+SECOND_REPLY = re.compile(r"^(?:อัน|ตัว)?หลัง$|^อันที่สอง$|^(?:the )?(?:second|latter)$")
+
+
+def _season_choice(reply: str, asked_text: str) -> str | None:
+    """A season answer to a year question back: a season, "both", or None."""
+    offered = OFFERED_SEASONS.findall(asked_text)[:2]
+    if len(offered) < 2:
         return None
-    asked, question = history[-1], history[-2]
-    if asked.get("role") != "assistant" or question.get("role") != "user":
+    ended, began = offered
+    year = int(began[:4])
+    span = SEASON_SPAN.search(reply)
+    if span:
+        return span.group(0).replace(" ", "")
+    for pattern, season in ((ENDED_REPLY, ended), (BEGAN_REPLY, began)):
+        match = pattern.search(reply)
+        if match:
+            return season if int(match.group(1)) == year else None
+    if _has(reply, BOTH_REPLY):
+        return "both"
+    if FIRST_REPLY.search(reply):
+        return ended
+    if SECOND_REPLY.search(reply):
+        return began
+    return None
+
+
+def _clarify_chain(history: list[dict]) -> tuple[str, list[tuple[str, str]], str] | None:
+    """The first question, the earlier (reply, question back) pairs and the latest question back."""
+    if len(history) < 2 or history[-1].get("role") != "assistant":
         return None
-    asked_text = str(asked.get("content") or "")
+    asked_text = str(history[-1].get("content") or "")
     if not asked_text.startswith(CLARIFY_PREFIXES):
         return None
+    index, earlier = len(history) - 2, []
+    # A user turn that is itself a question starts its own chain: the walk stops there.
+    while (index >= 2 and len(earlier) < 2 and history[index].get("role") == "user"
+           and not _is_a_question(str(history[index].get("content") or ""))
+           and history[index - 1].get("role") == "assistant"
+           and str(history[index - 1].get("content") or "").startswith(CLARIFY_PREFIXES)):
+        earlier.insert(0, (str(history[index].get("content") or "").strip(),
+                           str(history[index - 1].get("content") or "")))
+        index -= 2
+    if history[index].get("role") != "user":
+        return None
+    return str(history[index].get("content") or "").strip(), earlier, asked_text
+
+
+def _is_a_question(text: str) -> bool:
+    """The gate a reply must pass, inverted: too long, a title question or question words."""
+    lowered = REPLY_TAIL.sub("", text.strip()).lower()
+    return (len(lowered) > 40 or _title_question(lowered)
+            or _has(lowered, (*REPLY_QUESTION_WORDS, *REPLY_TOPIC_WORDS)))
+
+
+def _league_suffix(asked_text: str) -> str:
+    top_flight = "ลีกสูงสุดอังกฤษ" in asked_text or "English top-flight" in asked_text
+    if asked_text.startswith("Which competition do you mean?"):
+        return " English top-flight" if top_flight else " Premier League"
+    return " ลีกสูงสุดอังกฤษ" if top_flight else " พรีเมียร์ลีก"
+
+
+def resolve_clarify_reply(query: str, history: list[dict], teams: TeamDirectory | None = None) -> str | None:
+    """Join a short answer to our question back with the question that needed it (no LLM)."""
+    reply = REPLY_TAIL.sub("", query.strip())
+    chain = _clarify_chain(history)
+    if not reply or len(reply) > 40 or chain is None:
+        return None
+    first, earlier, asked_text = chain
     lowered = reply.lower()
     if _title_question(lowered) or _has(lowered, (*REPLY_QUESTION_WORDS, *REPLY_TOPIC_WORDS)):
         return None
-    if not _answers_the_question_back(lowered, asked_text, teams):
+    team_question = asked_text.startswith(("หมายถึงแชมป์ของทีมไหนครับ", "Which club do you mean?"))
+    choice = None if team_question else _season_choice(lowered, asked_text)
+    names_competition = _has(lowered, (*OTHER_TITLE_WORDS, *PL_WORDS))
+    if (choice is None and not team_question and not names_competition
+            and (YEAR.search(lowered) or SEASON_SPAN.search(lowered))):
+        return None  # "จบปี 2023" or "หลังปี 2010" names a year but picks neither offered season
+    if choice is None and not _answers_the_question_back(lowered, asked_text, teams):
         return None
-    merged = f"{str(question.get('content') or '').strip()} {reply}"
-    # "Which competition?" offered the Premier League seasons; a bare season answer means it.
-    if asked_text.startswith(COMPETITION_CLARIFY_PREFIXES) and not _has(lowered, (*OTHER_TITLE_WORDS, *PL_WORDS)):
-        # Before 1992/93 the question back offered the English top flight, not the Premier League.
-        top_flight = "ลีกสูงสุดอังกฤษ" in asked_text or "English top-flight" in asked_text
-        merged += " ลีกสูงสุดอังกฤษ" if top_flight else " พรีเมียร์ลีก"
+    parts = [first, *(answer for answer, asked in earlier
+                       if _answers_the_question_back(answer.lower(), asked, teams))]
+    if choice == "both":
+        parts.append(f"champions by year {int(OFFERED_SEASONS.findall(asked_text)[1][:4])}")
+    elif choice is not None:
+        parts.append(choice)
+    else:
+        parts.append(reply)
+    merged = " ".join(part for part in parts if part)
+    # "Which competition?" offered the league seasons; a bare season answer means that league.
+    if asked_text.startswith(COMPETITION_CLARIFY_PREFIXES) and not _has(
+            merged.lower(), (*OTHER_TITLE_WORDS, *PL_WORDS, "ลีกสูงสุดอังกฤษ", "english top-flight")):
+        merged += _league_suffix(asked_text)
     return merged
 
 
@@ -735,7 +840,7 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
 
 def _decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
             favorite_team_id: int | None = None) -> Decision | None:
-    text = PL_ABBR.sub("premier league", query.lower().strip())
+    text = PL_ABBR.sub(" premier league ", query.lower().strip()).strip()
     if not text:
         return Decision("clarify", None, "guard", 1.0, "ไม่มีคำถาม")
     matchweek = MATCHWEEK_PATTERN.search(text)
@@ -750,22 +855,32 @@ def _decide(query: str, context: dict, history: list[dict], teams: TeamDirectory
         return Decision("clarify", None, "guard", 1.0, "พบหลายทีมในคำถาม")
     intent = _intent(query, context.get("season"))
     archive_rule = intent not in ("out_of_scope", "prediction") and not FUTURE.search(text)
-    team_known = bool(found) or any(teams.find(str(item.get("content") or ""))
-                                    for item in history[-10:] if item.get("role") == "user")
+    # A "both seasons" reply: the champions-by-year section answers the two seasons at once.
+    if archive_rule and "champions by year" in text:
+        decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "แชมป์ตามปี",
+                                   {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
+        decision.rewritten_query = f"Premier League {query.strip()}"
+        return decision
+    # A club from the history counts only when this question names no other subject ("แล้วบุรีรัมย์…").
+    team_known = bool(found) or (not _names_another_subject(text) and any(
+        teams.find(str(item.get("content") or "")) for item in history[-10:] if item.get("role") == "user"))
     if archive_rule and all_time_table_question(text, team_known):
         decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "คำถามสถิติทั้งยุค",
                                    {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
         decision.rewritten_query = _record_rewrite(query, [team.short_name for team in found], "table")
         return decision
-    year = ambiguous_title_year(text, found) if archive_rule else None
-    if year in WAR_YEARS:
+    war_year = _war_title_year(text, found) if archive_rule else None
+    if war_year is not None:
         # No season ended or began that year: the archive says so, no question back.
-        span, war = WAR_YEARS[year]
+        span, war = WAR_YEARS[war_year]
         decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "ปีที่ไม่มีลีกช่วงสงคราม",
                                    {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
-        decision.rewritten_query = (f"English top-flight First Division champions {span} "
-                                    f"no First Division football {war} {query.strip()}")
+        decision.rewritten_query = " ".join([
+            *(team.name for team in found),
+            f"English top-flight First Division champions {span} no First Division football {war}",
+            query.strip()])
         return decision
+    year = ambiguous_title_year(text, found) if archive_rule else None
     if year is not None:
         thai, english = title_year_clarify(year, _has(text, PL_WORDS))
         return Decision("clarify", None, "guard", 0.9, "แชมป์ปีเดียวกำกวม",

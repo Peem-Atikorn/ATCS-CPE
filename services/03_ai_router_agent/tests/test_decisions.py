@@ -376,6 +376,113 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(query=query):
                 self.assertEqual(decide(query, CONTEXT, [], TEAMS).route, "clarify")
 
+    # Natural short replies and repeated questions back (2026-10-05).
+    def year_asks(self):
+        return {
+            "any": self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0]),
+            "league": self.clarify_history("แชมป์พรีเมียร์ลีกปี 2025 คือทีมไหน", title_year_clarify(2025, True)[0]),
+            "english": self.clarify_history("Who were the champions in 2025?", title_year_clarify(2025, False)[1]),
+        }
+
+    def test_natural_replies_pick_the_offered_season(self):
+        for reply, season in (("จบปี 2025", "2024"), ("ฤดูกาลที่จบปี 2025", "2024"), ("อันแรก", "2024"),
+                              ("first", "2024"), ("2024/25?", "2024"), ("24/25 ครับ", "2024"),
+                              ("เริ่มปี 2025", "2025"), ("อันหลัง", "2025"), ("second", "2025")):
+            for name, history in self.year_asks().items():
+                with self.subTest(reply=reply, asked=name):
+                    merged = resolve_clarify_reply(reply, history, TEAMS)
+                    self.assertIsNotNone(merged)
+                    self.assertEqual(decide(merged, CONTEXT, history, TEAMS).filters,
+                                     {"category": ["historical"], "season": season})
+
+    def test_both_seasons_search_the_champions_by_year(self):
+        for reply in ("ทั้งสองฤดูกาล", "both"):
+            for name, history in self.year_asks().items():
+                with self.subTest(reply=reply, asked=name):
+                    decision = decide(resolve_clarify_reply(reply, history, TEAMS), CONTEXT, history, TEAMS)
+                    self.assertEqual(decision.filters, {"category": ["historical"]})
+                    self.assertIn("champions by year 2025", decision.rewritten_query)
+        decision = decide("Premier League champions by year 2025", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.filters, {"category": ["historical"]})
+
+    def test_replies_that_do_not_answer_are_not_merged(self):
+        asks = self.year_asks()
+        for reply in ("จบปี 2023", "หลังปี 2010", "หลังจากนั้นล่ะ"):
+            with self.subTest(reply=reply):
+                self.assertIsNone(resolve_clarify_reply(reply, asks["any"], TEAMS))
+        team = self.clarify_history("ได้แชมป์กี่สมัย", team_clarify()[0])
+        self.assertIsNone(resolve_clarify_reply("อันแรก", team, TEAMS))
+
+    def test_a_second_question_back_keeps_the_first_question(self):
+        first = title_year_clarify(2025, False)[0]
+        history = [{"role": "user", "content": "แชมป์ปี 2025 คือทีมไหน"}, {"role": "assistant", "content": first},
+                   {"role": "user", "content": "พรีเมียร์ลีก"},
+                   {"role": "assistant", "content": title_year_clarify(2025, True)[0]}]
+        self.assertEqual(resolve_clarify_reply("2024/25", history, TEAMS),
+                         "แชมป์ปี 2025 คือทีมไหน พรีเมียร์ลีก 2024/25")
+        broken = [{"role": "user", "content": "แชมป์ปี 2025 คือทีมไหน"}, {"role": "assistant", "content": "สวัสดีครับ"},
+                  {"role": "user", "content": "อันแรก"}, {"role": "assistant", "content": first}]
+        self.assertEqual(resolve_clarify_reply("2024/25", broken, TEAMS), "อันแรก 2024/25 พรีเมียร์ลีก")
+        deep = [{"role": "user", "content": "แชมป์ปี 2025 คือทีมไหน"}]
+        for _ in range(4):
+            deep += [{"role": "assistant", "content": first}, {"role": "user", "content": "พรีเมียร์ลีก"}]
+        deep.append({"role": "assistant", "content": first})
+        self.assertFalse(resolve_clarify_reply("2024/25", deep, TEAMS).startswith("แชมป์ปี 2025"))
+
+    # Minors left in PR #64 (2026-10-05).
+    # Final review 2026-10-05 (clarify replies).
+    def test_a_new_question_in_the_chain_starts_a_new_chain(self):
+        year = title_year_clarify(2025, False)[0]
+        history = [{"role": "user", "content": "แชมป์ปี 2025 คือทีมไหน"}, {"role": "assistant", "content": year},
+                   {"role": "user", "content": "ได้แชมป์กี่สมัย"}, {"role": "assistant", "content": team_clarify()[0]}]
+        self.assertEqual(resolve_clarify_reply("อาร์เซนอล", history, TEAMS), "ได้แชมป์กี่สมัย อาร์เซนอล")
+        history = [{"role": "user", "content": "ได้แชมป์กี่สมัย"}, {"role": "assistant", "content": team_clarify()[0]},
+                   {"role": "user", "content": "แชมป์ปี 2016 คือทีมไหน"},
+                   {"role": "assistant", "content": title_year_clarify(2016, False)[0]}]
+        self.assertEqual(resolve_clarify_reply("อันแรก", history, TEAMS), "แชมป์ปี 2016 คือทีมไหน 2015/16 พรีเมียร์ลีก")
+
+    def test_ordinary_follow_up_words_keep_the_all_time_route(self):
+        newcastle = [{"role": "user", "content": "นิวคาสเซิลได้แชมป์พรีเมียร์ลีกกี่สมัย"}, {"role": "assistant", "content": "0"}]
+        for query in ("จบอันดับดีที่สุดคืออันดับอะไร", "แล้วจบอันดับดีที่สุดปีไหน", "แล้วจบอันดับดีที่สุดอันดับไหน",
+                      "แล้วจบอันดับดีที่สุดเท่าไหร่หรอ", "แล้วทีมนี้จบอันดับดีที่สุดเท่าไหร่",
+                      "แล้วเขาจบอันดับดีที่สุดเท่าไหร่", "what's their best finish?", "and their best finish so far?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, newcastle, TEAMS)
+                self.assertEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+
+    def test_a_competition_reply_with_the_asked_year_is_merged(self):
+        asked = self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0])
+        for reply in ("FA Cup 2025", "เอฟเอคัพปี 2025", "พรีเมียร์ลีกปี 2025"):
+            with self.subTest(reply=reply):
+                self.assertEqual(resolve_clarify_reply(reply, asked, TEAMS), f"แชมป์ปี 2025 คือทีมไหน {reply}")
+
+    def test_championships_are_titles_not_the_second_tier(self):
+        decision = decide("Which club has won the most league championships since 1992?", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.filters if decision else None, {"category": ["historical"]})
+
+    def test_pr64_minors(self):
+        arsenal = [{"role": "user", "content": "อาร์เซนอลได้แชมป์กี่สมัย"}, {"role": "assistant", "content": "4 สมัย"}]
+        decision = decide("แล้วบุรีรัมย์จบอันดับดีที่สุดเท่าไหร่", CONTEXT, arsenal, TEAMS)
+        self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+        self.assertEqual(decide("แล้วจบอันดับดีที่สุดเท่าไหร่", CONTEXT, arsenal, TEAMS).reasoning, "คำถามสถิติทั้งยุค")
+        decision = decide("อาร์เซนอลได้แชมป์ปี 1942 ไหม", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.filters, {"category": ["historical"]})
+        self.assertIn("Second World War", decision.rewritten_query)
+        self.assertTrue(decision.rewritten_query.startswith("Arsenal FC "))
+        decision = decide("ตั้งแต่ปี 2000 ทีมไหนตกชั้นบ่อยสุดในแชมเปียนชิพ", CONTEXT, [], TEAMS)
+        self.assertNotIn("relegations most relegated", (decision.rewritten_query or "") if decision else "")
+        english = self.clarify_history("Who were the champions in 1990?", title_year_clarify(1990, False)[1])
+        self.assertTrue(resolve_clarify_reply("1989/90", english, TEAMS).endswith(" English top-flight"))
+        self.assertEqual(decide("แชมป์plปี 2016 คือทีมไหน", CONTEXT, [], TEAMS).clarify_text,
+                         title_year_clarify(2016, True)[0])
+        decision = decide("plus size kit Arsenal", CONTEXT, [], TEAMS)
+        self.assertNotEqual(decision.route if decision else None, "clarify")
+        for query in ("ซาลาห์ได้แชมป์ พรีเมียร์ลีก กับลิเวอร์พูลกี่สมัย", "ซาลาห์อยู่กับลิเวอร์พูลได้แชมป์กี่สมัย",
+                      "How many titles did Salah win at Liverpool?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual(decision.record_team_ids if decision else [], [])
+
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters.get("season"), "2015")
