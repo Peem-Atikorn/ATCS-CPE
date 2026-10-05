@@ -277,7 +277,7 @@ class Router:
 
                 if decision.route == "football_rag" and not decision.record_team_ids:
                     # Any decision without record_team_ids (a classifier decision included) is checked here.
-                    decision.record_team_ids = club_record_team_ids(decision, routing_query)
+                    decision.record_team_ids = club_record_team_ids(decision, routing_query, self.teams)
                 if decision.route == "football_rag":
                     chunks = []
                     retrieval_down = False
