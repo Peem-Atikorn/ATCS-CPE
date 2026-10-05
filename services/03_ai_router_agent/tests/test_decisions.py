@@ -262,6 +262,22 @@ class DecisionTests(unittest.TestCase):
                 self.assertEqual(record_ids(query), [])
         self.assertEqual(record_ids("แล้วตอนนี้อยู่อันดับเท่าไหร่", city), [])
 
+    # Live chat test 2026-10-05: "แล้วจบอันดับดีที่สุดเท่าไหร่" after a Newcastle question read this season's table.
+    def test_a_best_or_worst_finish_is_all_time_without_the_league_named(self):
+        newcastle = [{"role": "user", "content": "นิวคาสเซิลได้แชมป์พรีเมียร์ลีกกี่สมัย"},
+                     {"role": "assistant", "content": "นิวคาสเซิล ยูไนเต็ดยังไม่เคยได้แชมป์พรีเมียร์ลีก"}]
+        decision = decide("แล้วจบอันดับดีที่สุดเท่าไหร่", CONTEXT, newcastle, TEAMS)
+        self.assertEqual((decision.intent, decision.filters, decision.record_team_ids),
+                         ("trivia_history", {"category": ["historical"]}, [67]))
+        for query in ("อาร์เซนอลจบอันดับแย่ที่สุดอันดับเท่าไหร่", "What is Liverpool's worst finish?"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).reasoning, "คำถามสถิติทั้งยุค")
+        for query in ("อาร์เซนอลจบอันดับดีที่สุดฤดูกาลนี้ได้ไหม", "บาร์เซโลน่าจบอันดับดีที่สุดในลาลีกาอันดับเท่าไหร่",
+                      "อาร์เซนอลจะจบอันดับดีที่สุดเท่าไหร่"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters.get("season"), "2015")

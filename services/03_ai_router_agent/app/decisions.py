@@ -555,10 +555,13 @@ def all_time_table_question(text: str) -> bool:
         return False
     if _has(text, ALL_TIME_TH) or ALL_TIME_EN.search(text):
         return True
+    # A best or worst finish is over finished seasons ("แล้วจบอันดับดีที่สุดเท่าไหร่" names no league).
+    superlative = _has(text, SUPERLATIVE_TH) or bool(SUPERLATIVE_EN.search(text))
+    if superlative and _has(text, ("จบ", "finish")) and not _has(text, OTHER_TITLE_WORDS):
+        return True
     if not _has(text, PL_WORDS):
         return False
-    superlative = _has(text, SUPERLATIVE_TH) or bool(SUPERLATIVE_EN.search(text))
-    return (superlative and _has(text, ("จบ", "finish"))) or _has(text, ("ทั้งหมด",)) or bool(TOTAL_EN.search(text))
+    return _has(text, ("ทั้งหมด",)) or bool(TOTAL_EN.search(text))
 
 
 def _title_question(text: str) -> bool:
