@@ -460,6 +460,42 @@ class DecisionTests(unittest.TestCase):
         decision = decide("Which club has won the most league championships since 1992?", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters if decision else None, {"category": ["historical"]})
 
+    # Minors left in PR #65 (2026-10-06).
+    def test_champions_by_year_stays_with_league_years(self):
+        for query in ("FA Cup champions by year", "champions by year 2027", "champions by year since 2000"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.reasoning if decision else None, "แชมป์ตามปี")
+        asked = self.clarify_history("แชมป์ปี 1990 คือทีมไหน", title_year_clarify(1990, False)[0])
+        decision = decide(resolve_clarify_reply("ทั้งสองฤดูกาล", asked, TEAMS), CONTEXT, asked, TEAMS)
+        self.assertTrue(decision.rewritten_query.startswith("English top-flight First Division champions"),
+                        decision.rewritten_query)
+
+    def test_war_years_in_other_leagues_are_not_the_top_flight(self):
+        for query in ("อาร์เซนอลได้แชมป์ลีกวันปี 1942 ไหม", "Did Arsenal win the Championship in 1942?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.reasoning if decision else None, "ปีที่ไม่มีลีกช่วงสงคราม")
+
+    def test_at_a_ground_is_still_the_clubs_own_record(self):
+        self.assertEqual(decide("How many titles have Arsenal won at the Emirates?", CONTEXT, [], TEAMS)
+                         .record_team_ids, [57])
+        self.assertEqual(decide("How many titles did Salah win at Liverpool?", CONTEXT, [], TEAMS)
+                         .record_team_ids, [])
+
+    def test_reply_edges(self):
+        asked = self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0])
+        for reply in ("ทั้งสองทีม", "ก่อนจบปี 2025"):
+            with self.subTest(reply=reply):
+                self.assertIsNone(resolve_clarify_reply(reply, asked, TEAMS))
+        year = title_year_clarify(2025, True)[0]
+        again = [{"role": "user", "content": "แชมป์พรีเมียร์ลีกปี 2025 คือทีมไหน"}, {"role": "assistant", "content": year},
+                 {"role": "user", "content": "2024/25"}, {"role": "assistant", "content": year}]
+        merged = resolve_clarify_reply("อันหลัง", again, TEAMS)
+        self.assertEqual(decide(merged, CONTEXT, again, TEAMS).filters.get("season"), "2025")
+        empty = [{"role": "user", "content": ""}, {"role": "assistant", "content": year}]
+        self.assertIsNone(resolve_clarify_reply("2024/25", empty, TEAMS))
+
     def test_pr64_minors(self):
         arsenal = [{"role": "user", "content": "อาร์เซนอลได้แชมป์กี่สมัย"}, {"role": "assistant", "content": "4 สมัย"}]
         decision = decide("แล้วบุรีรัมย์จบอันดับดีที่สุดเท่าไหร่", CONTEXT, arsenal, TEAMS)
