@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.15
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.16
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -102,7 +102,7 @@
 
 - `route`: `football_rag` | `general_ai` | `local_ai` | `clarify` | `decline` | `chat` (v1.12)
 - `category` (ของเอกสาร): `trivia` | `match_report` | `standings` | `fixtures` | `weekly_report` | `player` | `historical` (v1.11)
-- `origin`: `kb` | `football-data.org` | `api-football` | `generated` (เอกสารที่ LLM เขียน เช่น weekly report) | `openfootball` | `fjelstul` (v1.11 คลังย้อนหลังของ 07)
+- `origin`: `kb` | `football-data.org` | `api-football` | `generated` (เอกสารที่ LLM เขียน เช่น weekly report) | `openfootball` | `fjelstul` (v1.11 คลังย้อนหลังของ 07) · `wikidata` (v1.16 โค้ชคนปัจจุบันของ 07, CC0)
 - `topic` ของ `historical` (v1.11): `season_table` | `team_season` | `head_to_head` · (v1.13) `club_record` | `league_records`
 
 **ป้ายภาษาไทยบนหน้าเว็บ** (ห้ามโชว์ enum ดิบ):
@@ -525,7 +525,7 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | `standings` | `standings-<season>` | ล่าสุด 1 เอกสารต่อฤดูกาล ทับทุกครั้งที่ ingest; legacy `-mw<NN>` รองรับเฉพาะช่วง cleanup |
 | `fixtures` | `fixtures-<season>-team-<team_id>` | นัดที่เหลือของทีมนั้น ทับทุกครั้งที่ ingest |
 | `weekly_report` | `weekly-<season>-mw<NN>` | ที่มา `origin: generated` · **upsert เมื่อ publish เท่านั้น** และ delete เมื่อ unpublish (§7) |
-| `player` | `players-<season>-team-<team_id>` | (v1.5) squad ของทีมนั้น 1 เอกสารต่อทีม ทับทุกครั้งที่ ingest · `origin: football-data.org` · `matchweek: null` · `team_ids: [team_id]` · หัวข้อ `## <ชื่อผู้เล่น>` ต่อคน (05 ตัด 1 chunk ต่อคน) · 07 ส่งก็ต่อเมื่อเปิด `PLAYER_INDEX_ENABLED` |
+| `player` | `players-<season>-team-<team_id>` | (v1.5) squad ของทีมนั้น 1 เอกสารต่อทีม ทับทุกครั้งที่ ingest · `origin: football-data.org` · `matchweek: null` · `team_ids: [team_id]` · หัวข้อ `## <ชื่อผู้เล่น>` ต่อคน (05 ตัด 1 chunk ต่อคน) · 07 ส่งก็ต่อเมื่อเปิด `PLAYER_INDEX_ENABLED` · (v1.16) `coach-<season>-team-<team_id>` โค้ชคนปัจจุบันจาก Wikidata P286 1 เอกสารต่อทีม · `origin: wikidata` · topic `head_coach` · `matchweek: null` · `team_ids: [team_id]` · 07 ส่งเมื่อเปิด `COACH_INDEX_ENABLED` และทับทุกรอบที่ Wikidata ตอบสำเร็จ (ล้มแล้วคงเอกสารเดิม) |
 | `historical` | `hist-season-<YYYY>` · `hist-team-<YYYY>-<slug>` · `hist-h2h-<slug>-<slug>` · `hist-club-<slug>` · `hist-records` (v1.13) | (v1.11) คลังพรีเมียร์ลีก 1992/93 ถึงฤดูกาลที่แล้ว จาก 07 · slug = ตัวพิมพ์เล็ก ตัวเลข ขีด (h2h เรียงตามตัวอักษร) · ส่งเมื่อรัน `ingest_history.py --index` พร้อม `HISTORICAL_INDEX_ENABLED=true` เท่านั้น (ไม่อยู่ในตารางเวลา) · `season` = ปีเริ่มฤดูกาล (h2h, club, records = null) · (v1.13) `hist-club-<slug>` สรุปสถิติทั้งยุคของสโมสร `hist-records` แชมป์และตารางรวมตลอดกาลทั้งลีก คำนวณจากตารางจบฤดูกาล สถิติยุคพรีเมียร์ลีก และจำนวนแชมป์ลีกสูงสุดทุกยุค (First Division 1888/89–1991/92 จาก Fjelstul) · `team_ids` ว่างได้สำหรับสโมสรที่ไม่มี id · **ห้ามตัดส่วน "Sources and license"** (openfootball CC0, Fjelstul แชร์ต่อแบบ CC-BY-SA 4.0) |
 
 - **ช่วงเปลี่ยนผ่าน standings v1.4:** เมื่อ 07 ingest ฤดูกาลหนึ่งหลัง revision นี้มีผล ให้ upsert `standings-<season>` ก่อน แล้วค่อยลบ legacy `standings-<season>-mw01` ถึง `-mw38` ที่อาจค้างใน 05; งานลบล้มเหลวต้อง retry ได้ และห้ามลบก่อนเอกสารใหม่ index สำเร็จ ระหว่าง cleanup 05 ยังยอมรับ ID ทั้งสองรูปแบบ แต่หลัง cleanup ฝั่งเรียกควรใช้เฉพาะ ID ใหม่
@@ -670,3 +670,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.13 | 4 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `topic` ของ `historical` เพิ่ม `club_record`, `league_records` · §6 doc_id เพิ่ม `hist-club-<slug>` (สรุปสถิติทั้งยุคของสโมสร) และ `hist-records` (แชมป์และตารางรวมตลอดกาล) · `season` = null · ส่งผ่าน `ingest_history.py --index` gate เดิม · router ไม่ต้องแก้ (`trivia_history` ค้น `["trivia", "historical"]` อยู่แล้ว) |
 | v1.14 | 4 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เอกสารเท่านั้น ไม่เปลี่ยน field หรือ doc_id** — `hist-club-<slug>` และ `hist-records` นับแชมป์ลีกสูงสุดของอังกฤษทุกยุค (First Division 1888/89–1991/92 จาก Fjelstul `standings.csv` ชุดเดิม · ฤดูกาลลีกดิวิชั่นเดียว 1888/89–1891/92 นับเป็น First Division และเอกสารระบุไว้) นอกจากสถิติยุคพรีเมียร์ลีก |
 | v1.15 | 5 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §4 `filters.topic` (list ของ string อย่างน้อย 1 ค่า) กรองตาม `topic` ของเอกสาร เอกสารที่ `topic` เป็น null ไม่ผ่านเมื่อใช้ตัวกรองนี้ · ผลต่อโมดูล: 05 รับ filter ใหม่ · 03 ส่ง `{"category": ["historical"], "team_ids": [id], "topic": ["club_record"]}` เฉพาะการค้นสรุปสถิติแยกทีม (ถ้า 05 ตอบ 422 ใช้ผลค้นปกติ) · โมดูลอื่นไม่ต้องแก้ |
+| v1.16 | 5 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `origin` ใหม่ `wikidata` · §6 `player` เพิ่ม doc_id `coach-<season>-team-<team_id>` (topic `head_coach`) · ผลต่อโมดูล: 07 สร้างเอกสารเมื่อเปิด `COACH_INDEX_ENABLED` · 05 เพิ่ม `wikidata` ใน `Origin` · 03 เขียนคำค้นคำถามโค้ชใหม่ · 02/01 ไม่ต้องแก้ |
