@@ -97,10 +97,10 @@ class FakeClients:
                 "token_usage": {"input": 3, "output": 2}}
 
 
-
 def archive_chunk(doc_id, number=0):
     return {"chunk_id": f"{doc_id}#c{number}", "text": f"{doc_id} part {number}",
             "source": {"doc_id": doc_id, "title": doc_id, "category": "historical", "origin": "fjelstul"}}
+
 
 class RouterTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
@@ -353,6 +353,14 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.sleep(0.4)
         self.assertEqual(finished, [])
         self.clients.search = ordinary
+
+    # Review minors 2026-10-05: an answer from the club summaries alone still came from retrieval.
+    async def test_record_search_counts_as_retrieval_in_the_trace(self):
+        self.clients.fail_search = True
+        self.clients.record_chunks = {61: [archive_chunk("hist-club-chelsea")], 57: [archive_chunk("hist-club-arsenal")]}
+        result = await self.run_query("เชลซีกับอาร์เซนอลใครได้แชมป์พรีเมียร์ลีกเยอะกว่า")
+        self.assertIn("retrieval", result["engines_used"])
+        self.assertIn("retrieval.record_search", [step["name"] for step in result["trace"]["steps"]])
 
     async def test_other_questions_search_once(self):
         self.clients.chunks = [archive_chunk("hist-h2h-arsenal-chelsea")]

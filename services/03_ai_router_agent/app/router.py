@@ -276,7 +276,7 @@ class Router:
                                   decision.reasoning)
 
                 if decision.route == "football_rag" and not decision.record_team_ids:
-                    # A classifier decision never passed through decide(): mark its club record question here.
+                    # Any decision without record_team_ids (a classifier decision included) is checked here.
                     decision.record_team_ids = club_record_team_ids(decision, routing_query)
                 if decision.route == "football_rag":
                     chunks = []
@@ -287,6 +287,7 @@ class Router:
                     english_task = None
                     english = None
                     record_task = None
+                    record_at = time.monotonic()
                     if decision.record_team_ids:
                         record_task = asyncio.create_task(self.record_search(
                             decision.record_team_ids, routing_query, query, request_id))
@@ -341,10 +342,13 @@ class Router:
                         context_limit = 5
                         if record_task is not None:
                             record = await record_task
+                            step("retrieval.record_search", record_at)
                             if record is None:
                                 trace["record_search"] = "unavailable"
                             else:
                                 trace["record_search"] = [team_id for team_id, found in record.items() if found]
+                                if trace["record_search"] and "retrieval" not in engines:
+                                    engines.append("retrieval")
                                 chunks = merge_record_chunks(list(record.values()), chunks)
                                 context_limit = RECORD_CHUNK_LIMIT
                     finally:

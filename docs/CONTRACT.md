@@ -87,6 +87,7 @@
   "chat": null,                                // v1.12 · null | "applied" | "rejected" | "unavailable" · ไม่นับเป็น fallback · มีค่าเฉพาะ route `chat`
   "filters": { "category": ["match_report"], "team_ids": [57] },
   "fallback": null,                            // null หรือค่าหนึ่งในตาราง "ค่าของ trace.fallback" ด้านล่าง (v1.10)
+  "record_search": [61, 57],                   // v1.15 · ทีมที่ค้นสรุปสถิติแยกได้ chunk · "unavailable" เมื่อค้นแยกล้มทุกทีม · ไม่มี field นี้เมื่อไม่ได้ค้นแยก
   "steps": [
     { "name": "router.rules",        "ms": 3 },
     { "name": "retrieval.search",    "ms": 140 },
@@ -670,4 +671,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.13 | 4 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `topic` ของ `historical` เพิ่ม `club_record`, `league_records` · §6 doc_id เพิ่ม `hist-club-<slug>` (สรุปสถิติทั้งยุคของสโมสร) และ `hist-records` (แชมป์และตารางรวมตลอดกาล) · `season` = null · ส่งผ่าน `ingest_history.py --index` gate เดิม · router ไม่ต้องแก้ (`trivia_history` ค้น `["trivia", "historical"]` อยู่แล้ว) |
 | v1.14 | 4 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เอกสารเท่านั้น ไม่เปลี่ยน field หรือ doc_id** — `hist-club-<slug>` และ `hist-records` นับแชมป์ลีกสูงสุดของอังกฤษทุกยุค (First Division 1888/89–1991/92 จาก Fjelstul `standings.csv` ชุดเดิม · ฤดูกาลลีกดิวิชั่นเดียว 1888/89–1891/92 นับเป็น First Division และเอกสารระบุไว้) นอกจากสถิติยุคพรีเมียร์ลีก |
 | v1.15 | 5 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §4 `filters.topic` (list ของ string อย่างน้อย 1 ค่า) กรองตาม `topic` ของเอกสาร เอกสารที่ `topic` เป็น null ไม่ผ่านเมื่อใช้ตัวกรองนี้ · ผลต่อโมดูล: 05 รับ filter ใหม่ · 03 ส่ง `{"category": ["historical"], "team_ids": [id], "topic": ["club_record"]}` เฉพาะการค้นสรุปสถิติแยกทีม (ถ้า 05 ตอบ 422 ใช้ผลค้นปกติ) · โมดูลอื่นไม่ต้องแก้ |
-| v1.16 | 5 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `origin` ใหม่ `wikidata` · §6 `player` เพิ่ม doc_id `coach-<season>-team-<team_id>` (topic `head_coach`) · ผลต่อโมดูล: 07 สร้างเอกสารเมื่อเปิด `COACH_INDEX_ENABLED` · 05 เพิ่ม `wikidata` ใน `Origin` · 03 เขียนคำค้นคำถามโค้ชใหม่ · 02/01 ไม่ต้องแก้ |
+| v1.16 | 5 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `origin` ใหม่ `wikidata` · §6 `player` เพิ่ม doc_id `coach-<season>-team-<team_id>` (topic `head_coach`) · ผลต่อโมดูล: 07 สร้างเอกสารเมื่อเปิด `COACH_INDEX_ENABLED` · 05 เพิ่ม `wikidata` ใน `Origin` และรูปแบบ doc_id ของ `player` เป็น `(?:players|coach)-<season>-team-<team_id>` · 03 เขียนคำค้นคำถามโค้ชใหม่ · 02/01 ไม่ต้องแก้ |
