@@ -335,6 +335,25 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["trace"]["record_search"], [63, 71])
         self.assertEqual(self.context_docs(), ["hist-club-fulham", "hist-club-sunderland", "hist-records"])
 
+    # Final review 2026-10-05: an error before the record search is awaited must not leave it running.
+    async def test_an_unexpected_error_cancels_the_club_record_search(self):
+        finished = []
+        ordinary = self.clients.search
+
+        async def search(payload, request_id):
+            if "topic" in payload["filters"]:
+                await asyncio.sleep(0.2)
+                finished.append(payload["filters"]["team_ids"][0])
+                return {"chunks": []}
+            raise RuntimeError("bug in the ordinary search")
+
+        self.clients.search = search
+        with self.assertRaises(RuntimeError):
+            await self.run_query("เชลซีกับอาร์เซนอลใครได้แชมป์พรีเมียร์ลีกเยอะกว่า")
+        await asyncio.sleep(0.4)
+        self.assertEqual(finished, [])
+        self.clients.search = ordinary
+
     async def test_other_questions_search_once(self):
         self.clients.chunks = [archive_chunk("hist-h2h-arsenal-chelsea")]
         result = await self.run_query("อาร์เซนอลเคยชนะเชลซีกี่ครั้ง")

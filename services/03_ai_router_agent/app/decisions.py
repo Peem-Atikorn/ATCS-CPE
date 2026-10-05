@@ -125,12 +125,14 @@ ALL_TIME_EN = re.compile(r"\b(?:all[- ]time|ever|in (?:premier league )?history)
 SUPERLATIVE_TH = ("ดีที่สุด", "แย่ที่สุด", "สูงสุด", "ต่ำสุด")
 SUPERLATIVE_EN = re.compile(r"\b(?:best|worst|highest|lowest)\b")
 TOTAL_EN = re.compile(r"\btotal\b")
+# A finish in Europe, the second tier or a cup group is not a Premier League record.
+NOT_PL_TABLE_WORDS = ("ยุโรป", "europe", "championship", "กลุ่ม", "group")
 SCORER_WORDS = ("ยิง", "ประตู", "ดาวซัลโว", "scorer", "goal")
 ENGLISH_RECORD_WORDS = ("titles", "won the premier league", "premier league champions", "relegated", "relegation",
                         "runner-up", "runners-up", "most titles")
 # Questions about what will happen are predictions, never the archive or a question back.
 FUTURE = re.compile(r"จะ|ลุ้น|\bwill\b")
-NOW_WORDS = (*CURRENT_WORDS, "ตอนนี้", "ล่าสุด", " now", "currently")
+NOW_WORDS = (*CURRENT_WORDS, "ตอนนี้", "ล่าสุด", " now", "currently", "นัดนี้", "สัปดาห์นี้", "this week")
 NOW_END = re.compile(r"แล้ว(?:ครับ|คะ|ค่ะ|นะ)?\s*\??\s*$")
 YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 SEASON_SPAN = re.compile(r"(?<!\d)\d{2,4}\s*/\s*\d{2,4}(?!\d)")
@@ -557,7 +559,8 @@ def all_time_table_question(text: str) -> bool:
         return True
     # A best or worst finish is over finished seasons ("แล้วจบอันดับดีที่สุดเท่าไหร่" names no league).
     superlative = _has(text, SUPERLATIVE_TH) or bool(SUPERLATIVE_EN.search(text))
-    if superlative and _has(text, ("จบ", "finish")) and not _has(text, OTHER_TITLE_WORDS):
+    if (superlative and _has(text, ("จบ", "finish"))
+            and not _has(text, (*OTHER_TITLE_WORDS, *NOT_PL_TABLE_WORDS))):
         return True
     if not _has(text, PL_WORDS):
         return False

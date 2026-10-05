@@ -272,8 +272,12 @@ class DecisionTests(unittest.TestCase):
         for query in ("อาร์เซนอลจบอันดับแย่ที่สุดอันดับเท่าไหร่", "What is Liverpool's worst finish?"):
             with self.subTest(query=query):
                 self.assertEqual(decide(query, CONTEXT, [], TEAMS).reasoning, "คำถามสถิติทั้งยุค")
+        # Final review 2026-10-05: Europe, the Championship, a cup group, this match or week are not the PL record.
         for query in ("อาร์เซนอลจบอันดับดีที่สุดฤดูกาลนี้ได้ไหม", "บาร์เซโลน่าจบอันดับดีที่สุดในลาลีกาอันดับเท่าไหร่",
-                      "อาร์เซนอลจะจบอันดับดีที่สุดเท่าไหร่"):
+                      "อาร์เซนอลจะจบอันดับดีที่สุดเท่าไหร่", "ลิเวอร์พูลจบอันดับดีที่สุดในยุโรปเท่าไหร่",
+                      "What is Liverpool's best finish in the Championship?", "อาร์เซนอลจบอันดับแย่ที่สุดในกลุ่ม",
+                      "Arsenal's worst group stage finish", "อาร์เซนอลจบอันดับดีที่สุดสัปดาห์นี้",
+                      "ใครจบอันดับดีที่สุดในนัดนี้", "Who finished best this week?"):
             with self.subTest(query=query):
                 decision = decide(query, CONTEXT, [], TEAMS)
                 self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
