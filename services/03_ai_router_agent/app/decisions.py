@@ -156,6 +156,10 @@ CLARIFY_FILLER_EN = re.compile(
 # A reply to a question back must answer it, never start another topic.
 REPLY_TOPIC_WORDS = (*NOW_WORDS, "นัด", "เจอ", "ข่าว", "ผล", "ตาราง", "โปรแกรม", "แต้ม", "อันดับ", "ยิง",
                      "fixture", "news", "table", "score", "result", "points", " vs")
+# Club record questions (CONTRACT v1.15): each club's record summary is searched on its own, since a
+# shared search let head-to-head and season tables push the summaries out of the top five.
+CLUB_RECORD_WORDS = ("แชมป์", "ตกชั้น", "อันดับ", "แต้มรวม", "กี่ฤดูกาล", "title", "champion", "runner-up",
+                     "runners-up", "relegat", "finish", "points", "seasons")
 
 
 def normalize_thai(text: str) -> str:
@@ -192,6 +196,7 @@ class Decision:
     kind: str | None = None  # route `chat` only: the kind of chit-chat (also in `reasoning`)
     clarify_text: str | None = None  # route `clarify`: the question back, in Thai
     clarify_text_en: str | None = None
+    record_team_ids: list[int] = field(default_factory=list)  # CONTRACT v1.15: search each club's record
 
 
 TEAM_CLARIFY = ('หมายถึงแชมป์ของทีมไหนครับ เช่น "แมนยูได้แชมป์พรีเมียร์ลีกกี่สมัย"',
@@ -653,8 +658,30 @@ def _record_rewrite(query: str, names: list[str], topic: str) -> str:
     return " ".join(part for part in (*names, terms, query.strip()) if part)
 
 
+def club_record_team_ids(decision: Decision, query: str) -> list[int]:
+    """The clubs whose all-time record summary this question needs, or [] for any other question."""
+    text = query.lower()
+    if decision.route != "football_rag" or decision.intent != "trivia_history":
+        return []
+    if not 1 <= len(decision.team_ids) <= 2 or "season" in decision.filters:
+        return []
+    if YEAR.search(text) or SEASON_SPAN.search(text) or _head_to_head(text):
+        return []
+    if not _has(text, CLUB_RECORD_WORDS) or _has(text, (*OTHER_TITLE_WORDS, *SCORER_WORDS)):
+        return []
+    return list(decision.team_ids)
+
+
 def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
            favorite_team_id: int | None = None) -> Decision | None:
+    decision = _decide(query, context, history, teams, favorite_team_id)
+    if decision is not None:
+        decision.record_team_ids = club_record_team_ids(decision, query)
+    return decision
+
+
+def _decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
+            favorite_team_id: int | None = None) -> Decision | None:
     text = query.lower().strip()
     if not text:
         return Decision("clarify", None, "guard", 1.0, "ไม่มีคำถาม")
