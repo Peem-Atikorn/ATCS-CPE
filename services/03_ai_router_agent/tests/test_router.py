@@ -304,7 +304,10 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
             {"category": ["historical"], "team_ids": [61], "topic": ["club_record"]},
             {"category": ["historical"], "team_ids": [57], "topic": ["club_record"]}])
         self.assertEqual({payload["top_k"] for payload in record}, {2})
-        self.assertTrue(record[0]["query"].startswith("Chelsea FC Premier League record "))
+        # The summary line's own words keep chunk 0 first (Thai "ตกชั้น" alone ranked season tables over it).
+        self.assertTrue(record[0]["query"].startswith(
+            "Chelsea FC Premier League record titles runners-up relegations best finish worst finish total points "
+            "seasons เชลซี"), record[0]["query"])
         self.assertEqual(self.context_docs(), ["hist-club-chelsea", "hist-club-chelsea", "hist-club-arsenal",
                                                "hist-club-arsenal", "hist-h2h-arsenal-chelsea", "hist-team-0"])
         self.assertEqual(result["trace"]["record_search"], [61, 57])

@@ -17,6 +17,8 @@ CONDENSE_TIMEOUT = 4
 TRANSLATE_TIMEOUT = 4
 # CONTRACT v1.15: each club's record summary, searched on its own (2 chunks a club), leads the contexts.
 RECORD_TOP_K = 2
+# The summary line's own words: a Thai question alone ("แล้วเคยตกชั้นไหม") ranked season tables over it.
+RECORD_TERMS = "Premier League record titles runners-up relegations best finish worst finish total points seasons"
 RECORD_CHUNK_LIMIT = 6
 
 
@@ -64,7 +66,7 @@ class Router:
         names = {team.team_id: team.name for team in self.teams.teams}
 
         async def one(team_id: int) -> list[dict]:
-            payload = {"request_id": request_id, "query": f"{names[team_id]} Premier League record {routing_query}",
+            payload = {"request_id": request_id, "query": f"{names[team_id]} {RECORD_TERMS} {routing_query}",
                        "query_original": query, "top_k": RECORD_TOP_K, "mode": "hybrid",
                        "filters": {"category": [HISTORICAL], "team_ids": [team_id], "topic": ["club_record"]}}
             result = await self.clients.search(payload, request_id)
