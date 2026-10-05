@@ -1,4 +1,4 @@
-# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.14
+# CONTRACT.md — ข้อตกลง API ระหว่าง service · ผู้ช่วยฟุตบอล · v1.15
 
 > **กฎเหล็ก**: แก้ไฟล์นี้ได้ผ่าน PR เท่านั้น ต้องได้ approve จากหัวหน้า (sakda1306) + เจ้าของ service ทั้งสองฝั่งที่เกี่ยวข้อง
 > เพิ่ม field ใหม่แบบ optional ได้ (ไม่ทำให้คนอื่นพัง) แต่ **ห้ามลบ / เปลี่ยนชื่อ / เปลี่ยนความหมาย field** โดยไม่ bump version และแจ้งในกลุ่ม
@@ -402,6 +402,7 @@ auth ใช้ httpOnly cookie ชื่อ `access_token` (JWT HS256, อาย
     "category": ["match_report"],
     "season": "2026", "matchweek": 5,
     "team_ids": [57],                            // เอกสารที่มีทีมใดทีมหนึ่งในรายการ
+    "topic": ["club_record"],                    // (v1.15) เอกสารที่ topic อยู่ในรายการ · topic null ไม่ผ่าน
     "date_from": "2026-09-20", "date_to": "2026-09-22"
   },
   "mode": "hybrid"                               // hybrid (default) | bm25 | vector  — ใช้ตอน eval
@@ -668,3 +669,4 @@ body `{request_id, category?}` (ไม่ใส่ = ทั้งหมด) → 
 | v1.12 | 2 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR ของ 03 merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `route` ใหม่ `chat` + intent `chitchat` · Trace เพิ่ม `chat` · §2 router ตอบเรื่องตัวผู้ช่วยจากแผ่นข้อมูลของระบบ (LLM เรียบเรียง + ตรวจก่อนส่ง + ข้อความสำเร็จรูปสำรอง) · §8 env `ROUTER_CHAT_ENABLED`, `ROUTER_CHAT_TIMEOUT` · สถานะ v1.11 เป็นมีผลแล้ว |
 | v1.13 | 4 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — `topic` ของ `historical` เพิ่ม `club_record`, `league_records` · §6 doc_id เพิ่ม `hist-club-<slug>` (สรุปสถิติทั้งยุคของสโมสร) และ `hist-records` (แชมป์และตารางรวมตลอดกาล) · `season` = null · ส่งผ่าน `ingest_history.py --index` gate เดิม · router ไม่ต้องแก้ (`trivia_history` ค้น `["trivia", "historical"]` อยู่แล้ว) |
 | v1.14 | 4 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เอกสารเท่านั้น ไม่เปลี่ยน field หรือ doc_id** — `hist-club-<slug>` และ `hist-records` นับแชมป์ลีกสูงสุดของอังกฤษทุกยุค (First Division 1888/89–1991/92 จาก Fjelstul `standings.csv` ชุดเดิม · ฤดูกาลลีกดิวิชั่นเดียว 1888/89–1891/92 นับเป็น First Division และเอกสารระบุไว้) นอกจากสถิติยุคพรีเมียร์ลีก |
+| v1.15 | 5 ต.ค. 2026 (เสนอ; มีผลเมื่อ PR merge) | **เพิ่มเท่านั้น ไม่เปลี่ยน field เดิม** — §4 `filters.topic` (list ของ string อย่างน้อย 1 ค่า) กรองตาม `topic` ของเอกสาร เอกสารที่ `topic` เป็น null ไม่ผ่านเมื่อใช้ตัวกรองนี้ · ผลต่อโมดูล: 05 รับ filter ใหม่ · 03 ส่ง `{"category": ["historical"], "team_ids": [id], "topic": ["club_record"]}` เฉพาะการค้นสรุปสถิติแยกทีม (ถ้า 05 ตอบ 422 ใช้ผลค้นปกติ) · โมดูลอื่นไม่ต้องแก้ |
