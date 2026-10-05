@@ -235,6 +235,53 @@ class DecisionTests(unittest.TestCase):
         self.assertTrue(decision.rewritten_query.startswith("Man United Premier League record best finish"),
                         decision.rewritten_query)
 
+    # Live chat test 2026-10-05 (c27, c37, c38, c63): each club's record summary is searched on its own.
+    def test_club_record_questions_search_each_club(self):
+        city = [{"role": "user", "content": "แมนซิตี้ได้แชมป์พรีเมียร์ลีกกี่สมัย"},
+                {"role": "assistant", "content": "แมนเชสเตอร์ ซิตี้ได้แชมป์พรีเมียร์ลีก 8 สมัย"}]
+
+        def record_ids(query, history=()):
+            decision = decide(query, CONTEXT, list(history), TEAMS)
+            return decision.record_team_ids if decision else []
+
+        cases = [
+            ("แมนยูกับลิเวอร์พูลใครได้แชมป์พรีเมียร์ลีกมากกว่ากัน", [], [66, 64]),
+            ("เชลซีกับอาร์เซนอลใครได้แชมป์พรีเมียร์ลีกเยอะกว่า", [], [61, 57]),
+            ("แล้วเคยตกชั้นไหม", city, [65]),
+            ("แมนยูจบอันดับแย่ที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่", [], [66]),
+            ("How many Premier League titles have Manchester United won?", [], [66]),
+            ("Who has more Premier League titles, Chelsea or Arsenal?", [], [61, 57]),
+        ]
+        for query, history, expected in cases:
+            with self.subTest(query=query):
+                self.assertEqual(record_ids(query, history), expected)
+        for query in ("อาร์เซนอลเคยชนะเชลซีกี่ครั้ง", "อาร์เซนอลได้แชมป์ฤดูกาล 2003/04 ไหม",
+                      "แมนยูได้แชมป์เอฟเอคัพกี่สมัย", "ใครยิงให้ลิเวอร์พูลมากที่สุด", "อาร์เซนอลอยู่อันดับเท่าไหร่",
+                      "ทีมไหนได้แชมป์พรีเมียร์ลีกมากที่สุด"):
+            with self.subTest(query=query):
+                self.assertEqual(record_ids(query), [])
+        self.assertEqual(record_ids("แล้วตอนนี้อยู่อันดับเท่าไหร่", city), [])
+
+    # Live chat test 2026-10-05: "แล้วจบอันดับดีที่สุดเท่าไหร่" after a Newcastle question read this season's table.
+    def test_a_best_or_worst_finish_is_all_time_without_the_league_named(self):
+        newcastle = [{"role": "user", "content": "นิวคาสเซิลได้แชมป์พรีเมียร์ลีกกี่สมัย"},
+                     {"role": "assistant", "content": "นิวคาสเซิล ยูไนเต็ดยังไม่เคยได้แชมป์พรีเมียร์ลีก"}]
+        decision = decide("แล้วจบอันดับดีที่สุดเท่าไหร่", CONTEXT, newcastle, TEAMS)
+        self.assertEqual((decision.intent, decision.filters, decision.record_team_ids),
+                         ("trivia_history", {"category": ["historical"]}, [67]))
+        for query in ("อาร์เซนอลจบอันดับแย่ที่สุดอันดับเท่าไหร่", "What is Liverpool's worst finish?"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).reasoning, "คำถามสถิติทั้งยุค")
+        # Final review 2026-10-05: Europe, the Championship, a cup group, this match or week are not the PL record.
+        for query in ("อาร์เซนอลจบอันดับดีที่สุดฤดูกาลนี้ได้ไหม", "บาร์เซโลน่าจบอันดับดีที่สุดในลาลีกาอันดับเท่าไหร่",
+                      "อาร์เซนอลจะจบอันดับดีที่สุดเท่าไหร่", "ลิเวอร์พูลจบอันดับดีที่สุดในยุโรปเท่าไหร่",
+                      "What is Liverpool's best finish in the Championship?", "อาร์เซนอลจบอันดับแย่ที่สุดในกลุ่ม",
+                      "Arsenal's worst group stage finish", "อาร์เซนอลจบอันดับดีที่สุดสัปดาห์นี้",
+                      "ใครจบอันดับดีที่สุดในนัดนี้", "Who finished best this week?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters.get("season"), "2015")

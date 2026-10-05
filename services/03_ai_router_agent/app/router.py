@@ -4,8 +4,8 @@ import time
 from .chat import STEP_TIMEOUT as CHAT_STEP_TIMEOUT
 from .chat import favorite_name, system_prompt, template, user_message, validate_reply
 from .condense import _strict, condense_enabled, needs_condense, rules_resolved, validate
-from .decisions import (HISTORICAL, MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
-                        historical_scorer_season, league_wide_scorer_query, normalize_thai,
+from .decisions import (HISTORICAL, MATCHWEEK_PATTERN, classify_intent, club_record_team_ids, decide, enrich,
+                        from_intent, historical_scorer_season, league_wide_scorer_query, normalize_thai,
                         prediction_kind, resolve_clarify_reply)
 from .prediction_text import (NEEDS_TEAM_TEXT, TEAM_NOT_FOUND_TEXT, UNAVAILABLE_TEXT,
                               match_prediction_text, simulation_focus, summarize_simulation)
@@ -15,6 +15,22 @@ from .translate import fuse, multi_query_enabled, needs_translation, validate_tr
 
 CONDENSE_TIMEOUT = 4
 TRANSLATE_TIMEOUT = 4
+# CONTRACT v1.15: each club's record summary, searched on its own (2 chunks a club), leads the contexts.
+RECORD_TOP_K = 2
+# The summary line's own words: a Thai question alone ("แล้วเคยตกชั้นไหม") ranked season tables over it.
+RECORD_TERMS = "Premier League record titles runners-up relegations best finish worst finish total points seasons"
+RECORD_CHUNK_LIMIT = 6
+
+
+def merge_record_chunks(record: list[list[dict]], chunks: list[dict], limit: int = RECORD_CHUNK_LIMIT) -> list[dict]:
+    """Each club's record summary first, then the ordinary search; no chunk twice."""
+    merged, seen = [], set()
+    for chunk in [*(item for team in record for item in team), *chunks]:
+        key = chunk.get("chunk_id") or ((chunk.get("source") or {}).get("doc_id"), chunk.get("text"))
+        if key not in seen:
+            seen.add(key)
+            merged.append(chunk)
+    return merged[:limit]
 
 
 class UpstreamError(Exception):
@@ -43,6 +59,24 @@ class Router:
     def __init__(self, clients, teams: TeamDirectory):
         self.clients = clients
         self.teams = teams
+
+    async def record_search(self, team_ids: list[int], routing_query: str, query: str,
+                            request_id: str) -> dict[int, list[dict]] | None:
+        """Each club's record summary; None when every search failed (an older 05 answers 422)."""
+        names = {team.team_id: team.name for team in self.teams.teams}
+
+        async def one(team_id: int) -> list[dict]:
+            payload = {"request_id": request_id, "query": f"{names[team_id]} {RECORD_TERMS} {routing_query}",
+                       "query_original": query, "top_k": RECORD_TOP_K, "mode": "hybrid",
+                       "filters": {"category": [HISTORICAL], "team_ids": [team_id], "topic": ["club_record"]}}
+            result = await self.clients.search(payload, request_id)
+            return result.get("chunks") or []
+
+        known = [team_id for team_id in team_ids if team_id in names]
+        results = await asyncio.gather(*(one(team_id) for team_id in known), return_exceptions=True)
+        found = {team_id: chunks for team_id, chunks in zip(known, results, strict=True)
+                 if not isinstance(chunks, BaseException)}
+        return found or None
 
     async def route(self, request: dict) -> dict:
         start = time.monotonic()
@@ -241,6 +275,9 @@ class Router:
                     return finish(answer or template(kind, language), "chat", decision.confidence,
                                   decision.reasoning)
 
+                if decision.route == "football_rag" and not decision.record_team_ids:
+                    # A classifier decision never passed through decide(): mark its club record question here.
+                    decision.record_team_ids = club_record_team_ids(decision, routing_query)
                 if decision.route == "football_rag":
                     chunks = []
                     retrieval_down = False
@@ -249,57 +286,75 @@ class Router:
                                "query_original": query, "top_k": 5, "filters": filters, "mode": "hybrid"}
                     english_task = None
                     english = None
-                    # Archive searches already carry an English season rewrite; a free translation
-                    # pulls look-alike team-season chunks over the answer (CONTRACT v1.11).
-                    if (multi_query_enabled() and needs_translation(routing_query)
-                            and filters.get("category") != [HISTORICAL]):
-                        english_task = asyncio.create_task(english_query(routing_query))
-                    for attempt in range(2):
-                        try:
-                            search_at = time.monotonic()
-                            result = await self.clients.search(payload, request_id)
-                            step("retrieval.search", search_at)
-                            if "retrieval" not in engines:
-                                engines.append("retrieval")
-                            chunks = result.get("chunks") or []
-                        except UpstreamError:
-                            retrieval_down = True
-                            break
-                        if english_task is not None:
-                            english = await english_task
-                            english_task = None
-                        if english:
+                    record_task = None
+                    if decision.record_team_ids:
+                        record_task = asyncio.create_task(self.record_search(
+                            decision.record_team_ids, routing_query, query, request_id))
+                    try:
+                        # Archive searches already carry an English season rewrite; a free translation
+                        # pulls look-alike team-season chunks over the answer (CONTRACT v1.11).
+                        if (multi_query_enabled() and needs_translation(routing_query)
+                                and filters.get("category") != [HISTORICAL]):
+                            english_task = asyncio.create_task(english_query(routing_query))
+                        for attempt in range(2):
                             try:
-                                search_en_at = time.monotonic()
-                                extra = await self.clients.search({**payload, "query": english},
-                                                                  request_id)
-                                step("retrieval.search_en", search_en_at)
-                                chunks = fuse(chunks, extra.get("chunks") or [])
+                                search_at = time.monotonic()
+                                result = await self.clients.search(payload, request_id)
+                                step("retrieval.search", search_at)
+                                if "retrieval" not in engines:
+                                    engines.append("retrieval")
+                                chunks = result.get("chunks") or []
                             except UpstreamError:
-                                pass  # the first search still answers
-                        if chunks:
-                            break
-                        explicit_standings_week = (
-                            decision.intent == "standings_stats"
-                            and MATCHWEEK_PATTERN.search(routing_query.lower()) is not None
-                        )
-                        if (
-                            attempt == 0
-                            and not explicit_standings_week
-                            and any(key in filters for key in ("matchweek", "date_from", "date_to"))
-                        ):
-                            filters = {key: value for key, value in filters.items()
-                                       if key not in ("matchweek", "date_from", "date_to")}
-                            payload = {**payload, "filters": filters}
-                            trace["filters"] = filters
-                        else:
-                            break
-                    if english_task is not None:  # the first search failed before we waited for it
-                        english_task.cancel()
+                                retrieval_down = True
+                                break
+                            if english_task is not None:
+                                english = await english_task
+                                english_task = None
+                            if english:
+                                try:
+                                    search_en_at = time.monotonic()
+                                    extra = await self.clients.search({**payload, "query": english},
+                                                                      request_id)
+                                    step("retrieval.search_en", search_en_at)
+                                    chunks = fuse(chunks, extra.get("chunks") or [])
+                                except UpstreamError:
+                                    pass  # the first search still answers
+                            if chunks:
+                                break
+                            explicit_standings_week = (
+                                decision.intent == "standings_stats"
+                                and MATCHWEEK_PATTERN.search(routing_query.lower()) is not None
+                            )
+                            if (
+                                attempt == 0
+                                and not explicit_standings_week
+                                and any(key in filters for key in ("matchweek", "date_from", "date_to"))
+                            ):
+                                filters = {key: value for key, value in filters.items()
+                                           if key not in ("matchweek", "date_from", "date_to")}
+                                payload = {**payload, "filters": filters}
+                                trace["filters"] = filters
+                            else:
+                                break
+                        if english_task is not None:  # the first search failed before we waited for it
+                            english_task.cancel()
+                        context_limit = 5
+                        if record_task is not None:
+                            record = await record_task
+                            if record is None:
+                                trace["record_search"] = "unavailable"
+                            else:
+                                trace["record_search"] = [team_id for team_id, found in record.items() if found]
+                                chunks = merge_record_chunks(list(record.values()), chunks)
+                                context_limit = RECORD_CHUNK_LIMIT
+                    finally:
+                        # A timeout or an unexpected error before the await must not leave the club searches running.
+                        if record_task is not None and not record_task.done():
+                            record_task.cancel()
                     if chunks:
                         contexts = [{"ref": index, "text": chunk["text"],
                                      "source": {**chunk["source"], "ref": index}}
-                                    for index, chunk in enumerate(chunks[:5], 1)]
+                                    for index, chunk in enumerate(chunks[:context_limit], 1)]
                         try:
                             generated_at = time.monotonic()
                             language = user.get("language", "th")

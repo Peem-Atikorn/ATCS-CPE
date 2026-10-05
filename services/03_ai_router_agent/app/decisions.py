@@ -125,12 +125,14 @@ ALL_TIME_EN = re.compile(r"\b(?:all[- ]time|ever|in (?:premier league )?history)
 SUPERLATIVE_TH = ("ดีที่สุด", "แย่ที่สุด", "สูงสุด", "ต่ำสุด")
 SUPERLATIVE_EN = re.compile(r"\b(?:best|worst|highest|lowest)\b")
 TOTAL_EN = re.compile(r"\btotal\b")
+# A finish in Europe, the second tier or a cup group is not a Premier League record.
+NOT_PL_TABLE_WORDS = ("ยุโรป", "europe", "championship", "กลุ่ม", "group")
 SCORER_WORDS = ("ยิง", "ประตู", "ดาวซัลโว", "scorer", "goal")
 ENGLISH_RECORD_WORDS = ("titles", "won the premier league", "premier league champions", "relegated", "relegation",
                         "runner-up", "runners-up", "most titles")
 # Questions about what will happen are predictions, never the archive or a question back.
 FUTURE = re.compile(r"จะ|ลุ้น|\bwill\b")
-NOW_WORDS = (*CURRENT_WORDS, "ตอนนี้", "ล่าสุด", " now", "currently")
+NOW_WORDS = (*CURRENT_WORDS, "ตอนนี้", "ล่าสุด", " now", "currently", "นัดนี้", "สัปดาห์นี้", "this week")
 NOW_END = re.compile(r"แล้ว(?:ครับ|คะ|ค่ะ|นะ)?\s*\??\s*$")
 YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
 SEASON_SPAN = re.compile(r"(?<!\d)\d{2,4}\s*/\s*\d{2,4}(?!\d)")
@@ -156,6 +158,10 @@ CLARIFY_FILLER_EN = re.compile(
 # A reply to a question back must answer it, never start another topic.
 REPLY_TOPIC_WORDS = (*NOW_WORDS, "นัด", "เจอ", "ข่าว", "ผล", "ตาราง", "โปรแกรม", "แต้ม", "อันดับ", "ยิง",
                      "fixture", "news", "table", "score", "result", "points", " vs")
+# Club record questions (CONTRACT v1.15): each club's record summary is searched on its own, since a
+# shared search let head-to-head and season tables push the summaries out of the top five.
+CLUB_RECORD_WORDS = ("แชมป์", "ตกชั้น", "อันดับ", "แต้มรวม", "กี่ฤดูกาล", "title", "champion", "runner-up",
+                     "runners-up", "relegat", "finish", "points", "seasons")
 
 
 def normalize_thai(text: str) -> str:
@@ -192,6 +198,7 @@ class Decision:
     kind: str | None = None  # route `chat` only: the kind of chit-chat (also in `reasoning`)
     clarify_text: str | None = None  # route `clarify`: the question back, in Thai
     clarify_text_en: str | None = None
+    record_team_ids: list[int] = field(default_factory=list)  # CONTRACT v1.15: search each club's record
 
 
 TEAM_CLARIFY = ('หมายถึงแชมป์ของทีมไหนครับ เช่น "แมนยูได้แชมป์พรีเมียร์ลีกกี่สมัย"',
@@ -550,10 +557,14 @@ def all_time_table_question(text: str) -> bool:
         return False
     if _has(text, ALL_TIME_TH) or ALL_TIME_EN.search(text):
         return True
+    # A best or worst finish is over finished seasons ("แล้วจบอันดับดีที่สุดเท่าไหร่" names no league).
+    superlative = _has(text, SUPERLATIVE_TH) or bool(SUPERLATIVE_EN.search(text))
+    if (superlative and _has(text, ("จบ", "finish"))
+            and not _has(text, (*OTHER_TITLE_WORDS, *NOT_PL_TABLE_WORDS))):
+        return True
     if not _has(text, PL_WORDS):
         return False
-    superlative = _has(text, SUPERLATIVE_TH) or bool(SUPERLATIVE_EN.search(text))
-    return (superlative and _has(text, ("จบ", "finish"))) or _has(text, ("ทั้งหมด",)) or bool(TOTAL_EN.search(text))
+    return _has(text, ("ทั้งหมด",)) or bool(TOTAL_EN.search(text))
 
 
 def _title_question(text: str) -> bool:
@@ -653,8 +664,30 @@ def _record_rewrite(query: str, names: list[str], topic: str) -> str:
     return " ".join(part for part in (*names, terms, query.strip()) if part)
 
 
+def club_record_team_ids(decision: Decision, query: str) -> list[int]:
+    """The clubs whose all-time record summary this question needs, or [] for any other question."""
+    text = query.lower()
+    if decision.route != "football_rag" or decision.intent != "trivia_history":
+        return []
+    if not 1 <= len(decision.team_ids) <= 2 or "season" in decision.filters:
+        return []
+    if YEAR.search(text) or SEASON_SPAN.search(text) or _head_to_head(text):
+        return []
+    if not _has(text, CLUB_RECORD_WORDS) or _has(text, (*OTHER_TITLE_WORDS, *SCORER_WORDS)):
+        return []
+    return list(decision.team_ids)
+
+
 def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
            favorite_team_id: int | None = None) -> Decision | None:
+    decision = _decide(query, context, history, teams, favorite_team_id)
+    if decision is not None:
+        decision.record_team_ids = club_record_team_ids(decision, query)
+    return decision
+
+
+def _decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
+            favorite_team_id: int | None = None) -> Decision | None:
     text = query.lower().strip()
     if not text:
         return Decision("clarify", None, "guard", 1.0, "ไม่มีคำถาม")
