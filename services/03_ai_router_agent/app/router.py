@@ -6,7 +6,7 @@ from .chat import favorite_name, system_prompt, template, user_message, validate
 from .condense import _strict, condense_enabled, needs_condense, rules_resolved, validate
 from .decisions import (HISTORICAL, MATCHWEEK_PATTERN, classify_intent, decide, enrich, from_intent,
                         historical_scorer_season, league_wide_scorer_query, normalize_thai,
-                        prediction_kind)
+                        prediction_kind, resolve_clarify_reply)
 from .prediction_text import (NEEDS_TEAM_TEXT, TEAM_NOT_FOUND_TEXT, UNAVAILABLE_TEXT,
                               match_prediction_text, simulation_focus, summarize_simulation)
 from .teams import TeamDirectory
@@ -91,11 +91,13 @@ class Router:
 
         try:
             async with asyncio.timeout(40):
-                routing_query = query
-                original = decide(query, context, history, self.teams, user.get("favorite_team_id"))
+                # A short answer to our own question back joins the question it answers (no LLM).
+                clarified = resolve_clarify_reply(query, history, self.teams)
+                routing_query = clarified or query
+                original = decide(routing_query, context, history, self.teams, user.get("favorite_team_id"))
                 # Declines, chat replies and clarifying guards stand as asked; a rewrite must never talk past them.
-                guarded = original is not None and (
-                    original.route in ("decline", "chat") or original.layer == "guard")
+                guarded = clarified is not None or (original is not None and (
+                    original.route in ("decline", "chat") or original.layer == "guard"))
                 # Spend the LLM budget only when the rules have not already found the intent and its team.
                 if (not guarded and not rules_resolved(original) and condense_enabled()
                         and needs_condense(query, history, self.teams, context.get("season"))):
@@ -204,9 +206,13 @@ class Router:
                              rewritten_query=decision.rewritten_query, filters=decision.filters)
 
                 if decision.route == "clarify":
-                    answer = ("หมายถึงทีมใดหรือแมตช์ไหนครับ ช่วยระบุชื่อทีมเต็มหรือช่วงเวลาอีกนิด"
-                              if user.get("language", "th") == "th" else
-                              "Which team or match do you mean? Please specify the full team name or date.")
+                    # A rule that knows what is missing asks for exactly that.
+                    if user.get("language", "th") == "th":
+                        answer = decision.clarify_text or (
+                            "หมายถึงทีมใดหรือแมตช์ไหนครับ ช่วยระบุชื่อทีมเต็มหรือช่วงเวลาอีกนิด")
+                    else:
+                        answer = decision.clarify_text_en or (
+                            "Which team or match do you mean? Please specify the full team name or date.")
                     return finish(answer, decision.route, decision.confidence, decision.reasoning)
                 if decision.route == "decline":
                     answer = ("ผมช่วยตอบคำถามเกี่ยวกับฟุตบอลพรีเมียร์ลีกได้ แต่ไม่สามารถช่วยเรื่องนี้ได้"

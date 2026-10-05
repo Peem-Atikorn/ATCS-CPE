@@ -4,7 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.decisions import (INTENT_MAP, classify_intent, decide, from_intent, historical_scorer_season,
-                           history_filters, prediction_kind)
+                           history_filters, prediction_kind, resolve_clarify_reply, team_clarify,
+                           title_year_clarify)
 from app.teams import TeamDirectory
 
 
@@ -15,6 +16,229 @@ CONTEXT = {"season": "2026", "current_matchweek": 5, "now": "2026-09-26T10:00:00
 
 
 class DecisionTests(unittest.TestCase):
+    def test_title_year_clarify_texts(self):
+        self.assertEqual(title_year_clarify(2025, True), (
+            "หมายถึงแชมป์พรีเมียร์ลีกฤดูกาล 2024/25 (จบปี 2025) หรือ 2025/26 (เริ่มปี 2025) ครับ",
+            "Do you mean the Premier League 2024/25 season (ended in 2025) or 2025/26 (began in 2025)?"))
+        self.assertEqual(title_year_clarify(2025, False), (
+            "หมายถึงแชมป์รายการไหนครับ ถ้าเป็นพรีเมียร์ลีก ปี 2025 ตรงกับฤดูกาล 2024/25 (จบปี 2025) "
+            "หรือ 2025/26 (เริ่มปี 2025)",
+            "Which competition do you mean? For the Premier League, 2025 covers 2024/25 (ended in 2025) "
+            "and 2025/26 (began in 2025)."))
+        thai, english = title_year_clarify(1990, False)
+        self.assertIn("ถ้าเป็นลีกสูงสุดอังกฤษ ปี 1990 ตรงกับฤดูกาล 1989/90 (จบปี 1990) หรือ 1990/91", thai)
+        self.assertNotIn("พรีเมียร์ลีก", thai)
+        self.assertIn("For the English top-flight, 1990 covers 1989/90", english)
+        self.assertIn("1999/00 (จบปี 2000) หรือ 2000/01 (เริ่มปี 2000)", title_year_clarify(2000, True)[0])
+
+    def test_team_clarify_text(self):
+        self.assertEqual(team_clarify(), (
+            'หมายถึงแชมป์ของทีมไหนครับ เช่น "แมนยูได้แชมป์พรีเมียร์ลีกกี่สมัย"',
+            'Which club do you mean? For example: "How many Premier League titles have Manchester United won?"'))
+
+    # Live chat test 2026-10-04: all-time finishes and points were answered from this season's table.
+    def test_all_time_table_questions_use_the_archive(self):
+        cases = {
+            "แมนยูจบอันดับแย่ที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่": "Man United Premier League record best finish",
+            "นิวคาสเซิลจบอันดับดีที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่": "Newcastle Premier League record best finish",
+            "อาร์เซนอลเก็บแต้มรวมในพรีเมียร์ลีกทั้งหมดกี่แต้ม": "Arsenal Premier League record best finish",
+            "ลิเวอร์พูลเคยจบอันดับแย่ที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่": "Liverpool Premier League record",
+            "ทีมไหนเก็บแต้มรวมในพรีเมียร์ลีกมากที่สุดตลอดกาล": "Premier League all-time records most points",
+            "What is Arsenal's best ever Premier League finish?": "What is Arsenal's best ever",
+        }
+        for query, rewrite in cases.items():
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((decision.route, decision.intent), ("football_rag", "trivia_history"))
+                self.assertEqual(decision.filters, {"category": ["historical"]})
+                self.assertTrue(decision.rewritten_query.startswith(rewrite), decision.rewritten_query)
+
+    def test_current_table_questions_stay_standings(self):
+        for query in ("อาร์เซนอลอยู่อันดับเท่าไหร่", "อาร์เซนอลได้กี่แต้มแล้ว", "ตอนนี้ใครเป็นจ่าฝูง",
+                      "อันดับ 1 ตอนนี้คือใคร", "ตารางคะแนนนัดที่ 5",
+                      "อาร์เซนอลเคยอยู่อันดับ 1 ฤดูกาลนี้ไหม", "How many points do Arsenal have this season?"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).intent, "standings_stats")
+        # "แต้มรวม" alone usually means this season's table; the rules leave it to the classifier.
+        decision = decide("อาร์เซนอลมีแต้มรวมเท่าไหร่", CONTEXT, [], TEAMS)
+        self.assertNotEqual(decision.filters if decision else None, {"category": ["historical"]})
+
+    # Live chat test 2026-10-05: "แชมป์ปี 2025" and "ได้แชมป์กี่สมัย" found nothing; the user wants a question back.
+    def test_ambiguous_title_year_asks_back(self):
+        decision = decide("แชมป์พรีเมียร์ลีกปี 2025 คือทีมไหน", CONTEXT, [], TEAMS)
+        self.assertEqual((decision.route, decision.layer), ("clarify", "guard"))
+        self.assertEqual(decision.clarify_text, title_year_clarify(2025, True)[0])
+        decision = decide("แชมป์ปี 2025 คือทีมไหน", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.clarify_text, title_year_clarify(2025, False)[0])
+        self.assertEqual(decide("Who were the champions in 2025?", CONTEXT, [], TEAMS).route, "clarify")
+
+    def test_explicit_seasons_and_named_teams_are_not_clarified(self):
+        for query in ("แชมป์พรีเมียร์ลีกฤดูกาล 2024/25 คือทีมไหน", "อาร์เซนอลได้แชมป์ปี 2004 ไหม",
+                      "ใครได้แชมป์พรีเมียร์ลีกฤดูกาล 2004/05", "ฤดูกาลที่แล้วใครได้แชมป์พรีเมียร์ลีก"):
+            with self.subTest(query=query):
+                self.assertNotEqual(decide(query, CONTEXT, [], TEAMS).route, "clarify")
+
+    def test_other_competitions_and_former_clubs_are_not_clarified(self):
+        for query in ("ใครได้แชมป์บอลโลกปี 2022", "บราซิลได้แชมป์บอลโลกกี่สมัย", "แบล็คเบิร์นได้แชมป์กี่สมัย",
+                      "ใครได้แชมป์ดิวิชั่น 1 อังกฤษปี 1990", "คอนเฟดคัพปี 2003 ใครได้แชมป์"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.route if decision else None, "clarify")
+
+    def test_predictions_are_not_clarified(self):
+        self.assertEqual(decide("ใครจะได้แชมป์ปี 2027", CONTEXT, [], TEAMS).intent, "prediction")
+
+    def test_title_count_without_a_team_asks_which_club(self):
+        decision = decide("ได้แชมป์กี่สมัย", CONTEXT, [], TEAMS)
+        self.assertEqual((decision.route, decision.clarify_text), ("clarify", team_clarify()[0]))
+        for query in ("ทีมไหนได้แชมป์มากที่สุด", "มีกี่ทีมที่เคยได้แชมป์พรีเมียร์ลีก", "แมนยูได้แชมป์กี่สมัย"):
+            with self.subTest(query=query):
+                self.assertNotEqual(decide(query, CONTEXT, [], TEAMS).route, "clarify")
+        history = [{"role": "user", "content": "แมนยูเป็นยังไงบ้าง"}]
+        self.assertNotEqual(decide("ได้แชมป์กี่สมัย", CONTEXT, history, TEAMS).route, "clarify")
+
+    def test_explicit_season_title_search_names_champions(self):
+        decision = decide("แชมป์พรีเมียร์ลีกฤดูกาล 2024/25 คือทีมไหน", CONTEXT, [], TEAMS)
+        self.assertIn("champions final table", decision.rewritten_query)
+        self.assertNotIn("final table standings", decision.rewritten_query)
+
+    def test_range_questions_search_the_archive_without_a_season(self):
+        decision = decide("ตั้งแต่ปี 2010 แมนซิตี้ได้แชมป์พรีเมียร์ลีกกี่สมัย", CONTEXT, [], TEAMS)
+        self.assertEqual((decision.intent, decision.filters), ("trivia_history", {"category": ["historical"]}))
+        self.assertTrue(decision.rewritten_query.startswith("Man City Premier League titles seasons"))
+        self.assertEqual(decide("How many titles have Man City won since 2010?", CONTEXT, [], TEAMS).filters,
+                         {"category": ["historical"]})
+
+    def test_english_title_and_relegation_questions_use_rules(self):
+        for query in ("How many Premier League titles have Manchester United won?",
+                      "Which club has won the most Premier League titles?",
+                      "How many times have Newcastle been relegated?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((decision.layer, decision.intent), ("rules", "trivia_history"))
+        decision = decide("Which club has won the most Premier League titles?", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.rewritten_query, "Which club has won the most Premier League titles?")
+
+    # Live chat test 2026-10-05 (c39): as asked, other clubs' "all eras" chunks outranked the club's record.
+    def test_english_club_record_questions_name_the_club(self):
+        cases = {
+            "How many Premier League titles have Manchester United won?":
+                "Manchester United FC Premier League record titles How many",
+            "How many times have Newcastle been relegated?": "Newcastle United FC Premier League record relegated How",
+            "Have Tottenham ever won the Premier League?": "Tottenham Hotspur FC Premier League record titles Have",
+        }
+        for query, rewrite in cases.items():
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((decision.layer, decision.filters), ("rules", {"category": ["historical"]}))
+                self.assertTrue(decision.rewritten_query.startswith(rewrite), decision.rewritten_query)
+        # A season named keeps the season search.
+        decision = decide("Did Arsenal win the Premier League title in 2004/05?", CONTEXT, [], TEAMS)
+        self.assertNotEqual(decision.reasoning if decision else None, "English club record question")
+
+    @staticmethod
+    def clarify_history(question, answer):
+        return [{"role": "user", "content": question}, {"role": "assistant", "content": answer}]
+
+    def test_a_short_reply_after_a_clarify_is_merged(self):
+        year_any = self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0])
+        merged = resolve_clarify_reply("2024/25", year_any)
+        self.assertEqual(merged, "แชมป์ปี 2025 คือทีมไหน 2024/25 พรีเมียร์ลีก")
+        self.assertEqual(decide(merged, CONTEXT, year_any, TEAMS).filters,
+                         {"category": ["historical"], "season": "2024"})
+        team = self.clarify_history("ได้แชมป์กี่สมัย", team_clarify()[0])
+        self.assertEqual(resolve_clarify_reply("แมนยู", team, TEAMS), "ได้แชมป์กี่สมัย แมนยู")
+        self.assertEqual(decide("ได้แชมป์กี่สมัย แมนยู", CONTEXT, team, TEAMS).team_ids, [66])
+        named = resolve_clarify_reply("พรีเมียร์ลีก", year_any)
+        self.assertEqual(decide(named, CONTEXT, year_any, TEAMS).clarify_text, title_year_clarify(2025, True)[0])
+
+    def test_a_new_question_after_a_clarify_is_not_merged(self):
+        year_any = self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0])
+        for reply in ("ใครได้แชมป์บอลโลกปี 2022", "แมนยูได้แชมป์กี่สมัย", "x" * 41, ""):
+            with self.subTest(reply=reply):
+                self.assertIsNone(resolve_clarify_reply(reply, year_any))
+        other = self.clarify_history("ยูไนเต็ดชนะไหม", "หมายถึงทีมใดหรือแมตช์ไหนครับ")
+        self.assertIsNone(resolve_clarify_reply("2024/25", other))
+        self.assertIsNone(resolve_clarify_reply("2024/25", []))
+
+    # Final review 2026-10-05: inputs just outside the spec's literal examples.
+    def test_new_questions_after_a_clarify_are_not_merged(self):
+        year_any = self.clarify_history("แชมป์ปี 2025 คือทีมไหน", title_year_clarify(2025, False)[0])
+        team = self.clarify_history("ได้แชมป์กี่สมัย", team_clarify()[0])
+        for reply in ("อาร์เซนอลนัดต่อไป", "ข่าวล่าสุดของแมนยู", "ลิเวอร์พูลเจอเชลซีนัดหน้า", "อาร์เซนอลแต้มล่าสุด",
+                      "Arsenal fixtures", "ผลบอลเมื่อวาน", "ตารางคะแนนล่าสุด", "โปรแกรมแข่งพรุ่งนี้", "สวัสดี",
+                      "ขอบคุณครับ", "ลีกสูงสุด"):
+            for history in (year_any, team):
+                with self.subTest(reply=reply, asked=history[0]["content"]):
+                    self.assertIsNone(resolve_clarify_reply(reply, history, TEAMS))
+        self.assertEqual(resolve_clarify_reply("2024/25", year_any, TEAMS),
+                         "แชมป์ปี 2025 คือทีมไหน 2024/25 พรีเมียร์ลีก")
+        named = self.clarify_history("แชมป์พรีเมียร์ลีกปี 2025 คือทีมไหน", title_year_clarify(2025, True)[0])
+        self.assertIsNone(resolve_clarify_reply("พรีเมียร์ลีก", named, TEAMS))
+        self.assertEqual(resolve_clarify_reply("2024/25", named, TEAMS), "แชมป์พรีเมียร์ลีกปี 2025 คือทีมไหน 2024/25")
+
+    def test_current_table_superlatives_stay_off_the_archive(self):
+        for query in ("อาร์เซนอลอยู่อันดับเท่าไหร่ในลีกสูงสุด", "ทีมในลีกสูงสุดอังกฤษอันดับ 1 คือใคร",
+                      "ทีมไหนอยู่อันดับต่ำสุด", "ทีมไหนเคยได้อันดับ 1", "ใครยิงประตูสูงสุดอันดับ 1",
+                      "ดาวซัลโวสูงสุดอันดับ 1 คือใคร", "Who has the lowest points?", "How many total points do Arsenal have?",
+                      "What is Arsenal's total points?", "Who has the best points tally?",
+                      "Who has the highest points total in the league?", "อาร์เซนอลมีแต้มทั้งหมดกี่แต้ม",
+                      "ทีมไหนมีแต้มสูงสุด", "ทีมไหนแต้มต่ำสุด", "ใครมีแต้มสูงสุดในลีก"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+
+    def test_predictions_and_betting_with_all_time_words_keep_their_intent(self):
+        self.assertEqual(decide("ราคาบอลทีมไหนจะจบอันดับดีที่สุดในพรีเมียร์ลีก", CONTEXT, [], TEAMS).route, "decline")
+        for query in ("อาร์เซนอลจะจบอันดับดีที่สุดในพรีเมียร์ลีกเท่าไหร่", "ทำนายว่าลิเวอร์พูลจะจบอันดับสูงสุดในพรีเมียร์ลีกที่เท่าไหร่",
+                      "อาร์เซนอลมีโอกาสจบอันดับดีที่สุดในพรีเมียร์ลีกเท่าไหร่"):
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).intent, "prediction")
+        for query in ("Will Arsenal finish in the best Premier League position ever?",
+                      "Where will Arsenal finish at best in the Premier League?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.reasoning if decision else None, "คำถามสถิติทั้งยุค")
+
+    def test_named_players_nations_and_competitions_are_not_clarified(self):
+        for query in ("อาร์เจนตินาได้แชมป์โลกกี่สมัย", "อาร์เจนตินาได้แชมป์กี่สมัย", "เรอัลมาดริดได้แชมป์กี่สมัย",
+                      "เมสซี่ได้แชมป์กี่ครั้ง", "How many titles has Messi won?", "คริสเตียโน โรนัลโด้ ได้แชมป์ UCL กี่สมัย",
+                      "แชมป์ UCL ปี 2023", "ucl winners 2020", "แชมป์ซีรีอาปี 2020", "แชมป์ฝรั่งเศสปี 2020",
+                      "บาร์เซโลน่าได้แชมป์ปี 2015 ไหม", "ซาลาห์ได้แชมป์ปี 2020 ไหม", "Who won the Golden Boot in 2018?",
+                      "Who won the PFA award in 2020?", "Who won the treble in 1999?", "แชมป์ดาวซัลโวปี 2018"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.route if decision else None, "clarify")
+
+    def test_future_title_years_are_not_clarified(self):
+        for query in ("แชมป์ปี 2027 จะเป็นใคร", "ใครมีลุ้นแชมป์ปี 2027", "Who will be champions in 2027?",
+                      "Who will be the champion in 2027?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.route if decision else None, "clarify")
+
+    def test_current_relegation_and_runner_up_questions_are_not_history(self):
+        for query in ("Who is in the relegation zone?", "Which teams are in the relegation zone?",
+                      "Who are the relegation candidates this season?", "Is Arsenal runner-up this season?",
+                      "Who is runner-up in the table?", "Who got relegated yesterday?", "What is the relegation rule?"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotEqual(decision.intent if decision else None, "trivia_history")
+
+    def test_current_season_and_non_title_ranges(self):
+        for query in ("ตั้งแต่ปี 2026 อาร์เซนอลได้กี่แต้ม", "อาร์เซนอลได้กี่แต้มตั้งแต่เดือนกันยายน 2026"):
+            with self.subTest(query=query):
+                self.assertNotEqual(decide(query, CONTEXT, [], TEAMS).reasoning, "คำถามช่วงเวลา")
+        decision = decide("ตั้งแต่ปี 2010 ใครได้ดาวซัลโวบ่อยสุด", CONTEXT, [], TEAMS)
+        self.assertNotEqual(decision.reasoning if decision else None, "คำถามช่วงเวลา")
+        decision = decide("ตั้งแต่ปี 2010 แมนยูจบอันดับดีที่สุดอันดับเท่าไหร่", CONTEXT, [], TEAMS)
+        self.assertTrue(decision.rewritten_query.startswith("Man United Premier League record best finish"),
+                        decision.rewritten_query)
+
+    def test_season_specific_table_questions_keep_their_season(self):
+        decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.filters.get("season"), "2015")
+
     def test_season_questions_are_prediction_intent(self):
         for query in ("ใครจะได้แชมป์พรีเมียร์ลีกปีนี้", "อาร์เซนอลมีโอกาสติดท็อป 4 กี่เปอร์เซ็นต์",
                       "ใครเสี่ยงตกชั้นมากที่สุด", "ทีมไหนจะตกชั้น", "Who will be relegated this season?",
@@ -83,11 +307,11 @@ class DecisionTests(unittest.TestCase):
 
     def test_routing_cases(self):
         cases = [json.loads(line) for line in CASES.read_text(encoding="utf-8").splitlines()]
-        self.assertEqual(len(cases), 44)
+        self.assertEqual(len(cases), 58)
         self.assertEqual({route: sum(case["route"] == route for case in cases)
                           for route in {case["route"] for case in cases}},
-                         {"football_rag": 9, "general_ai": 8, "local_ai": 11,
-                          "clarify": 8, "decline": 8})
+                         {"football_rag": 20, "general_ai": 8, "local_ai": 11,
+                          "clarify": 11, "decline": 8})
         for case in cases:
             with self.subTest(query=case["query"]):
                 result = decide(case["query"], CONTEXT, [], TEAMS)
@@ -328,10 +552,12 @@ class FollowUpWordingTests(unittest.TestCase):
 
     def test_records_and_history_stay_trivia(self):
         for query in ("ใครยิงแฮตทริกเร็วที่สุด", "ใครทำประตูมากที่สุดตลอดกาล", "ใครยิงประตูแรกในประวัติศาสตร์พรีเมียร์ลีก",
-                      "who won the league in 2016", "who scored the fastest goal ever",
+                      "who scored the fastest goal ever",
                       "ใครยิงให้ลิเวอร์พูลปี 2005", "who scored for Arsenal in 1998"):
             with self.subTest(query=query):
                 self.assertEqual(self.intent(query), "trivia_history")
+        # 2016 ended 2015/16 and began 2016/17: the rules ask which (user choice 2026-10-05).
+        self.assertEqual(decide("who won the league in 2016", CONTEXT, [], TEAMS).route, "clarify")
 
     def test_top_scorer_questions_keep_their_intent(self):
         for query in ("ใครยิงเยอะสุด", "who scored the most goals this season"):

@@ -114,6 +114,48 @@ HISTORY_SEASON_WORDS = ("แชมป์", "อันดับ", "ตารา�
 CUP_WORDS = ("เอฟเอคัพ", "fa cup", "ลีกคัพ", "league cup", "คาราบาว", "carabao", "คอมมูนิตี้ชิลด์",
              "community shield", "บัลลงดอร์", "ballon", "คัพ", " cup", "ถ้วย", "efl", "ซีเกมส์", "sea games",
              "เอเชียน", "asian", "ไทยลีก", "thai league", "ดิวิชั่น", "division")
+# All-time questions about finishes and points belong to the archive's club records, not this
+# season's table (live chat test 2026-10-04: "แต้มรวมทั้งหมด" was answered with this season's 12).
+TABLE_WORDS_TH = ("อันดับ", "แต้ม")
+TABLE_WORDS_EN = re.compile(r"\b(?:points|finish(?:ed)?|position)\b")
+# An explicit all-time marker is enough; a superlative or a total also needs the league named (and a
+# finish), since "ทีมไหนแต้มต่ำสุด" or "who has the best points tally" ask about this season's table.
+ALL_TIME_TH = ("ตลอดกาล", "ทุกฤดูกาล", "รวมทุก", "ประวัติศาสตร์", "เคยจบ")
+ALL_TIME_EN = re.compile(r"\b(?:all[- ]time|ever|in (?:premier league )?history)\b")
+SUPERLATIVE_TH = ("ดีที่สุด", "แย่ที่สุด", "สูงสุด", "ต่ำสุด")
+SUPERLATIVE_EN = re.compile(r"\b(?:best|worst|highest|lowest)\b")
+TOTAL_EN = re.compile(r"\btotal\b")
+SCORER_WORDS = ("ยิง", "ประตู", "ดาวซัลโว", "scorer", "goal")
+ENGLISH_RECORD_WORDS = ("titles", "won the premier league", "premier league champions", "relegated", "relegation",
+                        "runner-up", "runners-up", "most titles")
+# Questions about what will happen are predictions, never the archive or a question back.
+FUTURE = re.compile(r"จะ|ลุ้น|\bwill\b")
+NOW_WORDS = (*CURRENT_WORDS, "ตอนนี้", "ล่าสุด", " now", "currently")
+NOW_END = re.compile(r"แล้ว(?:ครับ|คะ|ค่ะ|นะ)?\s*\??\s*$")
+YEAR = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)")
+SEASON_SPAN = re.compile(r"(?<!\d)\d{2,4}\s*/\s*\d{2,4}(?!\d)")
+# Title questions the rules ask back about (user choice: always ask, never guess).
+TITLE_WORDS_EN = re.compile(r"\b(?:champions?|titles?|won the|winners?)\b")
+RANGE_TH = ("ตั้งแต่", "หลังปี", "ก่อนปี", "ระหว่างปี", "ถึงปี")
+RANGE_EN = re.compile(r"\b(?:since|between|after|before)\b")
+COUNT_TH = ("กี่สมัย", "กี่ครั้ง")
+COUNT_EN = re.compile(r"\bhow many\b")
+LEAGUE_WIDE_TH = ("ทีมไหน", "สโมสรไหน", "มากที่สุด", "กี่ทีม", "ใคร")
+LEAGUE_WIDE_EN = re.compile(r"\b(?:which|who|most)\b")
+OTHER_TITLE_WORDS = (*INTERNATIONAL_WORDS, *OTHER_COMPETITIONS, *CUP_WORDS)
+# What a bare title question may contain. Anything else (a player, a nation, a foreign club, an award,
+# "จะ") names something the question back would talk past, so the rules leave that question alone.
+CLARIFY_FILLER_TH = tuple(sorted((
+    "พรีเมียร์ลีก", "พรีเมียร์ชิพ", "ลีกสูงสุดอังกฤษ", "ลีกสูงสุด", "ลีกอังกฤษ", "อังกฤษ", "ลีก", "แชมป์",
+    "ฤดูกาล", "ปี", "คือ", "ทีมไหน", "สโมสรไหน", "ทีมอะไร", "สโมสร", "ทีม", "ใคร", "ได้", "เป็น", "กี่สมัย",
+    "กี่ครั้ง", "ครับ", "คับ", "คะ", "ค่ะ", "นะ", "ไหน", "อะไร", "ของ", "ที่", "บ้าง", "ไหม", "มั้ย", "เหรอ",
+    "หรอ", "ใน", "เมื่อ"), key=len, reverse=True))
+CLARIFY_FILLER_EN = re.compile(
+    r"\b(?:who|won|win|wins|were|was|is|are|did|the|champions?|league|premier|epl|titles?|in|of|how|many|"
+    r"has|have|which|team|club|english|top|flight|winners?|season|year)\b")
+# A reply to a question back must answer it, never start another topic.
+REPLY_TOPIC_WORDS = (*NOW_WORDS, "นัด", "เจอ", "ข่าว", "ผล", "ตาราง", "โปรแกรม", "แต้ม", "อันดับ", "ยิง",
+                     "fixture", "news", "table", "score", "result", "points", " vs")
 
 
 def normalize_thai(text: str) -> str:
@@ -148,6 +190,36 @@ class Decision:
     rewritten_query: str | None = None
     team_ids: list[int] = field(default_factory=list)
     kind: str | None = None  # route `chat` only: the kind of chit-chat (also in `reasoning`)
+    clarify_text: str | None = None  # route `clarify`: the question back, in Thai
+    clarify_text_en: str | None = None
+
+
+TEAM_CLARIFY = ('หมายถึงแชมป์ของทีมไหนครับ เช่น "แมนยูได้แชมป์พรีเมียร์ลีกกี่สมัย"',
+                'Which club do you mean? For example: "How many Premier League titles have Manchester United won?"')
+# Our own questions back, recognised in history so a short reply can join the question it answers.
+CLARIFY_PREFIXES = ("หมายถึงแชมป์พรีเมียร์ลีกฤดูกาล", "หมายถึงแชมป์ลีกสูงสุดอังกฤษฤดูกาล",
+                    "หมายถึงแชมป์รายการไหนครับ", "หมายถึงแชมป์ของทีมไหนครับ",
+                    "Do you mean the Premier League ", "Do you mean the English top-flight ",
+                    "Which competition do you mean?", "Which club do you mean?")
+COMPETITION_CLARIFY_PREFIXES = ("หมายถึงแชมป์รายการไหนครับ", "Which competition do you mean?")
+
+
+def team_clarify() -> tuple[str, str]:
+    return TEAM_CLARIFY
+
+
+def title_year_clarify(year: int, league_named: bool) -> tuple[str, str]:
+    """A calendar year spans two seasons; the Premier League began in 1992/93."""
+    ended, began = f"{year - 1}/{year % 100:02d}", f"{year}/{(year + 1) % 100:02d}"
+    league, league_en = (("พรีเมียร์ลีก", "Premier League") if year > 1992
+                         else ("ลีกสูงสุดอังกฤษ", "English top-flight"))
+    if league_named:
+        return (f"หมายถึงแชมป์{league}ฤดูกาล {ended} (จบปี {year}) หรือ {began} (เริ่มปี {year}) ครับ",
+                f"Do you mean the {league_en} {ended} season (ended in {year}) or {began} (began in {year})?")
+    return (f"หมายถึงแชมป์รายการไหนครับ ถ้าเป็น{league} ปี {year} ตรงกับฤดูกาล {ended} (จบปี {year}) "
+            f"หรือ {began} (เริ่มปี {year})",
+            f"Which competition do you mean? For the {league_en}, {year} covers {ended} (ended in {year}) "
+            f"and {began} (began in {year}).")
 
 
 def _category_filter(intent: str) -> dict:
@@ -341,6 +413,11 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
         return "weekly_summary"
     if _has(text, ("แชมป์", "บัลลงดอร์", "ประวัติ", "trivia", "history")):
         return "trivia_history"
+    # English title and relegation questions decided here, not by an LLM that rewrites them differently
+    # each time; "relegation zone" or "runner-up this season" is this season's table.
+    if _has(text, ENGLISH_RECORD_WORDS) and not _has(
+            text, (*NOW_WORDS, "zone", "candidate", "battle", "race", "table", "rule")):
+        return "trivia_history"
     if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule",
                    "นัดต่อไป", "นัดถัดไป", "เจอใครต่อ", "เจอกับใครต่อ")) or NEXT_MATCH_EN.search(text):
         return "fixture_schedule"
@@ -384,14 +461,15 @@ def _rewrite(query: str, intent: str, names: list[str], filters: dict) -> str:
         lowered = query.lower()
         former = [name for word, name in ARCHIVE_CLUBS.items() if word in lowered and name not in teams]
         teams = " ".join(dict.fromkeys([*names, *former]))
+        # The season document opens with "Champions: …"; "standings" alone pulled table chunks instead.
+        table = "champions final table" if _title_question(lowered) else "final table standings"
         if start is not None:
-            return keep_question(teams, "Premier League", _season_label(int(start)), "final table standings")
+            return keep_question(teams, "Premier League", _season_label(int(start)), table)
         year = None if _head_to_head(query.lower()) else re.search(r"(?<!\d)((?:19|20)\d{2})(?!\d)", query)
         if year is None:
             return keep_question(teams, "Premier League head-to-head record")
         end = int(year.group(1))
-        return keep_question(teams, "Premier League", _season_label(end - 1), _season_label(end),
-                             "final table standings")
+        return keep_question(teams, "Premier League", _season_label(end - 1), _season_label(end), table)
     season = filters.get("season", "")
     matchweek = f"matchweek {filters['matchweek']}" if "matchweek" in filters else ""
     dates = " ".join(str(filters[key]) for key in ("date_from", "date_to") if key in filters)
@@ -463,6 +541,118 @@ def enrich(decision: Decision, query: str, context: dict, history: list[dict], t
     return decision
 
 
+def all_time_table_question(text: str) -> bool:
+    text = text.replace("ลีกสูงสุด", "")  # "top-flight league", not "highest"
+    if not (_has(text, TABLE_WORDS_TH) or TABLE_WORDS_EN.search(text)) or _has(text, SCORER_WORDS):
+        return False
+    if (_has(text, NOW_WORDS) or NOW_END.search(text) or YEAR.search(text) or SEASON_SPAN.search(text)
+            or MATCHWEEK_PATTERN.search(text) or FUTURE.search(text)):
+        return False
+    if _has(text, ALL_TIME_TH) or ALL_TIME_EN.search(text):
+        return True
+    if not _has(text, PL_WORDS):
+        return False
+    superlative = _has(text, SUPERLATIVE_TH) or bool(SUPERLATIVE_EN.search(text))
+    return (superlative and _has(text, ("จบ", "finish"))) or _has(text, ("ทั้งหมด",)) or bool(TOTAL_EN.search(text))
+
+
+def _title_question(text: str) -> bool:
+    return _has(text, ("แชมป์",)) or bool(TITLE_WORDS_EN.search(text))
+
+
+def _range_question(text: str) -> bool:
+    return (_has(text, RANGE_TH) or bool(RANGE_EN.search(text))) and bool(YEAR.search(text))
+
+
+def _range_topic(text: str, current_season: str | None) -> str | None:
+    """Titles or table records over a span of past seasons; None leaves the question to the other rules."""
+    if not _range_question(text) or _has(text, (*OTHER_TITLE_WORDS, *SCORER_WORDS)) or _has(text, NOW_WORDS):
+        return None
+    if current_season and min(int(year) for year in YEAR.findall(text)) >= int(current_season):
+        return None  # the archive ends last season
+    if _title_question(text):
+        return "titles"
+    return "table" if _has(text, TABLE_WORDS_TH) or TABLE_WORDS_EN.search(text) else None
+
+
+def _names_more_than_a_title(text: str) -> bool:
+    rest = CLARIFY_FILLER_EN.sub(" ", YEAR.sub(" ", text))
+    for word in CLARIFY_FILLER_TH:
+        rest = rest.replace(word, " ")
+    return bool(re.search(r"[a-zก-๙]", rest))
+
+
+def ambiguous_title_year(text: str, found: list) -> int | None:
+    """A title question naming one calendar year and no club: the year spans two seasons."""
+    if found or not _title_question(text) or _has(text, (*OTHER_TITLE_WORDS, *ARCHIVE_CLUB_WORDS)):
+        return None
+    if _names_more_than_a_title(text):
+        return None
+    if season_prediction(text) or _range_question(text) or SEASON_SPAN.search(text):
+        return None
+    years = YEAR.findall(text)
+    return int(years[0]) if len(years) == 1 else None
+
+
+def title_count_without_team(text: str, found: list, history: list[dict], teams: TeamDirectory) -> bool:
+    if found or not _title_question(text) or not (_has(text, COUNT_TH) or COUNT_EN.search(text)):
+        return False
+    if season_prediction(text) or _has(text, (*LEAGUE_WIDE_TH, *OTHER_TITLE_WORDS, *ARCHIVE_CLUB_WORDS)):
+        return False
+    if LEAGUE_WIDE_EN.search(text) or _names_more_than_a_title(text):
+        return False
+    return not any(teams.find(str(item.get("content") or ""))
+                   for item in history[-10:] if item.get("role") == "user")
+
+
+REPLY_QUESTION_WORDS = ("ใคร", "กี่", "ไหม", "อะไร", "เท่าไหร่", "?", "who", "how", "which", "what")
+
+
+def _answers_the_question_back(reply: str, asked_text: str, teams: TeamDirectory | None) -> bool:
+    """Each question back accepts only its own kind of answer, so a merge can never ask it again."""
+    season = bool(SEASON_SPAN.search(reply) or YEAR.search(reply))
+    if asked_text.startswith(("หมายถึงแชมป์ของทีมไหนครับ", "Which club do you mean?")):
+        return bool(teams and teams.find(reply)) or _has(reply, (*ARCHIVE_CLUB_WORDS, *OTHER_TITLE_WORDS))
+    if asked_text.startswith(COMPETITION_CLARIFY_PREFIXES):
+        return season or _has(reply, (*PL_WORDS, *OTHER_TITLE_WORDS))
+    return season
+
+
+def resolve_clarify_reply(query: str, history: list[dict], teams: TeamDirectory | None = None) -> str | None:
+    """Join a short answer to our question back with the question that needed it (no LLM)."""
+    reply = query.strip()
+    if not reply or len(reply) > 40 or len(history) < 2:
+        return None
+    asked, question = history[-1], history[-2]
+    if asked.get("role") != "assistant" or question.get("role") != "user":
+        return None
+    asked_text = str(asked.get("content") or "")
+    if not asked_text.startswith(CLARIFY_PREFIXES):
+        return None
+    lowered = reply.lower()
+    if _title_question(lowered) or _has(lowered, (*REPLY_QUESTION_WORDS, *REPLY_TOPIC_WORDS)):
+        return None
+    if not _answers_the_question_back(lowered, asked_text, teams):
+        return None
+    merged = f"{str(question.get('content') or '').strip()} {reply}"
+    # "Which competition?" offered the Premier League seasons; a bare season answer means it.
+    if asked_text.startswith(COMPETITION_CLARIFY_PREFIXES) and not _has(lowered, (*OTHER_TITLE_WORDS, *PL_WORDS)):
+        merged += " พรีเมียร์ลีก"
+    return merged
+
+
+def _record_rewrite(query: str, names: list[str], topic: str) -> str:
+    """Search text for the archive's club and league records; English questions stay as asked."""
+    if not re.search(r"[ก-๙]", query):
+        return query
+    if topic == "titles":
+        terms = "Premier League titles seasons"
+    else:
+        terms = ("Premier League record best finish worst finish total points" if names
+                 else "Premier League all-time records most points")
+    return " ".join(part for part in (*names, terms, query.strip()) if part)
+
+
 def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
            favorite_team_id: int | None = None) -> Decision | None:
     text = query.lower().strip()
@@ -479,6 +669,37 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
     if len(found) > 2:
         return Decision("clarify", None, "guard", 1.0, "พบหลายทีมในคำถาม")
     intent = _intent(query, context.get("season"))
+    archive_rule = intent not in ("out_of_scope", "prediction") and not FUTURE.search(text)
+    if archive_rule and all_time_table_question(text):
+        decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "คำถามสถิติทั้งยุค",
+                                   {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
+        decision.rewritten_query = _record_rewrite(query, [team.short_name for team in found], "table")
+        return decision
+    year = ambiguous_title_year(text, found) if archive_rule else None
+    if year is not None:
+        thai, english = title_year_clarify(year, _has(text, PL_WORDS))
+        return Decision("clarify", None, "guard", 0.9, "แชมป์ปีเดียวกำกวม",
+                        clarify_text=thai, clarify_text_en=english)
+    if archive_rule and title_count_without_team(text, found, history, teams):
+        thai, english = team_clarify()
+        return Decision("clarify", None, "guard", 0.9, "ไม่ระบุทีม",
+                        clarify_text=thai, clarify_text_en=english)
+    # "ตั้งแต่ปี 2010" is a range: a season filter kept only one season (and dropped the club records).
+    topic = _range_topic(text, context.get("season")) if archive_rule else None
+    if topic is not None:
+        decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "คำถามช่วงเวลา",
+                                   {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
+        decision.rewritten_query = _record_rewrite(query, [team.short_name for team in found], topic)
+        return decision
+    # An English club record question names the club the way its archive document does (live chat c39:
+    # as asked, other clubs' "all eras" chunks outranked hist-club-manchester-united).
+    if (archive_rule and intent == "trivia_history" and found and not re.search(r"[ก-๙]", query)
+            and _has(text, ENGLISH_RECORD_WORDS) and not (YEAR.search(text) or SEASON_SPAN.search(text))):
+        decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "English club record question",
+                                   {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
+        terms = "Premier League record relegated" if "relegat" in text else "Premier League record titles"
+        decision.rewritten_query = " ".join([*(team.name for team in found), terms, query.strip()])
+        return decision
     if intent is None and chat_enabled():
         kind = chat_kind(normalize_thai(text), len(found))
         if kind:

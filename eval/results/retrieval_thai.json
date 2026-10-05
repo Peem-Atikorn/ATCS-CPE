@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-10-04T22:58:42.781+07:00",
+  "generated_at": "2026-10-05T01:21:24.648+07:00",
   "embedding_model": "paraphrase-multilingual-MiniLM-L12-v2",
   "golden_file": "eval/golden_thai.jsonl",
   "questions": {
@@ -64,32 +64,32 @@
       "mode": "bm25",
       "n": 32,
       "hit@1": 0.78125,
-      "hit@5": 0.875,
-      "mrr": 0.8305288461538461,
+      "hit@5": 0.90625,
+      "mrr": 0.8461538461538461,
       "router_miss": 0,
-      "rules_undecided": 2
+      "rules_undecided": 1
     },
     {
       "kind": "historical_th",
       "variant": "routed",
       "mode": "hybrid",
       "n": 32,
-      "hit@1": 0.71875,
-      "hit@5": 0.9375,
-      "mrr": 0.8201121794871795,
+      "hit@1": 0.78125,
+      "hit@5": 0.96875,
+      "mrr": 0.8669871794871795,
       "router_miss": 0,
-      "rules_undecided": 2
+      "rules_undecided": 1
     },
     {
       "kind": "historical_th",
       "variant": "routed",
       "mode": "vector",
       "n": 32,
-      "hit@1": 0.53125,
-      "hit@5": 0.75,
-      "mrr": 0.6265997023809524,
+      "hit@1": 0.5625,
+      "hit@5": 0.8125,
+      "mrr": 0.6698288690476191,
       "router_miss": 0,
-      "rules_undecided": 2
+      "rules_undecided": 1
     },
     {
       "kind": "match_th",
@@ -464,7 +464,7 @@
     "decided": {
       "multi_doc_partial": 2,
       "rewrite": 1,
-      "router_filter": 4,
+      "router_filter": 3,
       "router_route": 1,
       "vocabulary": 5
     },
@@ -498,31 +498,6 @@
         "trivia-1212",
         "trivia-1452",
         "hist-team-2002-arsenal"
-      ]
-    },
-    {
-      "id": "th-hist-027",
-      "kind": "historical_th",
-      "label": "router_filter",
-      "undecided": false,
-      "query_th": "ลิเวอร์พูลเคยจบอันดับแย่ที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่",
-      "routed_query": "Liverpool Premier League standings points ranking 2026 matchweek 5 ลิเวอร์พูลเคยจบอันดับแย่ที่สุดในพรีเมียร์ลีกอันดับเท่าไหร่",
-      "filters": {
-        "category": [
-          "standings"
-        ],
-        "team_ids": [
-          64
-        ],
-        "season": "2026",
-        "matchweek": 5
-      },
-      "routed_away": null,
-      "expected": [
-        "hist-club-liverpool"
-      ],
-      "top5": [
-        "standings-2026-mw05"
       ]
     },
     {
@@ -662,7 +637,7 @@
         "hist-records",
         "trivia-0034",
         "trivia-0294",
-        "trivia-0989"
+        "hist-team-1996-liverpool"
       ]
     },
     {
