@@ -306,6 +306,16 @@ class DecisionTests(unittest.TestCase):
                 rewrite = decision.rewritten_query if decision else ""
                 self.assertNotIn("head coach manager", rewrite or "")
 
+    # Final review 2026-10-05: the coach documents hold the current coach only.
+    def test_past_coach_and_goal_questions_do_not_search_the_current_coach(self):
+        for query in ("Who was Man United manager in 1999?",
+                      "Who was the Arsenal manager when they won the Invincibles season?",
+                      "How many goals has Arsenal scored since the new manager arrived?",
+                      "ใครเคยเป็นโค้ชแมนยู", "อดีตกุนซือลิเวอร์พูลคือใคร", "โค้ชแมนยูปี 2008 คือใคร"):
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertNotIn("head coach manager", (decision.rewritten_query or "") if decision else "")
+
     def test_season_specific_table_questions_keep_their_season(self):
         decision = decide("อาร์เซนอลจบอันดับเท่าไหร่ในฤดูกาล 2015/16", CONTEXT, [], TEAMS)
         self.assertEqual(decision.filters.get("season"), "2015")

@@ -28,6 +28,9 @@ PLAYER_WORDS = ("นักเตะ", "ผู้เล่น", "สควอด"
 COACH_WORDS_TH = ("โค้ช", "ผู้จัดการทีม", "กุนซือ", "เฮดโค้ช", "ผู้ฝึกสอน")
 COACH_WORDS_EN = re.compile(r"\b(?:head coach|coach(?:es|ed)?|manager)\b")
 NOT_COACH_WORDS = ("general manager", "manager of the month", "assistant", "ผู้ช่วย")
+# The documents hold the current coach only: a past coach is not theirs to answer.
+PAST_COACH_TH = ("เคย", "อดีต", "คนก่อน", "ก่อนหน้า")
+PAST_COACH_EN = re.compile(r"\b(?:was|were|used to|former|previous|before|when)\b")
 # Goal and table questions stay with the scorer/standings rules or fall through to the LLM.
 NOT_PLAYER_WORDS = ("ยิง", "ทำประตู", "กี่ประตู", "กี่ลูก", "ตาราง", "goals", "scored", "assist",
                     "table")
@@ -458,7 +461,9 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
 
 def coach_question(text: str) -> bool:
     text = text.lower()
-    if _has(text, NOT_COACH_WORDS):
+    if _has(text, (*NOT_COACH_WORDS, *NOT_PLAYER_WORDS, *PAST_COACH_TH)):
+        return False
+    if PAST_COACH_EN.search(text) or re.search(r"(?<!\d)(?:19|20)\d{2}(?!\d)", text):
         return False
     return _has(text, COACH_WORDS_TH) or bool(COACH_WORDS_EN.search(text))
 
