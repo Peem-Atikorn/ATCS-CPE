@@ -116,7 +116,25 @@ class DecisionTests(unittest.TestCase):
             with self.subTest(query=query):
                 decision = decide(query, CONTEXT, [], TEAMS)
                 self.assertEqual((decision.layer, decision.intent), ("rules", "trivia_history"))
-                self.assertEqual(decision.rewritten_query, query)
+        decision = decide("Which club has won the most Premier League titles?", CONTEXT, [], TEAMS)
+        self.assertEqual(decision.rewritten_query, "Which club has won the most Premier League titles?")
+
+    # Live chat test 2026-10-05 (c39): as asked, other clubs' "all eras" chunks outranked the club's record.
+    def test_english_club_record_questions_name_the_club(self):
+        cases = {
+            "How many Premier League titles have Manchester United won?":
+                "Manchester United FC Premier League record titles How many",
+            "How many times have Newcastle been relegated?": "Newcastle United FC Premier League record relegated How",
+            "Have Tottenham ever won the Premier League?": "Tottenham Hotspur FC Premier League record titles Have",
+        }
+        for query, rewrite in cases.items():
+            with self.subTest(query=query):
+                decision = decide(query, CONTEXT, [], TEAMS)
+                self.assertEqual((decision.layer, decision.filters), ("rules", {"category": ["historical"]}))
+                self.assertTrue(decision.rewritten_query.startswith(rewrite), decision.rewritten_query)
+        # A season named keeps the season search.
+        decision = decide("Did Arsenal win the Premier League title in 2004/05?", CONTEXT, [], TEAMS)
+        self.assertNotEqual(decision.reasoning if decision else None, "English club record question")
 
     @staticmethod
     def clarify_history(question, answer):

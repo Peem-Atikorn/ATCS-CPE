@@ -126,6 +126,8 @@ SUPERLATIVE_TH = ("ดีที่สุด", "แย่ที่สุด", "�
 SUPERLATIVE_EN = re.compile(r"\b(?:best|worst|highest|lowest)\b")
 TOTAL_EN = re.compile(r"\btotal\b")
 SCORER_WORDS = ("ยิง", "ประตู", "ดาวซัลโว", "scorer", "goal")
+ENGLISH_RECORD_WORDS = ("titles", "won the premier league", "premier league champions", "relegated", "relegation",
+                        "runner-up", "runners-up", "most titles")
 # Questions about what will happen are predictions, never the archive or a question back.
 FUTURE = re.compile(r"จะ|ลุ้น|\bwill\b")
 NOW_WORDS = (*CURRENT_WORDS, "ตอนนี้", "ล่าสุด", " now", "currently")
@@ -413,8 +415,7 @@ def _intent(query: str, current_season: str | None = None) -> str | None:
         return "trivia_history"
     # English title and relegation questions decided here, not by an LLM that rewrites them differently
     # each time; "relegation zone" or "runner-up this season" is this season's table.
-    if _has(text, ("titles", "won the premier league", "premier league champions", "relegated", "relegation",
-                   "runner-up", "runners-up", "most titles")) and not _has(
+    if _has(text, ENGLISH_RECORD_WORDS) and not _has(
             text, (*NOW_WORDS, "zone", "candidate", "battle", "race", "table", "rule")):
         return "trivia_history"
     if _has(text, ("โปรแกรม", "เตะกับใครต่อ", "แข่งกับใครต่อ", "นัดหน้า", "เมื่อไร", "วันไหน", "fixture", "schedule",
@@ -689,6 +690,15 @@ def decide(query: str, context: dict, history: list[dict], teams: TeamDirectory,
         decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "คำถามช่วงเวลา",
                                    {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
         decision.rewritten_query = _record_rewrite(query, [team.short_name for team in found], topic)
+        return decision
+    # An English club record question names the club the way its archive document does (live chat c39:
+    # as asked, other clubs' "all eras" chunks outranked hist-club-manchester-united).
+    if (archive_rule and intent == "trivia_history" and found and not re.search(r"[ก-๙]", query)
+            and _has(text, ENGLISH_RECORD_WORDS) and not (YEAR.search(text) or SEASON_SPAN.search(text))):
+        decision = enrich(Decision("football_rag", "trivia_history", "rules", 0.9, "English club record question",
+                                   {"category": [HISTORICAL]}), query, context, history, teams, favorite_team_id)
+        terms = "Premier League record relegated" if "relegat" in text else "Premier League record titles"
+        decision.rewritten_query = " ".join([*(team.name for team in found), terms, query.strip()])
         return decision
     if intent is None and chat_enabled():
         kind = chat_kind(normalize_thai(text), len(found))
