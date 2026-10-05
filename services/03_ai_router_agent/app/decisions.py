@@ -33,7 +33,10 @@ NOT_COACH_WORDS = ("general manager", "manager of the month", "assistant", "ผ�
 # "pl" is the league only as a whole word ("players", "play" are not).
 PL_ABBR = re.compile(r"\bpl\b")
 # A person's titles with a club, or the women's team, are not the club's record summary.
-PERSON_TITLE = re.compile(r"แชมป์\S*กับ|สมัย\S*กับ|\b(?:titles?|trophies|won)\b[^?]*\bwith\b|หญิง|\bwomen\b")
+PERSON_TITLE = re.compile(r"แชมป์\S*กับ|สมัย\S*กับ|\b(?:titles?|trophies|won)\b[^?]*\bwith\b")
+WOMEN_TEAM = re.compile(r"หญิง|\bwomen\b")
+# A two-club comparison also reads "แชมป์…กับ" in Thai (no spaces); it stays a club record question.
+COMPARISON_WORDS = ("ระหว่าง", "เทียบกับ", "compared with", "compared to")
 # Calendar years without a top-flight season to end or begin in them.
 WAR_YEARS = {
     **{year: ("1915/16–1918/19", "First World War") for year in (1916, 1917, 1918)},
@@ -712,7 +715,10 @@ def club_record_team_ids(decision: Decision, query: str) -> list[int]:
         return []
     if not 1 <= len(decision.team_ids) <= 2 or "season" in decision.filters:
         return []
-    if YEAR.search(text) or SEASON_SPAN.search(text) or _head_to_head(text) or PERSON_TITLE.search(text):
+    if YEAR.search(text) or SEASON_SPAN.search(text) or _head_to_head(text) or WOMEN_TEAM.search(text):
+        return []
+    comparison = len(decision.team_ids) == 2 or _has(text, COMPARISON_WORDS)
+    if PERSON_TITLE.search(text) and not comparison:
         return []
     if not _has(text, CLUB_RECORD_WORDS) or _has(text, (*OTHER_TITLE_WORDS, *SCORER_WORDS)):
         return []

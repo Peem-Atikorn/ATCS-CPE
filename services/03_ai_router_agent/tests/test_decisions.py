@@ -337,6 +337,16 @@ class DecisionTests(unittest.TestCase):
         self.assertEqual(decide("เชลซีกับอาร์เซนอลใครได้แชมป์พรีเมียร์ลีกเยอะกว่า", CONTEXT, [], TEAMS).record_team_ids,
                          [61, 57])
 
+    # Final review 2026-10-05: Thai has no spaces, so "แชมป์…กับ" also spans a two-club comparison.
+    def test_two_club_comparisons_keep_the_club_record_search(self):
+        cases = {"ใครได้แชมป์มากกว่ากันระหว่างเชลซีกับอาร์เซนอล": [61, 57],
+                 "อาร์เซนอลได้แชมป์กี่สมัยเทียบกับเชลซี": [57, 61],
+                 "แชมป์พรีเมียร์ลีกเชลซีกับอาร์เซนอลใครเยอะกว่า": [61, 57],
+                 "How many Premier League titles have Chelsea won compared with Arsenal?": [61, 57]}
+        for query, expected in cases.items():
+            with self.subTest(query=query):
+                self.assertEqual(decide(query, CONTEXT, [], TEAMS).record_team_ids, expected)
+
     def test_other_staff_do_not_get_the_head_coach_search(self):
         for query in ("Who is Arsenal's goalkeeper coach?", "Who is the Arsenal kit manager?",
                       "โค้ชผู้รักษาประตูของอาร์เซนอลคือใคร"):
