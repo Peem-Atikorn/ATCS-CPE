@@ -15,6 +15,20 @@ from .translate import fuse, multi_query_enabled, needs_translation, validate_tr
 
 CONDENSE_TIMEOUT = 4
 TRANSLATE_TIMEOUT = 4
+# CONTRACT v1.15: each club's record summary, searched on its own (2 chunks a club), leads the contexts.
+RECORD_TOP_K = 2
+RECORD_CHUNK_LIMIT = 6
+
+
+def merge_record_chunks(record: list[list[dict]], chunks: list[dict], limit: int = RECORD_CHUNK_LIMIT) -> list[dict]:
+    """Each club's record summary first, then the ordinary search; no chunk twice."""
+    merged, seen = [], set()
+    for chunk in [*(item for team in record for item in team), *chunks]:
+        key = chunk.get("chunk_id") or ((chunk.get("source") or {}).get("doc_id"), chunk.get("text"))
+        if key not in seen:
+            seen.add(key)
+            merged.append(chunk)
+    return merged[:limit]
 
 
 class UpstreamError(Exception):
@@ -43,6 +57,24 @@ class Router:
     def __init__(self, clients, teams: TeamDirectory):
         self.clients = clients
         self.teams = teams
+
+    async def record_search(self, team_ids: list[int], routing_query: str, query: str,
+                            request_id: str) -> dict[int, list[dict]] | None:
+        """Each club's record summary; None when every search failed (an older 05 answers 422)."""
+        names = {team.team_id: team.name for team in self.teams.teams}
+
+        async def one(team_id: int) -> list[dict]:
+            payload = {"request_id": request_id, "query": f"{names[team_id]} Premier League record {routing_query}",
+                       "query_original": query, "top_k": RECORD_TOP_K, "mode": "hybrid",
+                       "filters": {"category": [HISTORICAL], "team_ids": [team_id], "topic": ["club_record"]}}
+            result = await self.clients.search(payload, request_id)
+            return result.get("chunks") or []
+
+        known = [team_id for team_id in team_ids if team_id in names]
+        results = await asyncio.gather(*(one(team_id) for team_id in known), return_exceptions=True)
+        found = {team_id: chunks for team_id, chunks in zip(known, results, strict=True)
+                 if not isinstance(chunks, BaseException)}
+        return found or None
 
     async def route(self, request: dict) -> dict:
         start = time.monotonic()
@@ -249,6 +281,10 @@ class Router:
                                "query_original": query, "top_k": 5, "filters": filters, "mode": "hybrid"}
                     english_task = None
                     english = None
+                    record_task = None
+                    if decision.record_team_ids:
+                        record_task = asyncio.create_task(self.record_search(
+                            decision.record_team_ids, routing_query, query, request_id))
                     # Archive searches already carry an English season rewrite; a free translation
                     # pulls look-alike team-season chunks over the answer (CONTRACT v1.11).
                     if (multi_query_enabled() and needs_translation(routing_query)
@@ -296,10 +332,19 @@ class Router:
                             break
                     if english_task is not None:  # the first search failed before we waited for it
                         english_task.cancel()
+                    context_limit = 5
+                    if record_task is not None:
+                        record = await record_task
+                        if record is None:
+                            trace["record_search"] = "unavailable"
+                        else:
+                            trace["record_search"] = [team_id for team_id, found in record.items() if found]
+                            chunks = merge_record_chunks(list(record.values()), chunks)
+                            context_limit = RECORD_CHUNK_LIMIT
                     if chunks:
                         contexts = [{"ref": index, "text": chunk["text"],
                                      "source": {**chunk["source"], "ref": index}}
-                                    for index, chunk in enumerate(chunks[:5], 1)]
+                                    for index, chunk in enumerate(chunks[:context_limit], 1)]
                         try:
                             generated_at = time.monotonic()
                             language = user.get("language", "th")
