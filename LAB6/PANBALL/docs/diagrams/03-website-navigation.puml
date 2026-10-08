@@ -1,0 +1,18 @@
+@startuml
+!theme plain
+state "Login / Register" as Entry
+state "Home + Chat" as Home
+state Fixtures
+state Standings
+state Simulation
+state Reports
+state Preferences
+state Match
+Entry --> Home : authenticated
+Home --> Fixtures
+Home --> Standings
+Home --> Simulation
+Home --> Reports
+Home --> Preferences
+Fixtures --> Match
+@enduml

@@ -1,0 +1,23 @@
+@startuml
+!theme plain
+left to right direction
+actor "ผู้ใช้ทั่วไป" as U
+actor "ผู้ดูแลระบบ" as A
+A --|> U
+rectangle "Admin portal" {
+ usecase "ดูภาพรวมการใช้งาน" as A0
+ usecase "สั่งนำเข้า / สร้างรายงาน / ติดตามงาน" as A1
+ usecase "ตรวจ แก้ไข เผยแพร่ และถอนรายงาน" as A2
+ usecase "ตรวจ Feedback และรายละเอียดคำตอบ" as A3
+ usecase "ตรวจ Logs และ Audit" as A4
+ usecase "จัดการบทบาทและสถานะบัญชี" as A5
+ usecase "ดูสถิติ KB / สร้างดัชนี / ลบเอกสาร" as A6
+}
+A -- A0
+A -- A1
+A -- A2
+A -- A3
+A -- A4
+A -- A5
+A -- A6
+@enduml

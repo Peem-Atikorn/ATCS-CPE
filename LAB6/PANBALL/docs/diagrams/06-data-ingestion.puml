@@ -1,0 +1,16 @@
+@startuml
+!theme plain
+component "02 Beat + Worker" as B
+component "Admin / Web / API" as A
+component "07 Ingest" as F
+cloud "football-data.org / API-Football / Wikidata" as P
+database "PostgreSQL football" as D
+component "05 KB: SQLite + FAISS + BM25" as K
+B --> F : trigger /ingest/run via Redis+Celery
+A --> F : manual trigger
+F --> P : fetch by scope / flags
+F --> D : upsert data + IndexTask
+F --> K : /index/upsert
+D ..> K : IndexTask retried by 07
+note bottom of P : OpenFootball/Fjelstul archive loaded by scripts
+@enduml

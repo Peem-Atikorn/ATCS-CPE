@@ -1,0 +1,10 @@
+PANBALL/.env
+PANBALL/.env.*
+!PANBALL/.env.example
+PANBALL/**/node_modules/
+PANBALL/**/.next/
+PANBALL/**/.venv/
+PANBALL/**/__pycache__/
+PANBALL/.cache/
+!PANBALL/services/01_web_app/lib/
+!PANBALL/services/01_web_app/lib/**

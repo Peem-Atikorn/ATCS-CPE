@@ -1,0 +1,188 @@
+{
+  "generated_at": "2026-09-30T09:50:49.455963+00:00",
+  "api_url": "http://127.0.0.1:8000",
+  "evaluation": "trivia route and exact expected answer substring; no semantic grading",
+  "n": 20,
+  "results": [
+    {
+      "id": "gt-trivia-0012",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": false,
+      "source_count": 1,
+      "request_id": "ef3dfc57-7470-4d5f-a90e-80e001c7f31f",
+      "latency_ms": 731
+    },
+    {
+      "id": "gt-trivia-0034",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "3a41e863-d6b2-412f-b618-cbd76bcf26d3",
+      "latency_ms": 664
+    },
+    {
+      "id": "gt-trivia-0088",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": false,
+      "source_count": 1,
+      "request_id": "111434fa-cda0-4c44-888f-ce9d3674cd33",
+      "latency_ms": 827
+    },
+    {
+      "id": "gt-trivia-0091",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "7973da04-128e-4640-843a-82107293ac6a",
+      "latency_ms": 466
+    },
+    {
+      "id": "gt-trivia-0093",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 2,
+      "request_id": "be114f86-1e6a-4eba-b921-b6f2429211f2",
+      "latency_ms": 1033
+    },
+    {
+      "id": "gt-trivia-0150",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "916408fd-8068-42d7-9e6f-dec4d4dd4e99",
+      "latency_ms": 2300
+    },
+    {
+      "id": "gt-trivia-0156",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 2,
+      "request_id": "8eb019ee-3c7b-47c2-b766-d3bab650b9dd",
+      "latency_ms": 677
+    },
+    {
+      "id": "gt-trivia-0165",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 0,
+      "request_id": "91724f35-5f26-4d66-bfbe-efce66b1ae2b",
+      "latency_ms": 1866
+    },
+    {
+      "id": "gt-trivia-0217",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "0943774e-292d-4827-bdd3-a2d1eb37c858",
+      "latency_ms": 651
+    },
+    {
+      "id": "gt-trivia-0239",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "437c9d75-1b2c-401d-b112-9f40796b534d",
+      "latency_ms": 1203
+    },
+    {
+      "id": "gt-trivia-0302",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "d0107142-365c-45b9-98bc-5d8235b1a801",
+      "latency_ms": 2536
+    },
+    {
+      "id": "gt-trivia-0317",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": false,
+      "source_count": 0,
+      "request_id": "69644682-1438-446a-8ea3-2fb61a9068d0",
+      "latency_ms": 1146
+    },
+    {
+      "id": "gt-trivia-0399",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "44a8b5d1-0b0c-4792-9822-1f44dca833e2",
+      "latency_ms": 621
+    },
+    {
+      "id": "gt-trivia-0410",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "e1c2871e-e8ee-4920-9a51-2e77822e407d",
+      "latency_ms": 1410
+    },
+    {
+      "id": "gt-trivia-0442",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "de301cb9-7ed3-4990-80ae-589a62c52f49",
+      "latency_ms": 8345
+    },
+    {
+      "id": "gt-trivia-0446",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "c15c0c29-cbda-4ad0-84e8-3d614f87ae01",
+      "latency_ms": 1224
+    },
+    {
+      "id": "gt-trivia-0450",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "0c5c038c-7929-4194-a21c-a4bff0b71bdb",
+      "latency_ms": 736
+    },
+    {
+      "id": "gt-trivia-0455",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "404aa014-c5b6-49b6-bf78-814950750bcd",
+      "latency_ms": 1135
+    },
+    {
+      "id": "gt-trivia-0473",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 1,
+      "request_id": "8a32e71f-41cf-4b39-8468-263b570eb3d2",
+      "latency_ms": 11653
+    },
+    {
+      "id": "gt-trivia-0483",
+      "route": "football_rag",
+      "route_ok": true,
+      "answer_contains_expected": true,
+      "source_count": 5,
+      "request_id": "4411918c-f09c-4d24-ae28-998a848da67a",
+      "latency_ms": 852
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+@startuml
+!theme plain
+participant "01 Web" as W
+participant "02 API" as A
+participant "07 Football Data" as F
+database "PostgreSQL football" as D
+participant "04 Local AI" as E
+W -> A : GET /api/football/predict or simulation
+A -> F : proxy football endpoint
+F -> D : cached matches / fixtures
+D --> F : source data
+F -> F : strengths + xG
+F -> E : POST /local/predict or simulate
+E --> F : probabilities / simulation
+F --> A : structured result
+A --> W : render result
+note over F,E : Chat prediction: 03 calls 07; 06 passthrough formats the answer
+@enduml

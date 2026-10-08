@@ -1,0 +1,2 @@
+# Preserve the exact bytes of the source snapshot on Windows.
+PANBALL/** -text

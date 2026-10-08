@@ -1,0 +1,377 @@
+{
+  "project": "PANBALL",
+  "contributor": "Peem-Atikorn / Atikorn",
+  "prepared_on": "2026-10-08",
+  "team_repository": "https://github.com/sakda1306/Advanced-Topic-in-Computer-Software-Course-Team-D-II",
+  "source_snapshot": "18208d5875d494f2f8e4f8978038ebad78ffe9c8",
+  "branches": [
+    {
+      "source_ref": "origin/feature/08-deploy-peem-atikorn",
+      "destination_branch": "codex/panball-08-deploy-peem-atikorn",
+      "description": "Branch โมดูล 08 จาก GitHub ทีม",
+      "commit": "12b5139cd1cf77b1ac8c93c81f49a65e1761d7f4",
+      "destination_url": "https://github.com/Peem-Atikorn/ATCS-CPE/tree/codex/panball-08-deploy-peem-atikorn",
+      "date": "2026-09-30T17:38:25+07:00"
+    },
+    {
+      "source_ref": "HEAD",
+      "destination_branch": "codex/panball-08-deploy-completion",
+      "description": "Branch งานรวมล่าสุดในเครื่อง พร้อมเครื่องมือ Deploy/Evaluation ที่เพิ่มไว้",
+      "commit": "18208d5875d494f2f8e4f8978038ebad78ffe9c8",
+      "destination_url": "https://github.com/Peem-Atikorn/ATCS-CPE/tree/codex/panball-08-deploy-completion",
+      "date": "2026-10-06T20:16:08+07:00"
+    }
+  ],
+  "attribution": "รายการ commit คัดจาก author Atikorn; branch มีงานร่วมของทีมและไม่ใช่ผลงานบุคคลเดียวทั้งหมด",
+  "commits": [
+    {
+      "commit": "e52357e4b0f00dc4528bce46eef12adc93cadab7",
+      "date": "2026-10-03",
+      "subject": "feat(auth): add local account registration",
+      "files": [
+        "services/01_web_app/app/globals.css",
+        "services/01_web_app/app/login/page.tsx",
+        "services/01_web_app/app/register/page.tsx",
+        "services/01_web_app/components/AppProvider.tsx",
+        "services/01_web_app/components/AppShell.tsx",
+        "services/01_web_app/components/AuthStory.tsx",
+        "services/01_web_app/lib/api.ts",
+        "services/01_web_app/tests/account-ui.test.tsx",
+        "services/01_web_app/tests/account.test.tsx",
+        "services/01_web_app/tests/api.test.ts",
+        "services/01_web_app/tests/register.test.tsx",
+        "services/02_api_backend/app/api/routes/auth.py",
+        "services/02_api_backend/app/core/config.py",
+        "services/02_api_backend/app/core/errors.py",
+        "services/02_api_backend/app/schemas/user.py",
+        "services/02_api_backend/app/services/users.py",
+        "services/02_api_backend/tests/test_auth_and_middleware.py"
+      ]
+    },
+    {
+      "commit": "cbb8ca6cc0ded4b540699c397dca1071bb449a3e",
+      "date": "2026-10-02",
+      "subject": "fix(01-web): keep guest session checks on login page",
+      "files": [
+        "services/01_web_app/lib/api.ts",
+        "services/01_web_app/tests/api.test.ts"
+      ]
+    },
+    {
+      "commit": "39c3552392ebce08f0f6149647152688a8964005",
+      "date": "2026-10-02",
+      "subject": "Revert \"feat(01-web): add Google registration and sign-in UI\"",
+      "files": [
+        "services/01_web_app/.env.example",
+        "services/01_web_app/Dockerfile",
+        "services/01_web_app/README.md",
+        "services/01_web_app/app/api/[...path]/route.ts",
+        "services/01_web_app/app/globals.css",
+        "services/01_web_app/app/login/page.tsx",
+        "services/01_web_app/app/register/page.tsx",
+        "services/01_web_app/components/AppProvider.tsx",
+        "services/01_web_app/components/AppShell.tsx",
+        "services/01_web_app/components/AuthStory.tsx",
+        "services/01_web_app/components/GoogleSignIn.tsx",
+        "services/01_web_app/docker-compose.yml",
+        "services/01_web_app/lib/api.ts",
+        "services/01_web_app/tests/account-ui.test.tsx",
+        "services/01_web_app/tests/account.test.tsx",
+        "services/01_web_app/tests/api.test.ts",
+        "services/01_web_app/tests/google-signin.test.tsx",
+        "services/01_web_app/tests/proxy.test.ts"
+      ]
+    },
+    {
+      "commit": "6c743bced2693a5927c22cbc1589b49962535e08",
+      "date": "2026-09-30",
+      "subject": "style(generation): apply CI formatting",
+      "files": [
+        "services/06_llm_generation/app/pipeline/grounded.py",
+        "services/06_llm_generation/tests/test_grounded_pipeline.py"
+      ]
+    },
+    {
+      "commit": "243282f5d950159541e6eac6e96bd35c7443544e",
+      "date": "2026-09-30",
+      "subject": "fix(router): bound historical scorer answers to league seasons",
+      "files": [
+        "docs/CONTRACT.md",
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/tests/test_decisions.py",
+        "services/03_ai_router_agent/tests/test_router.py"
+      ]
+    },
+    {
+      "commit": "4f89ddb193514c7014442dcfba8df40dfdf9a35a",
+      "date": "2026-09-30",
+      "subject": "style(generation): apply CI formatting",
+      "files": [
+        "services/06_llm_generation/app/pipeline/grounded.py",
+        "services/06_llm_generation/tests/test_grounded_pipeline.py"
+      ]
+    },
+    {
+      "commit": "abe7bbc884b9dfe545da3cffb14bdcc37526b0a4",
+      "date": "2026-09-30",
+      "subject": "fix(router): bound historical scorer answers to league seasons",
+      "files": [
+        "docs/CONTRACT.md",
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/tests/test_decisions.py",
+        "services/03_ai_router_agent/tests/test_router.py"
+      ]
+    },
+    {
+      "commit": "187e7dc40c759a0dd1842e42022f6ea22b35dc1f",
+      "date": "2026-09-30",
+      "subject": "fix(football-data): validate scorer ties and reference values",
+      "files": [
+        "services/07_football_data/app/history.py",
+        "services/07_football_data/app/main.py",
+        "services/07_football_data/tests/test_verified_scorer.py"
+      ]
+    },
+    {
+      "commit": "583e89731de0b1c009228323ad6e13846e54c6bf",
+      "date": "2026-09-30",
+      "subject": "fix(router): restrict historical scorer shortcut to league queries",
+      "files": [
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/app/router.py",
+        "services/03_ai_router_agent/tests/test_router.py"
+      ]
+    },
+    {
+      "commit": "6a4902948c6da2919d83f2edda3e5c634b0d0226",
+      "date": "2026-09-30",
+      "subject": "fix(generation): scope scorer ranking guard",
+      "files": [
+        "services/06_llm_generation/app/pipeline/grounded.py",
+        "services/06_llm_generation/app/schemas.py",
+        "services/06_llm_generation/prompts/grounded.j2",
+        "services/06_llm_generation/tests/test_grounded_pipeline.py"
+      ]
+    },
+    {
+      "commit": "1e8b3d01993db2eb5e2d36f4efba11c7993be6c4",
+      "date": "2026-09-30",
+      "subject": "fix(router): handle scorer wording and season context",
+      "files": [
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/app/router.py",
+        "services/03_ai_router_agent/tests/test_decisions.py",
+        "services/03_ai_router_agent/tests/test_router.py"
+      ]
+    },
+    {
+      "commit": "4bfdeb67d7a2ef82516a2521aeeecfa22d525155",
+      "date": "2026-09-30",
+      "subject": "feat(router): answer verified historical scorer seasons",
+      "files": [
+        "services/03_ai_router_agent/README.md",
+        "services/03_ai_router_agent/app/clients.py",
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/app/router.py",
+        "services/03_ai_router_agent/tests/test_decisions.py",
+        "services/03_ai_router_agent/tests/test_router.py"
+      ]
+    },
+    {
+      "commit": "90571a5ece52a6dce30debd994bb1ae691cd0f04",
+      "date": "2026-09-30",
+      "subject": "feat(football-data): expose verified season top scorers",
+      "files": [
+        "services/07_football_data/README.md",
+        "services/07_football_data/app/history.py",
+        "services/07_football_data/app/main.py",
+        "services/07_football_data/data/scorer_reference.json",
+        "services/07_football_data/tests/test_verified_scorer.py"
+      ]
+    },
+    {
+      "commit": "4f82bedfaa2d46d03b1462cda66560c09e574a0a",
+      "date": "2026-09-30",
+      "subject": "fix(generation): reject top-scorer claims from player samples",
+      "files": [
+        "services/06_llm_generation/app/pipeline/grounded.py",
+        "services/06_llm_generation/prompts/grounded.j2",
+        "services/06_llm_generation/tests/test_grounded_pipeline.py"
+      ]
+    },
+    {
+      "commit": "f8c5210158ca940dcee7e910ebbc24190f92ce3a",
+      "date": "2026-09-30",
+      "subject": "fix(router): route current top-scorer rankings to standings",
+      "files": [
+        "services/03_ai_router_agent/app/clients.py",
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/tests/test_clients.py",
+        "services/03_ai_router_agent/tests/test_decisions.py"
+      ]
+    },
+    {
+      "commit": "113d4f73625f1c4b352c4727deef30f71415ba62",
+      "date": "2026-09-30",
+      "subject": "fix(football-data): validate scorer ties and reference values",
+      "files": [
+        "services/07_football_data/app/history.py",
+        "services/07_football_data/app/main.py",
+        "services/07_football_data/tests/test_verified_scorer.py"
+      ]
+    },
+    {
+      "commit": "3ceb1def1ae0befe7aa108c76b8d1cb0eaf96a50",
+      "date": "2026-09-30",
+      "subject": "fix(router): restrict historical scorer shortcut to league queries",
+      "files": [
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/app/router.py",
+        "services/03_ai_router_agent/tests/test_router.py"
+      ]
+    },
+    {
+      "commit": "9d9b556780a13d948ba81de32ecc46d1284d2183",
+      "date": "2026-09-30",
+      "subject": "fix(generation): scope scorer ranking guard",
+      "files": [
+        "services/06_llm_generation/app/pipeline/grounded.py",
+        "services/06_llm_generation/app/schemas.py",
+        "services/06_llm_generation/prompts/grounded.j2",
+        "services/06_llm_generation/tests/test_grounded_pipeline.py"
+      ]
+    },
+    {
+      "commit": "5fe362646de99aea317f734d8b3dca3717b10e6a",
+      "date": "2026-09-30",
+      "subject": "fix(router): handle scorer wording and season context",
+      "files": [
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/app/router.py",
+        "services/03_ai_router_agent/tests/test_decisions.py",
+        "services/03_ai_router_agent/tests/test_router.py"
+      ]
+    },
+    {
+      "commit": "17d0e6c54687935d4b1a5d42e41e302ab9267173",
+      "date": "2026-09-30",
+      "subject": "feat(router): answer verified historical scorer seasons",
+      "files": [
+        "services/03_ai_router_agent/README.md",
+        "services/03_ai_router_agent/app/clients.py",
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/app/router.py",
+        "services/03_ai_router_agent/tests/test_decisions.py",
+        "services/03_ai_router_agent/tests/test_router.py"
+      ]
+    },
+    {
+      "commit": "69c1f6ea2277a8ff6322f7d98bed69dba33e8c45",
+      "date": "2026-09-30",
+      "subject": "feat(football-data): expose verified season top scorers",
+      "files": [
+        "services/07_football_data/README.md",
+        "services/07_football_data/app/history.py",
+        "services/07_football_data/app/main.py",
+        "services/07_football_data/data/scorer_reference.json",
+        "services/07_football_data/tests/test_verified_scorer.py"
+      ]
+    },
+    {
+      "commit": "0029229aaf9bcc38cc7a867c7b6acd8318497482",
+      "date": "2026-09-30",
+      "subject": "fix(generation): reject top-scorer claims from player samples",
+      "files": [
+        "services/06_llm_generation/app/pipeline/grounded.py",
+        "services/06_llm_generation/prompts/grounded.j2",
+        "services/06_llm_generation/tests/test_grounded_pipeline.py"
+      ]
+    },
+    {
+      "commit": "7c3342b091302427f12ff173f8744c9b2ea9be14",
+      "date": "2026-09-30",
+      "subject": "fix(router): route current top-scorer rankings to standings",
+      "files": [
+        "services/03_ai_router_agent/app/clients.py",
+        "services/03_ai_router_agent/app/decisions.py",
+        "services/03_ai_router_agent/tests/test_clients.py",
+        "services/03_ai_router_agent/tests/test_decisions.py"
+      ]
+    },
+    {
+      "commit": "97cf7aa4715265a12fa79eec2f72d399b9ad1b73",
+      "date": "2026-09-30",
+      "subject": "fix(deploy): detect user Docker Desktop and record live verification",
+      "files": [
+        "deploy/README.md",
+        "deploy/monitor.py",
+        "deploy/preflight.py",
+        "deploy/tasks.ps1",
+        "deploy/test_tools.py",
+        "eval/build_report.py",
+        "eval/report.html",
+        "eval/results/live_chat.json"
+      ]
+    },
+    {
+      "commit": "283d6a3f26178a1bc9ae55a78c41afa25ed85e75",
+      "date": "2026-09-30",
+      "subject": "feat(deploy): add stack preflight monitoring smoke and eval",
+      "files": [
+        ".github/workflows/deploy-08.yml",
+        "Makefile",
+        "deploy/README.md",
+        "deploy/monitor.py",
+        "deploy/preflight.py",
+        "deploy/smoke.py",
+        "deploy/tasks.ps1",
+        "deploy/test_tools.py",
+        "deploy/warmup.py",
+        "eval/build_report.py",
+        "eval/report.html",
+        "eval/run_live.py"
+      ]
+    },
+    {
+      "commit": "ba852ed68c42979ff4bf6bdacecf39c5f708fa9f",
+      "date": "2026-09-26",
+      "subject": "docs(deploy): clarify warmup ingest trigger label",
+      "files": [
+        "deploy/README.md"
+      ]
+    },
+    {
+      "commit": "8fa7a395b99d94036f2ed02aa9c6991386e246c8",
+      "date": "2026-09-26",
+      "subject": "fix(ci): run module checks only when module code changes",
+      "files": [
+        ".github/workflows/deploy-08.yml",
+        ".github/workflows/engines-04.yml",
+        ".github/workflows/football-data-07.yml",
+        ".github/workflows/router-03.yml",
+        ".github/workflows/web-01.yml"
+      ]
+    },
+    {
+      "commit": "a9d924acb710b467b12b6d51e24b195f46bb8aa3",
+      "date": "2026-09-26",
+      "subject": "feat(deploy): add real-service compose and module CI gates",
+      "files": [
+        ".dockerignore",
+        ".env.example",
+        ".github/workflows/deploy-08.yml",
+        ".github/workflows/engines-04.yml",
+        ".github/workflows/football-data-07.yml",
+        ".github/workflows/router-03.yml",
+        ".github/workflows/web-01.yml",
+        "Makefile",
+        "deploy/Dockerfile.python",
+        "deploy/README.md",
+        "deploy/smoke.py",
+        "deploy/tasks.ps1",
+        "deploy/warmup.py",
+        "docker-compose.yml"
+      ]
+    }
+  ]
+}

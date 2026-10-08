@@ -1,0 +1,19 @@
+@startuml
+!theme plain
+start
+:Admin or Beat triggers weekly report;
+:07 checks matchweek + standings;
+:06 generates from source facts;
+:07 stores draft in PostgreSQL;
+:Admin reviews / edits through 02;
+:Admin publishes through 02 -> 07;
+:07 coordinates KB upsert and published status;
+fork
+:05 indexes published report;
+fork again
+:07 -> 02 -> 01 exposes published report;
+fork again
+:02 stores admin audit;
+end fork
+stop
+@enduml

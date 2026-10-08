@@ -1,0 +1,25 @@
+@startuml
+!theme plain
+rectangle "08 Docker / Deploy / Monitor" {
+component "01 Web" as W
+component "02 API" as A
+component "03 Router" as R
+component "04 Engines" as E
+component "05 Retrieval" as K
+component "06 Generation" as G
+component "07 Football Data" as F
+database PostgreSQL as D
+database Redis as Q
+}
+W --> A : /api/*
+A --> R : /route
+A --> D : app schema
+A --> Q : cache / rate limit
+A --> F : /football/*
+R --> E : classify / general
+R --> K : /search
+R --> G : /generate
+R --> F : scorer / prediction
+note bottom of K : SQLite + FAISS + BM25
+note bottom of F : football schema; ingest/report flows shown separately
+@enduml
