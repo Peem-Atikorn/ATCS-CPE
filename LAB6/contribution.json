@@ -7,18 +7,18 @@
   "branches": [
     {
       "source_ref": "origin/feature/08-deploy-peem-atikorn",
-      "destination_branch": "codex/panball-08-deploy-peem-atikorn",
+      "destination_branch": "peem/panball-08-deploy-peem-atikorn",
       "description": "Branch โมดูล 08 จาก GitHub ทีม",
       "commit": "12b5139cd1cf77b1ac8c93c81f49a65e1761d7f4",
-      "destination_url": "https://github.com/Peem-Atikorn/ATCS-CPE/tree/codex/panball-08-deploy-peem-atikorn",
+      "destination_url": "https://github.com/Peem-Atikorn/ATCS-CPE/tree/peem/panball-08-deploy-peem-atikorn",
       "date": "2026-09-30T17:38:25+07:00"
     },
     {
       "source_ref": "HEAD",
-      "destination_branch": "codex/panball-08-deploy-completion",
+      "destination_branch": "peem/panball-08-deploy-completion",
       "description": "Branch งานรวมล่าสุดในเครื่อง พร้อมเครื่องมือ Deploy/Evaluation ที่เพิ่มไว้",
       "commit": "18208d5875d494f2f8e4f8978038ebad78ffe9c8",
-      "destination_url": "https://github.com/Peem-Atikorn/ATCS-CPE/tree/codex/panball-08-deploy-completion",
+      "destination_url": "https://github.com/Peem-Atikorn/ATCS-CPE/tree/peem/panball-08-deploy-completion",
       "date": "2026-10-06T20:16:08+07:00"
     }
   ],

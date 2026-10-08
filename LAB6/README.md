@@ -14,8 +14,8 @@ PANBALL รวมการถาม–ตอบเรื่องฟุตบอ
 |---|---|
 | โค้ดโปรเจกต์ครบทุกโมดูล | [PANBALL](PANBALL/) |
 | งานที่รับผิดชอบและ commit ของตนเอง | [Branch และผลงาน](BRANCHES.md) |
-| Branch โมดูล 08 จากรีโปทีม | [codex/panball-08-deploy-peem-atikorn](https://github.com/Peem-Atikorn/ATCS-CPE/tree/codex/panball-08-deploy-peem-atikorn) |
-| Branch รวมงานล่าสุดและเครื่องมือ Deploy เพิ่มเติม | [codex/panball-08-deploy-completion](https://github.com/Peem-Atikorn/ATCS-CPE/tree/codex/panball-08-deploy-completion) |
+| Branch โมดูล 08 จากรีโปทีม | [peem/panball-08-deploy-peem-atikorn](https://github.com/Peem-Atikorn/ATCS-CPE/tree/peem/panball-08-deploy-peem-atikorn) |
+| Branch รวมงานล่าสุดและเครื่องมือ Deploy เพิ่มเติม | [peem/panball-08-deploy-completion](https://github.com/Peem-Atikorn/ATCS-CPE/tree/peem/panball-08-deploy-completion) |
 | วิธีรันและตรวจระบบ | [Deploy runbook](PANBALL/deploy/README.md) |
 | ผลการวัดต้นฉบับ | [eval/results](PANBALL/eval/results/) |
 | ผลตรวจชุดนำส่ง | [VALIDATION.md](VALIDATION.md) |

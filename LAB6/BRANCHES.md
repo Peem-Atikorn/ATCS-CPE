@@ -4,8 +4,8 @@
 
 | Branch ในรีโปนี้ | ต้นทาง | Commit ณ วันที่บันทึก |
 |---|---|---|
-| [codex/panball-08-deploy-peem-atikorn](https://github.com/Peem-Atikorn/ATCS-CPE/tree/codex/panball-08-deploy-peem-atikorn) | `origin/feature/08-deploy-peem-atikorn` | `12b5139` |
-| [codex/panball-08-deploy-completion](https://github.com/Peem-Atikorn/ATCS-CPE/tree/codex/panball-08-deploy-completion) | `peem/08-deploy-completion` ในเครื่อง | `18208d5` |
+| [peem/panball-08-deploy-peem-atikorn](https://github.com/Peem-Atikorn/ATCS-CPE/tree/peem/panball-08-deploy-peem-atikorn) | `origin/feature/08-deploy-peem-atikorn` | `12b5139` |
+| [peem/panball-08-deploy-completion](https://github.com/Peem-Atikorn/ATCS-CPE/tree/peem/panball-08-deploy-completion) | `peem/08-deploy-completion` ในเครื่อง | `18208d5` |
 
 ทั้งสอง branch เก็บประวัติเดิมและชื่อผู้เขียนเดิมไว้ ข้อมูลใน branch รวมโค้ดของเพื่อนในทีมด้วย
 งานหลักที่รับผิดชอบคือโมดูล 08 Deploy & Monitoring ส่วนรายการด้านล่างแสดง commit ที่ระบุ author เป็น Atikorn
