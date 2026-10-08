@@ -27,3 +27,9 @@ The course follows the official course description and extends it with modern AI
 - 📝 Assignments
 - 🚀 Course Projects
 - 📚 Additional Learning Resources
+
+
+## LAB6 — PANBALL
+
+[เปิดโปรเจกต์ PANBALL และงานโมดูล 08 ของ Peem-Atikorn](LAB6/README.md)
+พร้อมโค้ดครบทุกโมดูล ลิงก์ branch/commit และภาพ UML สำหรับนำเสนอ

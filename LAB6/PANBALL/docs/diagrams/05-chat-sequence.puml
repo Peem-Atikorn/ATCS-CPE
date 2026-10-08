@@ -1,0 +1,20 @@
+@startuml
+!theme plain
+participant "01 Web" as W
+participant "02 API" as A
+database PostgreSQL as D
+participant "03 Router" as R
+participant "05 Retrieval" as K
+participant "06 Generation" as G
+W -> A : POST /api/chat
+A -> D : user + owned session + history
+D --> A : user + history
+A -> R : POST /route
+R -> K : POST /search
+K --> R : chunks + sources
+R -> G : POST /generate (grounded)
+G --> R : answer + references
+R --> A : answer + sources + trace
+A --> W : ChatResponse
+A ->> D : BackgroundTasks: record_answer
+@enduml
