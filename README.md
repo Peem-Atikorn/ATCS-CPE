@@ -33,3 +33,9 @@ The course follows the official course description and extends it with modern AI
 
 [เปิดโปรเจกต์ PANBALL และงานโมดูล 08 ของ Peem-Atikorn](LAB6/README.md)
 พร้อมโค้ดครบทุกโมดูล ลิงก์ branch/commit และภาพ UML สำหรับนำเสนอ
+
+
+## LAB_Project — ทันภัย (ThanPhai)
+
+[เปิดโปรเจกต์ ทันภัย (ThanPhai) — ระบบเตือนภัยพิบัติหลายภัยธรรมชาติสำหรับประเทศไทย](LAB_Project/README.md)
+ระบบเตือนภัยพิบัติและประเมินความเสี่ยง 10 ภัยระดับอำเภอ พร้อมแผนที่เรดาร์ แชทผู้ช่วย AI และการค้นหาเส้นทางหลบภัย

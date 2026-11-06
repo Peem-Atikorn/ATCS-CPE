@@ -240,9 +240,4 @@ next-env.d.ts
 !lib/
 !**/src/lib/
 
-# ===== AI Agent Configs & Local Rules =====
-.claude/
-.agents/rules/
-GEMINI.md
-AGENTS.md
-.superpowers/
+
